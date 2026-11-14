@@ -19,6 +19,7 @@
 - 本次修改的预期行为或可观察的回归操作。
 - 项目已有的测试、检查命令或业务回归步骤；MCP Server 不替 Agent 执行业务操作。
 - 多窗口场景下的目标窗口选择条件。
+- 如果应用重建窗口导致旧 target 条件失效，使用 `electron_targets` 的 `clearSelection=true` 清除旧选择后重新发现。
 - 只有计划使用截图扩展时才提供诊断输出目录。
 - 只有计划使用 `electron_evaluate` 扩展时才明确启用它。
 - 项目特有的 preload API、IPC channel 或固定检查表达式。

@@ -102,6 +102,7 @@ Electron 窗口内的 DevTools 主要用于渲染进程；主进程需要通过 
   targetId?: string;
   url?: string;
   title?: string;
+  clearSelection?: boolean;
 }
 ```
 
@@ -158,7 +159,7 @@ endpoint 来源按以下顺序解析：
 
 作用：读取 page targets，并选择当前 target。
 
-输入可以包含 `targetId`、`url` 或 `title`；选择条件只影响当前 target，不过滤发现结果。
+输入可以包含 `targetId`、`url`、`title` 或 `clearSelection`；选择条件只影响当前 target，不过滤发现结果。`clearSelection=true` 用于清除之前保存的选择条件和当前 target，再按当前 target 列表重新选择。
 
 第一阶段只支持：
 

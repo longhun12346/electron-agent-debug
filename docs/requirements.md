@@ -136,7 +136,8 @@ endpoint 配置只接受用于 discovery 的本地 HTTP(S) URL；MCP 不接受 A
   "rendererUrl": "http://127.0.0.1:<agent-chosen-renderer-port>",
   "targetId": "<optional-target-id>",
   "url": "<optional-target-url>",
-  "title": "<optional-target-title>"
+  "title": "<optional-target-title>",
+  "clearSelection": false
 }
 ```
 
@@ -173,7 +174,7 @@ endpoint 解析优先级为：
 - webSocketDebuggerUrl
 - favicon URL（如果存在）
 
-输入可以包含 `targetId`、`url` 或 `title`；这些条件只用于选择当前 page target，不改变发现到的 target 列表。只有发现单个可用 page target 时才允许自动选择；存在多个候选且 Agent 没有提供选择条件时，返回 `TARGET_SELECTION_REQUIRED`。
+输入可以包含 `targetId`、`url`、`title` 或 `clearSelection`；这些条件只用于选择当前 page target，不改变发现到的 target 列表。`clearSelection=true` 用于清除之前保存的 target 选择条件和当前选择，再按当前 target 列表重新选择。只有发现单个可用 page target 时才允许自动选择；存在多个候选且 Agent 没有提供选择条件时，返回 `TARGET_SELECTION_REQUIRED`。
 
 #### `electron_logs`
 
@@ -186,6 +187,8 @@ endpoint 解析优先级为：
 - 清空内存缓存
 
 至少收集 `consoleAPICalled`、`exceptionThrown` 和协议连接错误。日志只代表 Session 建立之后观察到的事件，不承诺提供 attach 之前的历史日志。`clear` 只清空当前 MCP Server 进程内对应 Session 的有界内存缓存，不删除项目日志、不影响 Electron 应用，也不影响其他 Server 进程。
+
+`since` 必须是可解析的日期时间字符串；格式无效时返回参数错误，不返回空日志作为替代。
 
 ### 可选扩展：受控诊断表达式
 

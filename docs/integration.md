@@ -44,6 +44,7 @@ Agent 完成编码后，按 [Electron Debug Skill](../skill/electron-debug/SKILL
 2. 调用 `electron_attach`。
 3. 调用 `electron_status` 和 `electron_logs` 收集初始证据。
 4. 必要时调用 `electron_targets` 选择窗口。
+   如果窗口已重建且之前的 target 条件失效，传入 `clearSelection=true` 后再按当前 target 列表选择。
 5. 使用项目已有命令重启 Electron 或 reload 当前 target。
 6. 重新读取状态和日志。
 7. Agent 根据用户目标、回归结果和 MCP 观察结果自行输出 `PASS`、`FAIL` 或 `BLOCKED`。

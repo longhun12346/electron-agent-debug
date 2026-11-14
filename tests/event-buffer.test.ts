@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { EventBuffer } from "../src/events/event-buffer.js";
+import { DiagnosticException } from "../src/errors.js";
 import type { DiagnosticEvent } from "../src/types.js";
 
 const event = (message: string, process: "main" | "renderer" = "main"): DiagnosticEvent => ({
@@ -26,4 +27,14 @@ test("keeps event bytes bounded and supports scoped clearing", () => {
   assert.ok(buffer.list({ limit: 10 }).length <= 2);
   buffer.clear();
   assert.equal(buffer.size, 0);
+});
+
+test("rejects an invalid since timestamp", () => {
+  const buffer = new EventBuffer(10, 10_000);
+  assert.throws(
+    () => buffer.list({ since: "not-a-date" }),
+    (error: unknown) =>
+      error instanceof DiagnosticException &&
+      error.diagnostic.code === "INVALID_ARGUMENT",
+  );
 });

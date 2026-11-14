@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { parseAttachInput } from "../config.js";
+import { errorResult, toDiagnosticError } from "../errors.js";
 import { SessionManager } from "../sessions/session-manager.js";
 
 const attachSchema = z.object({
@@ -9,6 +10,7 @@ const attachSchema = z.object({
   targetId: z.string().optional(),
   url: z.string().optional(),
   title: z.string().optional(),
+  clearSelection: z.boolean().optional(),
 });
 
 const targetsSchema = z.object({
@@ -16,13 +18,16 @@ const targetsSchema = z.object({
   targetId: z.string().optional(),
   url: z.string().optional(),
   title: z.string().optional(),
+  clearSelection: z.boolean().optional(),
 });
 
 const logsSchema = z.object({
   process: z.enum(["main", "renderer", "all"]).optional(),
   level: z.string().optional(),
   limit: z.number().int().min(1).max(10_000).optional(),
-  since: z.string().optional(),
+  since: z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
+    message: "since 必须是有效的日期时间字符串",
+  }).optional(),
   clear: z.boolean().optional(),
 });
 
@@ -64,7 +69,8 @@ export function registerCoreTools(server: McpServer, manager: SessionManager): v
     "electron_targets",
     {
       title: "List and select Electron targets",
-      description: "发现 renderer page targets，并按 targetId、url 或 title 选择当前 target。",
+      description:
+        "发现 renderer page targets，并按 targetId、url 或 title 选择当前 target；可用 clearSelection 清除旧选择。",
       inputSchema: targetsSchema,
     },
     async (input) => {
@@ -80,6 +86,12 @@ export function registerCoreTools(server: McpServer, manager: SessionManager): v
       description: "读取当前 MCP Server 进程内有界缓存的主进程和 renderer 事件。",
       inputSchema: logsSchema,
     },
-    async (input) => toolResult({ ok: true, data: manager.logs(input) }),
+    async (input) => {
+      try {
+        return toolResult({ ok: true, data: manager.logs(input) });
+      } catch (error) {
+        return toolResult(errorResult(toDiagnosticError(error, "INVALID_ARGUMENT")), true);
+      }
+    },
   );
 }

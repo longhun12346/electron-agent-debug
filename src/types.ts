@@ -10,6 +10,7 @@ export interface AttachInput {
   targetId?: string;
   url?: string;
   title?: string;
+  clearSelection?: boolean;
 }
 
 export interface EndpointConfig {

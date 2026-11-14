@@ -25,6 +25,7 @@ export class SessionManager {
   private rendererEndpoint?: EndpointConfig;
   private rendererTargets: TargetInfo[] = [];
   private selector: TargetSelector = {};
+  private operationQueue: Promise<void> = Promise.resolve();
 
   constructor(config = readRuntimeConfig()) {
     this.config = config;
@@ -43,6 +44,12 @@ export class SessionManager {
   }
 
   async attach(input: AttachInput): Promise<{ ok: true; data: AttachResult } | { ok: false; error: DiagnosticError }> {
+    return this.serialize(() => this.attachInternal(input));
+  }
+
+  private async attachInternal(
+    input: AttachInput,
+  ): Promise<{ ok: true; data: AttachResult } | { ok: false; error: DiagnosticError }> {
     const errors: DiagnosticError[] = [];
     const resolved = this.resolveEndpoints(input, errors);
     if (!resolved.main && !resolved.renderer) {
@@ -55,6 +62,10 @@ export class SessionManager {
       );
     }
 
+    if (input.clearSelection) {
+      this.selector = {};
+      this.renderer.clearTargetSelection();
+    }
     if (input.targetId !== undefined || input.url !== undefined || input.title !== undefined) {
       this.selector = {
         targetId: input.targetId,
@@ -64,6 +75,9 @@ export class SessionManager {
     }
 
     if (resolved.main) {
+      if (this.main.endpointConfig?.url !== resolved.main.url) {
+        await this.main.close("Main endpoint changed");
+      }
       this.mainEndpoint = resolved.main;
       this.main.setEndpoint(resolved.main);
       try {
@@ -107,7 +121,16 @@ export class SessionManager {
   }
 
   async refreshTargets(
-    input: Pick<AttachInput, "rendererUrl" | "targetId" | "url" | "title">,
+    input: Pick<AttachInput, "rendererUrl" | "targetId" | "url" | "title" | "clearSelection">,
+  ): Promise<
+    | { ok: true; data: { targets: TargetInfo[]; selectedTarget?: TargetInfo; errors: DiagnosticError[] } }
+    | { ok: false; error: DiagnosticError }
+  > {
+    return this.serialize(() => this.refreshTargetsInternal(input));
+  }
+
+  private async refreshTargetsInternal(
+    input: Pick<AttachInput, "rendererUrl" | "targetId" | "url" | "title" | "clearSelection">,
   ): Promise<
     | { ok: true; data: { targets: TargetInfo[]; selectedTarget?: TargetInfo; errors: DiagnosticError[] } }
     | { ok: false; error: DiagnosticError }
@@ -124,6 +147,10 @@ export class SessionManager {
       );
     }
 
+    if (input.clearSelection) {
+      this.selector = {};
+      this.renderer.clearTargetSelection();
+    }
     if (input.targetId !== undefined || input.url !== undefined || input.title !== undefined) {
       this.selector = {
         targetId: input.targetId,
@@ -146,6 +173,15 @@ export class SessionManager {
         errors,
       },
     };
+  }
+
+  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.operationQueue;
+    let release!: () => void;
+    this.operationQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return previous.then(operation).finally(release);
   }
 
   status(): StatusResult {

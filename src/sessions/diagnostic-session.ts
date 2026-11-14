@@ -125,6 +125,10 @@ export class DiagnosticSession {
     this.error = undefined;
   }
 
+  clearTargetSelection(): void {
+    this.selectedTarget = undefined;
+  }
+
   async connect(endpoint: EndpointConfig, websocketUrl: string, target?: TargetInfo): Promise<void> {
     if (
       this.connection?.isOpen &&

@@ -159,6 +159,42 @@ test("keeps the renderer result when the main endpoint is unavailable", async ()
   }
 });
 
+test("closes the old main session before switching endpoints", async () => {
+  const main = await startMockDebugger([{ id: "main", type: "node", title: "main", url: "" }]);
+  const unavailable = await startMockDebugger([{ id: "main", type: "node", title: "main", url: "" }]);
+  const unavailableEndpoint = unavailable.endpoint;
+  await unavailable.close();
+  const renderer = await startMockDebugger([
+    { id: "window-a", type: "page", title: "Window A", url: "app://a" },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+
+  try {
+    const first = await manager.attach({
+      mainUrl: main.endpoint,
+      rendererUrl: renderer.endpoint,
+    });
+    assert.equal(first.ok, true);
+    assert.equal(manager.main.isConnected, true);
+
+    const second = await manager.attach({
+      mainUrl: unavailableEndpoint,
+      rendererUrl: renderer.endpoint,
+    });
+    assert.equal(second.ok, true);
+    if (!second.ok) {
+      return;
+    }
+    assert.equal(manager.main.isConnected, false);
+    assert.equal(manager.main.snapshot().status, "offline");
+    assert.ok(
+      second.data.errors.some((error) => error.code === "MAIN_INSPECTOR_UNAVAILABLE"),
+    );
+  } finally {
+    await Promise.all([main.close(), renderer.close()]);
+  }
+});
+
 test("returns a selection error when multiple page targets exist", async () => {
   const renderer = await startMockDebugger([
     { id: "window-a", type: "page", title: "Window A", url: "app://a" },
@@ -174,6 +210,36 @@ test("returns a selection error when multiple page targets exist", async () => {
     }
     assert.ok(result.data.errors.some((error) => error.code === "TARGET_SELECTION_REQUIRED"));
     assert.equal(result.data.selectedTarget, undefined);
+  } finally {
+    await renderer.close();
+  }
+});
+
+test("clears a stale target selector when requested", async () => {
+  const renderer = await startMockDebugger([
+    { id: "window-a", type: "page", title: "Window A", url: "app://a" },
+    { id: "window-b", type: "page", title: "Window B", url: "app://b" },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+
+  try {
+    const selected = await manager.attach({
+      rendererUrl: renderer.endpoint,
+      targetId: "window-a",
+    });
+    assert.equal(selected.ok, true);
+    assert.equal(selected.data.selectedTarget?.id, "window-a");
+
+    const refreshed = await manager.refreshTargets({
+      rendererUrl: renderer.endpoint,
+      clearSelection: true,
+    });
+    assert.equal(refreshed.ok, true);
+    if (!refreshed.ok) {
+      return;
+    }
+    assert.ok(refreshed.data.errors.some((error) => error.code === "TARGET_SELECTION_REQUIRED"));
+    assert.equal(refreshed.data.selectedTarget, undefined);
   } finally {
     await renderer.close();
   }

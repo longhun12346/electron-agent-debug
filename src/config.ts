@@ -8,6 +8,7 @@ const attachInputSchema = z.object({
   targetId: z.string().optional(),
   url: z.string().optional(),
   title: z.string().optional(),
+  clearSelection: z.boolean().optional(),
 });
 
 export const environmentNames = {

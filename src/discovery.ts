@@ -40,6 +40,7 @@ function toTarget(value: unknown): TargetInfo {
 async function fetchDiscovery(endpoint: string, timeoutMs: number): Promise<TargetInfo[]> {
   const response = await fetch(discoveryUrl(endpoint), {
     signal: AbortSignal.timeout(timeoutMs),
+    redirect: "error",
   });
   if (!response.ok) {
     throw new DiagnosticException(

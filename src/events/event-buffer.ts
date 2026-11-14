@@ -1,3 +1,4 @@
+import { DiagnosticException } from "../errors.js";
 import type { DiagnosticEvent, LogsInput, ProcessScope } from "../types.js";
 
 function byteSize(value: unknown): number {
@@ -40,6 +41,9 @@ export class EventBuffer {
   list(input: LogsInput = {}): DiagnosticEvent[] {
     const process = input.process ?? "all";
     const since = input.since ? Date.parse(input.since) : undefined;
+    if (input.since && Number.isNaN(since)) {
+      throw new DiagnosticException("INVALID_ARGUMENT", "since 必须是有效的日期时间字符串");
+    }
     const limit = Math.min(Math.max(input.limit ?? 100, 1), this.maxEvents);
 
     return this.events
