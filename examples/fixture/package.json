@@ -1,0 +1,15 @@
+{
+  "name": "electron-agent-debug-fixture",
+  "private": true,
+  "type": "commonjs",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "start:main-fault": "set FIXTURE_FAULT=main-window&& electron .",
+    "start:renderer-fault": "set FIXTURE_FAULT=renderer&& electron .",
+    "start:ipc-fault": "set FIXTURE_FAULT=ipc&& electron ."
+  },
+  "devDependencies": {
+    "electron": "^45.3.2"
+  }
+}

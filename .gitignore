@@ -1,0 +1,24 @@
+node_modules/
+dist/
+coverage/
+.electron-agent-debug/
+
+# Local build and Electron run artifacts
+out/
+release/
+artifacts/
+tmp/
+temp/
+*.tsbuildinfo
+*.asar
+
+# Logs and local configuration
+*.log
+*.log.*
+.env
+.env.*
+!.env.example
+
+# OS metadata
+.DS_Store
+Thumbs.db
