@@ -1,9 +1,28 @@
 {
   "name": "electron-agent-debug",
   "version": "0.1.0",
-  "private": true,
   "description": "Attach-only Electron diagnostics adapter and Agent skill guidance.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/longhun12346/electron-agent-debug.git"
+  },
+  "bugs": {
+    "url": "https://github.com/longhun12346/electron-agent-debug/issues"
+  },
+  "homepage": "https://github.com/longhun12346/electron-agent-debug",
   "type": "module",
+  "bin": {
+    "electron-agent-debug": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "skill",
+    "examples/fixture/README.md",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -11,7 +30,8 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "test": "npm run build && tsx --test tests/*.test.ts",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.4.0",

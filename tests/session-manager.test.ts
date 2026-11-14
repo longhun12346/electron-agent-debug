@@ -12,7 +12,14 @@ interface MockDebugger {
   close(): Promise<void>;
 }
 
-async function startMockDebugger(targets: Array<Pick<TargetInfo, "id" | "type" | "title" | "url">>): Promise<MockDebugger> {
+interface MockDebuggerOptions {
+  discoveryDelayMs?: number;
+}
+
+async function startMockDebugger(
+  targets: Array<Pick<TargetInfo, "id" | "type" | "title" | "url">>,
+  options: MockDebuggerOptions = {},
+): Promise<MockDebugger> {
   const httpServer = createServer();
   const wsServer = new WebSocketServer({ server: httpServer });
   const sockets = new Set<WebSocket>();
@@ -39,12 +46,19 @@ async function startMockDebugger(targets: Array<Pick<TargetInfo, "id" | "type" |
       response.writeHead(404).end();
       return;
     }
-    const body = targets.map((target) => ({
-      ...target,
-      webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/${target.id}`,
-    }));
-    response.setHeader("content-type", "application/json");
-    response.end(JSON.stringify(body));
+    const writeDiscovery = () => {
+      const body = targets.map((target) => ({
+        ...target,
+        webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/${target.id}`,
+      }));
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify(body));
+    };
+    if (options.discoveryDelayMs) {
+      setTimeout(writeDiscovery, options.discoveryDelayMs);
+    } else {
+      writeDiscovery();
+    }
   });
 
   return {
@@ -192,6 +206,30 @@ test("closes the old main session before switching endpoints", async () => {
     );
   } finally {
     await Promise.all([main.close(), renderer.close()]);
+  }
+});
+
+test("serializes concurrent attach operations", async () => {
+  const slow = await startMockDebugger(
+    [{ id: "slow-window", type: "page", title: "Slow", url: "app://slow" }],
+    { discoveryDelayMs: 50 },
+  );
+  const fast = await startMockDebugger([
+    { id: "fast-window", type: "page", title: "Fast", url: "app://fast" },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+
+  try {
+    const first = manager.attach({ rendererUrl: slow.endpoint });
+    const second = manager.attach({ rendererUrl: fast.endpoint });
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    assert.equal(firstResult.ok, true);
+    assert.equal(secondResult.ok, true);
+    assert.equal(manager.status().renderer.endpoint, fast.endpoint);
+    assert.equal(manager.status().selectedTarget?.id, "fast-window");
+  } finally {
+    await Promise.all([slow.close(), fast.close()]);
   }
 });
 

@@ -5,6 +5,7 @@
 - Node.js 22 或更高版本。
 - 根目录依赖用于 MCP Server、测试和 TypeScript 构建。
 - `examples/fixture` 是独立的 Electron 示例包，使用自己的 `package.json` 和 lockfile。
+- 根包可以通过 npm 发布；`prepack` 会在打包前生成 `dist`，发布内容由 `package.json` 的 `files` 字段限定。
 
 ## 常用命令
 

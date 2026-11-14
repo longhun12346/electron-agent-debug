@@ -14,6 +14,15 @@ node dist/index.js
 
 MCP 客户端需要把 `node dist/index.js` 作为 stdio server 启动。不同 Agent 或 MCP 客户端的配置格式可能不同，配置时使用实际仓库路径。
 
+发布包提供同一个 `electron-agent-debug` CLI 入口。安装后可以直接让 MCP 客户端启动：
+
+```powershell
+npm install --save-dev electron-agent-debug
+npx electron-agent-debug
+```
+
+也可以使用全局安装后的 `electron-agent-debug` 命令。npm 包只包含构建后的 `dist`、接入文档、Skill、README 和许可证，不包含 fixture 的 Electron 依赖。
+
 也可以在启动 MCP Server 的环境中提供 endpoint：
 
 ```text
