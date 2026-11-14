@@ -16,9 +16,16 @@ if (!mainPort || !rendererPort) {
 }
 
 const endpoint = (port) => `http://127.0.0.1:${port}`;
+const electronArgs = [
+  `--inspect=${mainPort}`,
+  `--remote-debugging-port=${rendererPort}`,
+];
+if (process.env.FIXTURE_ELECTRON_NO_SANDBOX === "true") {
+  electronArgs.unshift("--no-sandbox");
+}
 const fixture = spawn(
   electron,
-  [`--inspect=${mainPort}`, `--remote-debugging-port=${rendererPort}`, fixtureRoot],
+  [...electronArgs, fixtureRoot],
   { stdio: "inherit", env: process.env },
 );
 
