@@ -21,7 +21,11 @@ npm run build
 
 ## Electron fixture
 
-fixture 的安装和运行说明位于 [`examples/fixture/README.md`](examples/fixture/README.md)。主进程 Inspector 和 renderer CDP 的端口由运行 Agent 或测试脚本分配，仓库不固定端口，也不提交 `node_modules`、构建产物或 Electron 下载缓存。
+fixture 的安装和运行说明位于 [`examples/fixture/README.md`](examples/fixture/README.md)。主进程 Inspector 和 renderer CDP 的端口由运行 Agent 或测试脚本分配，仓库不固定端口，也不提交 `node_modules`、构建产物或 Electron 下载缓存。`examples/fixture/ci-smoke.mjs` 会动态分配端口并验证四种核心场景。
+
+## CI
+
+GitHub Actions 在 Ubuntu 和 Windows 上执行根目录测试、类型检查、fixture 语法检查和真实 Electron smoke。Linux smoke 使用 `xvfb` 提供虚拟显示。
 
 ## 提交边界
 

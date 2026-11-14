@@ -62,6 +62,7 @@ Agent 可以使用本项目完成：
 - [架构设计](docs/architecture.md)
 - [实施方案与调研结论](docs/plan.md)
 - [社区方案对比](docs/community-comparison.md)
+- [接入说明](docs/integration.md)
 - [Agent 调试 Skill](skill/electron-debug/SKILL.md)
 - [开发说明](CONTRIBUTING.md)
 

@@ -81,6 +81,55 @@ class McpClient {
   }
 }
 
+function structuredData(response, label) {
+  if (response?.error) {
+    throw new Error(`${label} returned JSON-RPC error: ${JSON.stringify(response.error)}`);
+  }
+  const value = response?.result?.structuredContent;
+  if (!value?.ok) {
+    throw new Error(`${label} returned diagnostic error: ${JSON.stringify(value)}`);
+  }
+  return value.data;
+}
+
+function assertSmokeResults(attachData, statusData, logsData) {
+  if (!attachData.main?.online) {
+    throw new Error(`main session is not online: ${JSON.stringify(attachData.main)}`);
+  }
+  if (!statusData.main?.online) {
+    throw new Error(`status does not report an online main session: ${JSON.stringify(statusData.main)}`);
+  }
+
+  const fault = process.env.FIXTURE_FAULT || "";
+  if (fault === "main-window") {
+    const mainFailure = logsData.events?.some((event) =>
+      event.process === "main" && event.message?.includes("FIXTURE_MAIN_WINDOW_FAILURE"),
+    );
+    if (!mainFailure) {
+      throw new Error("main-window fault did not produce the expected main-process evidence");
+    }
+    return;
+  }
+
+  if (!attachData.renderer?.online || !attachData.selectedTarget) {
+    throw new Error(`renderer session or target is not online: ${JSON.stringify(attachData.renderer)}`);
+  }
+  if (!statusData.renderer?.online || !statusData.selectedTarget) {
+    throw new Error(`status does not report an online renderer target: ${JSON.stringify(statusData.renderer)}`);
+  }
+
+  const expectedMessages = {
+    renderer: ["FIXTURE_RENDERER_FAILURE"],
+    ipc: ["FIXTURE_IPC_CALL_FAILURE", "FIXTURE_IPC_HANDLER_FAILURE"],
+  }[fault] ?? ["FIXTURE_RENDERER_READY"];
+  const evidence = logsData.events?.some((event) =>
+    expectedMessages.some((message) => event.message?.includes(message)),
+  );
+  if (!evidence) {
+    throw new Error(`did not find expected fixture evidence: ${expectedMessages.join(" or ")}`);
+  }
+}
+
 try {
   await Promise.all([
     waitForDiscovery(mainPort, "main"),
@@ -108,6 +157,10 @@ try {
       name: "electron_logs",
       arguments: { process: "all", limit: 50 },
     });
+    const attachData = structuredData(attach, "electron_attach");
+    const statusData = structuredData(status, "electron_status");
+    const logsData = structuredData(logs, "electron_logs");
+    assertSmokeResults(attachData, statusData, logsData);
     console.log(JSON.stringify({ attach, status, logs }, null, 2));
   } finally {
     client.close();

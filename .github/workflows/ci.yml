@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    name: Checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install MCP server dependencies
+        run: npm ci
+
+      - name: Run unit and contract tests
+        run: npm test
+
+      - name: Run TypeScript lint check
+        run: npm run lint
+
+      - name: Check fixture scripts
+        shell: bash
+        run: |
+          node --check examples/fixture/main.cjs
+          node --check examples/fixture/preload.cjs
+          node --check examples/fixture/renderer.js
+          node --check examples/fixture/smoke.mjs
+          node --check examples/fixture/mcp-smoke.mjs
+          node --check examples/fixture/ci-smoke.mjs
+
+      - name: Install fixture dependencies
+        run: npm ci --prefix examples/fixture
+
+      - name: Run real Electron fixture smoke on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node examples/fixture/ci-smoke.mjs
+
+      - name: Run real Electron fixture smoke on Windows
+        if: runner.os == 'Windows'
+        run: node examples/fixture/ci-smoke.mjs

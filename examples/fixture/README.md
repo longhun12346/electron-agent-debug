@@ -32,6 +32,14 @@ node mcp-smoke.mjs
 
 脚本会自行启动 fixture 和 MCP Server，并输出 attach、status 和 logs 的结果。MCP Server 只连接脚本提供的 endpoint，不负责猜测入口或扫描端口。
 
+要一次验证默认态、主进程窗口故障、renderer 故障和 IPC 故障，可以运行：
+
+```powershell
+node ci-smoke.mjs
+```
+
+这个脚本负责动态分配端口，并把端口通过环境变量传给 smoke 流程；它不会把任何端口写入项目配置。
+
 ## 故障场景
 
 通过 `FIXTURE_FAULT` 选择可重复的故障：
