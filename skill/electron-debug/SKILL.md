@@ -75,6 +75,9 @@ Agent 不应假设 MCP 已经配置，也不应因为 Skill 文件已经从仓�
 }
 ```
 
+完整的 MCP 获取、构建、宿主配置和验证步骤见
+[MCP 接入说明](references/mcp-setup.md)。该说明只提供 Agent 的操作指引，不自动修改宿主配置，也不把待诊断的 Electron 项目目录当作 MCP 源码目录。
+
 Skill 从仓库获取后，Agent 应优先读取本文件。宿主不会自动发现 Skill 时，Agent 应由项目级 instructions、`AGENTS.md` 或等效规则显式加载本文件。MCP Server 能启动不代表 Skill 已加载；未加载 Skill 时，Agent 仍可能调用工具，但不会自动遵守本项目的诊断顺序和结论规则。
 
 如果 Agent 无法找到宿主的 MCP 配置入口、无法启动 Server、无法完成初始化或看不到四个核心工具，应先报告 `BLOCKED`，不要继续把 Electron 应用问题归因于用户代码。
