@@ -40,7 +40,12 @@ try {
   const server = {
     command: process.execPath,
     args: [path.join(root, "examples/host-e2e/mcp-trace.mjs"), root, trace],
-    env: endpoints,
+    env: {
+      ...endpoints,
+      ...(process.env.ELECTRON_DEBUG_TEST_MCP_ENTRY ? {
+        ELECTRON_DEBUG_TEST_MCP_ENTRY: path.resolve(process.env.ELECTRON_DEBUG_TEST_MCP_ENTRY),
+      } : {}),
+    },
   };
   const skill = await readFile(path.join(root, "skill/electron-debug/SKILL.md"), "utf8");
   const prompt = `This is a bounded MCP host integration test. The test runner has already built the

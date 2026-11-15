@@ -60,7 +60,10 @@ export class McpClient {
     for (const key of Object.keys(env)) {
       if (key.startsWith("ELECTRON_DEBUG_")) delete env[key];
     }
-    this.child = spawn(process.execPath, [path.join(root, "dist/index.js")], {
+    const entry = process.env.ELECTRON_DEBUG_TEST_MCP_ENTRY
+      ? path.resolve(process.env.ELECTRON_DEBUG_TEST_MCP_ENTRY) : path.join(root, "dist/index.js");
+    this.child = spawn(process.execPath, [entry], {
+      cwd: path.dirname(entry),
       stdio: ["pipe", "pipe", "inherit"], env: { ...env, ...overrides },
     });
     this.buffer = "";

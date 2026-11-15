@@ -1,17 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { createRequire } from "node:module";
+import { version } from "./version.js";
 import { errorResult, toDiagnosticError } from "./errors.js";
 import { SessionManager } from "./sessions/session-manager.js";
 import { registerCoreTools } from "./tools/core-tools.js";
 
-const require = createRequire(import.meta.url);
-const packageJson = require("../package.json") as { version: string };
-
 export function createMcpServer(manager = new SessionManager()): McpServer {
   const server = new McpServer({
     name: "electron-agent-debug",
-    version: packageJson.version,
+    version,
   });
   registerCoreTools(server, manager);
   server.server.onclose = () => {

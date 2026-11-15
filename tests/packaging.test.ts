@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { McpProcess } from "./helpers/mcp-process.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const execFileAsync = promisify(execFile);
@@ -76,10 +77,96 @@ test("archived Skill works in isolated project and global installation layouts",
       assert.deepEqual(await readFile(path.join(installed, file)), await readFile(path.join(source, file)));
     }
     await validateReferences(installed);
+    assert.ok(sourceFiles.includes("VERSION.md"));
+    const audit = path.join(temporary, `audit-${layout.startsWith("project") ? "project" : "global"}`);
+    const client = new McpProcess({
+      entry: path.join(installed, "runtime/launch.cjs"), cwd: installed,
+      nodeArgs: ["--require", path.join(root, "tests/helpers/isolated-runtime-guard.cjs")],
+      env: {
+        NODE_PATH: "", NODE_OPTIONS: "", ISOLATED_SKILL_ROOT: installed, ISOLATED_AUDIT_FILE: audit,
+      },
+    });
+    try {
+      await client.request(1, "initialize", {
+        protocolVersion: "2025-03-26", capabilities: {},
+        clientInfo: { name: "isolated-installed-skill", version: "1.0.0" },
+      });
+      client.notify("notifications/initialized", {});
+      const tools = await client.request(2, "tools/list", {});
+      assert.deepEqual(tools.result?.tools?.map((tool) => tool.name),
+        ["electron_attach", "electron_status", "electron_targets", "electron_logs"]);
+      for (const [id, name] of [[3, "electron_attach"], [4, "electron_targets"]] as const) {
+        const response = await client.request(id, "tools/call", { name, arguments: {} });
+        assert.equal(response.result?.structuredContent?.ok, false);
+        assert.equal(response.result?.structuredContent?.error?.code, "ENDPOINT_NOT_CONFIGURED");
+      }
+      const status = await client.request(5, "tools/call", { name: "electron_status", arguments: {} });
+      assert.equal(status.result?.structuredContent?.data?.main?.status, "unconfigured");
+      assert.equal(status.result?.structuredContent?.data?.renderer?.status, "unconfigured");
+      const logs = await client.request(6, "tools/call", { name: "electron_logs", arguments: {} });
+      assert.deepEqual(logs.result?.structuredContent?.data?.events, []);
+      client.child.stdin.end();
+      await client.waitForExit();
+      assert.equal(client.child.exitCode, 0);
+      await assert.rejects(readFile(audit), /ENOENT/u,
+        "offline package must not attempt network or load any external dependency");
+    } finally {
+      await client.close();
+    }
     await rm(path.join(installed, "references", "mcp-setup.md"));
     await assert.rejects(validateReferences(installed), /ENOENT/u,
       "must detect a package that omitted its referenced setup guide");
     await writeFile(path.join(installed, "SKILL.md"), "[outside](../../outside.md)", "utf8");
     await assert.rejects(validateReferences(installed), /reference escapes package/u);
   }
+});
+
+test("runtime integrity errors stop before executing the bundled server", { timeout: 15_000 }, async (t) => {
+  const temporary = await mkdtemp(path.join(tmpdir(), "electron runtime integrity "));
+  t.after(() => rm(temporary, { recursive: true, force: true }));
+  const installed = path.join(temporary, "skill");
+  await cp(path.join(root, "skill/electron-debug"), installed, { recursive: true });
+  const launcher = path.join(installed, "runtime/launch.cjs");
+  const result = await execFileAsync(process.execPath, [launcher, "--verify"], {
+    cwd: temporary, timeout: 3_000, env: { ...process.env, NODE_OPTIONS: "", NODE_PATH: "" },
+  });
+  const verified = JSON.parse(result.stdout) as { ok: boolean; skillVersion: string; mcpVersion: string };
+  assert.equal(verified.ok, true);
+  const manifestFile = path.join(installed, "runtime/manifest.json");
+  const manifestBytes = await readFile(manifestFile);
+  const manifest = JSON.parse(manifestBytes.toString()) as {
+    skillVersion: string; mcpVersion: string; files: Record<string, string>;
+  };
+  assert.equal(verified.skillVersion, manifest.skillVersion);
+  assert.equal(verified.mcpVersion, manifest.mcpVersion);
+  for (const filename of ["server.cjs", "launch.cjs", "THIRD_PARTY_LICENSES.txt"]) {
+    const file = path.join(installed, "runtime", filename);
+    const original = await readFile(file);
+    await writeFile(file, Buffer.concat([original, Buffer.from("\n// tampered\n")]));
+    await assert.rejects(execFileAsync(process.execPath, [launcher], { cwd: temporary, timeout: 2_000 }),
+      (error: unknown) => {
+        const failure = error as { code?: number; killed?: boolean; stdout?: string; stderr?: string };
+        assert.equal(failure.code, 1);
+        assert.equal(failure.killed, false);
+        assert.equal(failure.stdout, "");
+        assert.match(failure.stderr ?? "", /PACKAGE_INTEGRITY_ERROR/u);
+        return true;
+      });
+    await writeFile(file, original);
+  }
+  for (const broken of [
+    "{",
+    JSON.stringify({ ...manifest, files: { "../outside.cjs": "0".repeat(64) } }),
+    JSON.stringify({ ...manifest, entry: "../outside.cjs" }),
+  ]) {
+    await writeFile(manifestFile, broken);
+    await assert.rejects(execFileAsync(process.execPath, [launcher], { timeout: 2_000 }),
+      (error: unknown) => (error as { code?: number; stderr?: string }).code === 1 &&
+        /PACKAGE_INTEGRITY_ERROR/u.test((error as { stderr?: string }).stderr ?? ""));
+  }
+  await writeFile(manifestFile, manifestBytes);
+  await rm(path.join(installed, "runtime/server.cjs"));
+  await assert.rejects(execFileAsync(process.execPath, [launcher], { timeout: 2_000 }),
+    (error: unknown) => (error as { code?: number; stderr?: string }).code === 1 &&
+      /PACKAGE_INTEGRITY_ERROR/u.test((error as { stderr?: string }).stderr ?? ""));
 });

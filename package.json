@@ -1,6 +1,6 @@
 {
   "name": "electron-agent-debug",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Attach-only Electron diagnostics adapter and Agent skill guidance.",
   "license": "MIT",
   "private": true,
@@ -18,8 +18,10 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:skill": "node scripts/build-skill.mjs",
+    "check:skill": "node scripts/build-skill.mjs --check",
     "dev": "tsx src/index.ts",
-    "test": "npm run build && tsx --test tests/*.test.ts",
+    "test": "npm run build && npm run build:skill && tsx --test tests/*.test.ts",
     "test:e2e:external": "node examples/external-e2e/electron-vite-react-smoke.mjs",
     "lint": "tsc -p tsconfig.check.json"
   },
@@ -31,6 +33,7 @@
   "devDependencies": {
     "@types/node": "^24.19.2",
     "@types/ws": "^8.18.2",
+    "esbuild": "0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }

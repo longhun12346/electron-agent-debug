@@ -14,7 +14,7 @@
 1. 通过 stdio 暴露给 Agent 的轻量 MCP Server。
 2. 一个项目级 Electron Debug Skill，规定编码后的诊断顺序、工具选择和证据要求。
 
-GitHub 仓库是 Skill、MCP Server 源码和文档的权威分发来源。Agent 需要自行从当前仓库加载 Skill，并把构建后的 MCP Server 配置到当前宿主；仓库内容不会自动修改宿主配置。
+Skill 发布包包含已构建、带依赖的 MCP JavaScript 运行文件、完整性启动器、版本清单和许可证。正常使用只需要 Node.js 22+，无需下载额外源码、安装依赖或构建 MCP。宿主配置由 Agent 根据实际安装目录完成。
 
 Skill 可以全局安装供多个 Electron 项目使用，也可以作为项目级规则随单个项目使用。全局目录、项目级目录和加载方式由 Agent 宿主决定；两种安装方式都不会自动注册 MCP。
 
@@ -32,7 +32,9 @@ npx skills add longhun12346/electron-agent-debug --skill electron-debug
 npx skills add longhun12346/electron-agent-debug --skill electron-debug --global
 ```
 
-Skill 安装只负责让 Agent 能加载诊断流程，不会自动配置或启动 MCP Server。MCP 配置、Electron 应用启动和 endpoint 准备仍由 Agent 根据当前宿主和项目完成。
+应安装完整 Skill 目录，包括 `runtime` 和 `references`。安装不会自动配置或启动 MCP；Agent 核对安装来源后，使用 `node <absolute-skill-directory>/runtime/launch.cjs --verify` 检查完整性，再将同一入口配置到宿主。Electron 应用启动和 endpoint 准备仍由 Agent 根据当前宿主和项目完成。
+
+GitHub Release 的 Skill ZIP 附带构建来源证明，绑定发布工作流及源码提交；第三方安装渠道的安装包以该渠道的发布和扫描结果为准。本地完整性校验不独立证明发布者身份。配置、升级和来源验证边界见 [MCP 接入说明](skill/electron-debug/references/mcp-setup.md)。
 
 核心 MCP 工具只有四个：`electron_attach`、`electron_status`、`electron_targets` 和 `electron_logs`。当前版本不提供截图、表达式执行、DOM 操作或断点调试；这些能力由 Agent 使用项目已有测试或其他工具完成。
 

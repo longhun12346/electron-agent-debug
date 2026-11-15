@@ -5,8 +5,10 @@ import path from "node:path";
 
 const [root, trace] = process.argv.slice(2);
 if (!root || !trace) throw new Error("expected repository root and trace path");
-const child = spawn(process.execPath, [path.join(root, "dist/index.js")], {
-  stdio: ["pipe", "pipe", "inherit"], env: process.env,
+const entry = process.env.ELECTRON_DEBUG_TEST_MCP_ENTRY
+  ? path.resolve(process.env.ELECTRON_DEBUG_TEST_MCP_ENTRY) : path.join(root, "dist/index.js");
+const child = spawn(process.execPath, [entry], {
+  cwd: path.dirname(entry), stdio: ["pipe", "pipe", "inherit"], env: process.env,
 });
 
 function forward(source, destination, direction) {

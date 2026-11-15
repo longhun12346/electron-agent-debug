@@ -26,16 +26,19 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
 
       - name: Install MCP server dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
+
+      - name: Check committed Skill runtime matches source and lockfile
+        run: npm run check:skill
 
       - name: Run unit and contract tests
         run: npm test
@@ -56,6 +59,9 @@ jobs:
           node --check examples/fixture/lifecycle-smoke.mjs
           node --check examples/fixture/test-support.mjs
           node --check examples/fixture/smoke-assertions.mjs
+          node --check examples/fixture/package-smoke.mjs
+          node --check scripts/build-skill.mjs
+          node --check scripts/skill-launcher.cjs
           node --check examples/external-e2e/electron-vite-react-smoke.mjs
           node --check examples/host-e2e/smoke.mjs
           node --check examples/host-e2e/mcp-trace.mjs
@@ -65,10 +71,10 @@ jobs:
 
       - name: Run real Electron fixture smoke on Linux
         if: runner.os == 'Linux'
-        run: xvfb-run -a node examples/fixture/ci-smoke.mjs
+        run: xvfb-run -a node examples/fixture/package-smoke.mjs
         env:
           FIXTURE_ELECTRON_NO_SANDBOX: "true"
 
       - name: Run real Electron fixture smoke on Windows and macOS
         if: runner.os != 'Linux'
-        run: node examples/fixture/ci-smoke.mjs
+        run: node examples/fixture/package-smoke.mjs

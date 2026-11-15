@@ -17,9 +17,11 @@ npm install
 npm test
 npm run lint
 npm run build
+npm run build:skill
+npm run check:skill
 ```
 
-`npm test` 会先构建 TypeScript，再运行契约和单元测试。测试不需要启动真实 Electron。
+`npm test` 会先构建 TypeScript 和随包 MCP，再运行契约和单元测试。测试不需要启动真实 Electron。
 `npm run lint` 同时检查实现和测试源码的 TypeScript 类型，不生成测试构建产物。
 
 ## 回归测试要求
@@ -40,7 +42,7 @@ npm run build
 | 连接与退出 | 建连握手停滞、对端不响应 close frame 时实际释放 TCP；stdin EOF 后独立 MCP 进程自然退出且两条连接均关闭；非 Windows 另测 SIGTERM |
 | 并发队列 | 显式 gate 阻塞 discovery，交错 attach/targets/close；断言排队期间没有提前 discovery、完成顺序和最终 target；失败操作后已排队任务仍执行 |
 | IPC 证据断言 | 正反用例要求主进程 handler 和 renderer 调用侧各自出现预期证据；只有单侧、通道标错、两侧交换都失败 |
-| Skill 包 | 创建并解压真实 tar 到隔离的项目/全局目录，逐字节比较所有文件，检查包内 Markdown 引用；缺文件、越界引用必须被检测 |
+| Skill 包 | 创建并解压真实 tar 到隔离的项目/全局目录，禁止联网及加载包外模块，验证完整 MCP 初始化和四工具调用；检查引用，检测篡改、缺文件和越界 manifest |
 
 这些测试通过只证明所覆盖的契约。外部 Electron 项目的业务操作、视觉结果和真实 Agent 宿主接入仍需分别验证，不能用测试数量或一次 CI 成功代替。
 
@@ -50,10 +52,10 @@ fixture 的安装和运行说明位于 [`examples/fixture/README.md`](examples/f
 
 ```text
 npm ci --prefix examples/fixture
-node examples/fixture/ci-smoke.mjs
+node examples/fixture/package-smoke.mjs
 ```
 
-Linux 无显示环境时使用 `FIXTURE_ELECTRON_NO_SANDBOX=true xvfb-run -a node examples/fixture/ci-smoke.mjs`。
+Linux 无显示环境时使用 `FIXTURE_ELECTRON_NO_SANDBOX=true xvfb-run -a node examples/fixture/package-smoke.mjs`。该命令把完整 Skill 复制到系统临时目录，真实 Electron 的全部 smoke 都使用隔离安装包中的 MCP，避免仅测试源码构建而漏掉发布打包问题。
 
 完整 smoke 包括默认、主进程失败、renderer 失败、IPC 失败、缺少 endpoint，以及真实 renderer reload、BrowserWindow 重建、Electron 正常退出后以新端口重启。生命周期测试始终使用同一个 MCP 进程，检查旧 target 清理、新 target 选择和新一轮双通道证据；清空日志后还会检查旧运行标记未混入新结果。
 
@@ -87,3 +89,13 @@ node examples/host-e2e/smoke.mjs claude <absolute-claude-executable>
 ## 提交边界
 
 一次提交应保持一个清晰目的。核心实现、测试、文档和 fixture 可以在同一次功能提交中一起提交，因为它们共同构成可验证的诊断能力；本地产物、日志、依赖安装目录和临时输出不应进入 Git。
+
+## Skill 发布构建
+
+`skill/electron-debug/runtime` 是受控的分发产物，作为上述产物规则的明确例外随仓库提交，使 GitHub Skill 安装也能直接运行。修改源码、锁文件或构建脚本后运行 `npm run build:skill`，提交生成文件；CI 在重建前运行 `npm run check:skill` 拒绝过期产物。构建器固定 esbuild 开发依赖版本，嵌入 MCP 版本，仅允许 Node 内置模块外置，收集实际打入 bundle 的第三方许可证，不交付原生扩展。
+
+运行时启动器使用 Node 内置模块检查 manifest 和文件 SHA-256，随后加载 bundle。自带哈希用于检测文件不一致，不能独立认证来源。构建输入摘要绑定源码、构建脚本、package.json 和锁文件，生成内容不含本机路径或生成时间。
+
+发布前更新 Skill 根目录 `VERSION.md`、重建运行文件并完成隔离包及真实 fixture 验证。GitHub Release tag 使用 `skill-v<Skill版本>`；发布事件触发 `.github/workflows/release.yml`，检查 tag 与 manifest 一致，在锁定依赖下重建验证，生成可重复 ZIP，并使用 GitHub OIDC 生成构建来源 attestation。工作流验证预期仓库和自身身份后上传 ZIP、SHA256SUMS 和 Sigstore bundle；不会静默覆盖已有附件。
+
+Release 打包使用 Python 标准库，不是 MCP 运行依赖。第三方安装渠道的 CLI 可能加入自己的元数据文件，其 ZIP 与 GitHub Release ZIP 是不同产物，必须分别核验；不能拿一个 ZIP 的来源证明认证另一个 ZIP，也不能把平台“上传成功”当作“安全扫描通过”。

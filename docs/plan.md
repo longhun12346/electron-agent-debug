@@ -394,7 +394,7 @@ online        Session 可发送请求并接收事件
 - 编写核心工具契约测试和最小端到端验收脚本。
 - 增加缺少 endpoint 的 `BLOCKED` 场景验收，并让 fixture 显式覆盖 `electron_targets`。
 - 增加固定外部项目 commit、动态端口和双通道工具调用的 opt-in E2E harness。
-- 验证 GitHub 仓库中的 Skill、源码和文档边界，并验证本地 CLI stdio 启动入口。
+- 验证包含 MCP 运行文件的完整 Skill、源码和文档边界，并验证随包 stdio 启动入口。
 
 完成标准：
 
@@ -405,7 +405,7 @@ online        Session 可发送请求并接收事件
 - 契约测试覆盖 endpoint 校验、部分 attach、target 选择、Session 状态、日志上限和 `clear` 作用域。
 - Skill 明确要求 Agent 提供项目检查或回归步骤，并由 Agent 输出 `PASS`、`FAIL` 或 `BLOCKED`。
 - 外部项目 harness 能独立报告诊断层结果，不把上游项目自身的业务断言混入诊断结论。
-- GitHub 仓库包含构建所需源码、Skill 和文档；本地 CLI 能完成 MCP 初始化且不污染 stdout。
+- GitHub 仓库包含构建所需源码、完整 Skill 和文档；已安装 Skill 的随包 MCP 无需额外依赖安装即可初始化，且不污染 stdout。
 
 这三个 fixture 只证明核心诊断链路可用，不代表项目覆盖所有 Electron 故障类型。
 

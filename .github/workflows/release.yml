@@ -1,0 +1,58 @@
+name: Release Skill
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    if: startsWith(github.event.release.tag_name, 'skill-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked build dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Verify release identity and committed runtime
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; const m=JSON.parse(fs.readFileSync("skill/electron-debug/runtime/manifest.json")); if (process.env.RELEASE_TAG !== `skill-v${m.skillVersion}`) throw new Error("Release tag does not match Skill version");'
+          npm run check:skill
+      - name: Test source and isolated installed runtime
+        run: npm test && npm run lint
+      - name: Create reproducible Skill archive
+        run: |
+          python scripts/package-skill.py "$RUNNER_TEMP/electron-debug.zip"
+          python scripts/package-skill.py "$RUNNER_TEMP/electron-debug-repeat.zip"
+          cmp "$RUNNER_TEMP/electron-debug.zip" "$RUNNER_TEMP/electron-debug-repeat.zip"
+          cd "$RUNNER_TEMP"
+          sha256sum electron-debug.zip > SHA256SUMS
+      - name: Attest exact release archive
+        id: provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/electron-debug.zip
+      - name: Verify provenance and publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTESTATION_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          gh attestation verify "$RUNNER_TEMP/electron-debug.zip" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
+          cp "$ATTESTATION_BUNDLE" "$RUNNER_TEMP/electron-debug.zip.sigstore.json"
+          gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/electron-debug.zip" "$RUNNER_TEMP/electron-debug.zip.sigstore.json" "$RUNNER_TEMP/SHA256SUMS"

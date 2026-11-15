@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import type { DiagnosticEvent } from "../../src/types.js";
+import type { DiagnosticEvent, StatusResult } from "../../src/types.js";
 
 export interface JsonRpcMessage {
   id?: number;
@@ -9,7 +9,7 @@ export interface JsonRpcMessage {
     structuredContent?: {
       ok?: boolean;
       error?: { code?: string };
-      data?: { main?: { status?: string }; events?: DiagnosticEvent[] };
+      data?: Partial<StatusResult> & { events?: DiagnosticEvent[] };
     };
   };
 }
@@ -24,14 +24,17 @@ export class McpProcess {
   }>();
   private failure?: Error;
 
-  constructor() {
+  constructor(options: {
+    entry?: string; cwd?: string; nodeArgs?: string[]; env?: NodeJS.ProcessEnv;
+  } = {}) {
     const env = { ...process.env };
     for (const name of Object.keys(env)) {
       if (name.startsWith("ELECTRON_DEBUG_")) delete env[name];
     }
-    this.child = spawn(process.execPath, ["dist/index.js"], {
+    this.child = spawn(process.execPath, [...(options.nodeArgs ?? []), options.entry ?? "dist/index.js"], {
       stdio: ["pipe", "pipe", "pipe"],
-      env,
+      cwd: options.cwd,
+      env: { ...env, ...options.env },
     });
     this.child.once("error", (error) => this.fail(error));
     this.child.stdin.on("error", (error) => this.fail(error));

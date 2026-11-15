@@ -2,29 +2,25 @@
 
 本项目通过 stdio 暴露 MCP Server。它只连接 Agent 或测试脚本已经准备好的 Electron 调试 endpoint，不负责启动应用，也不负责分配端口。
 
-## 构建和启动
+## 随包启动
 
-MCP Server 要求 Node.js 22 或更高版本。Agent 应先运行 `node --version` 确认版本满足要求。
+MCP Server 要求 Node.js 22 或更高版本。安装完整 Skill 包，核对来源及版本后执行：
 
-在仓库根目录执行：
-
-```powershell
-npm ci
-npm run build
-node dist/index.js
+```text
+node <absolute-skill-directory>/runtime/launch.cjs --verify
 ```
 
-MCP 客户端需要把 `node dist/index.js` 作为 stdio server 启动。不同 Agent 或 MCP 客户端的配置格式可能不同，配置时使用实际仓库路径。
+校验通过后，把同一个 `runtime/launch.cjs` 入口配置为宿主的 stdio Server。随包 JavaScript bundle 已包含运行依赖，正常使用不需要下载源码、安装依赖或构建 MCP。来源证明、完整性边界和升级步骤见 [随包接入说明](../skill/electron-debug/references/mcp-setup.md)。
 
-本项目以 GitHub 仓库作为分发来源。Agent 或使用者从仓库获取 Skill 和源码后，在仓库根目录构建 MCP Server。
+独立源码构建仅供贡献者开发，见 [开发说明](../CONTRIBUTING.md)；不是已安装 Skill 的接入或自动恢复路径。
 
 ## Skill 的安装范围
 
-Skill 文件可以按 Agent 宿主支持的方式全局安装，也可以只放在某个项目中使用。两种方式都只负责让 Agent 读取指导规则，不会自动配置或启动 MCP Server。
+完整 Skill 目录可以按 Agent 宿主支持的方式全局安装，也可以只放在某个项目中使用。两种方式均包含随包 MCP，但不会自动配置或启动 Server。
 
-全局安装适合希望所有 Electron 项目都遵守同一套诊断流程的场景。使用者将 `skill/electron-debug/SKILL.md` 复制或链接到当前 Agent 宿主的全局 Skill 目录，再按宿主要求启用或刷新 Skill。全局目录、命名方式和刷新入口由宿主决定，本项目不假设固定路径。
+全局安装适合希望所有 Electron 项目都遵守同一套诊断流程的场景。使用者将 `skill/electron-debug` 完整目录复制或链接到当前 Agent 宿主的全局 Skill 目录，再按宿主要求启用或刷新 Skill。全局目录、命名方式和刷新入口由宿主决定，本项目不假设固定路径。
 
-项目级安装适合只希望单个项目启用，或需要随项目固定 Skill 版本的场景。使用者将本文件复制到项目采用的 Skill 目录，或在项目级 `AGENTS.md`、instructions 或等效规则中引用本文件。Agent 进入该项目时应主动加载它。
+项目级安装适合只希望单个项目启用，或需要随项目固定 Skill 版本的场景。使用者将完整 Skill 目录放入项目采用的 Skill 目录，并按宿主规则加载入口 `SKILL.md`，或在项目级 `AGENTS.md`、instructions 或等效规则中引用入口。Agent 进入该项目时应主动加载它。
 
 如果全局 Skill 和项目级 Skill 同时存在，应优先遵守项目级规则，并保留本 Skill 的 MCP 前提、端点安全和证据要求。项目级副本可以随项目提交，从而避免全局 Skill 更新后改变已有项目的诊断行为。
 
@@ -32,7 +28,7 @@ Skill 文件可以按 Agent 宿主支持的方式全局安装，也可以只放�
 
 ## Agent 宿主接入
 
-宿主需要支持本地 MCP stdio Server。通用配置形式如下，路径必须替换为当前项目的实际绝对路径：
+宿主需要支持本地 MCP stdio Server。通用配置形式如下，路径必须替换为当前 Skill 的实际安装绝对路径：
 
 ```json
 {
@@ -40,7 +36,7 @@ Skill 文件可以按 Agent 宿主支持的方式全局安装，也可以只放�
     "electron-agent-debug": {
       "command": "node",
       "args": [
-        "<absolute-project-path>/dist/index.js"
+        "<absolute-skill-directory>/runtime/launch.cjs"
       ]
     }
   }
@@ -53,7 +49,7 @@ Agent 必须自行完成以下接入步骤：
 
 1. 查找当前 Agent 宿主的 MCP 配置入口。
 2. 检查 `electron-agent-debug` 是否已经配置并可用。
-3. 如果未配置，使用当前仓库的实际绝对路径配置 `node <absolute-project-path>/dist/index.js`。
+3. 如果未配置，先核对包来源和完整性，再使用当前 Skill 安装目录的实际绝对路径配置 `node <absolute-skill-directory>/runtime/launch.cjs`。
 4. 启动或刷新 MCP 配置。
 5. 验证 MCP 初始化成功，并确认四个核心工具可见。
 6. 再按下方前提准备 Electron 应用和动态 endpoint。
