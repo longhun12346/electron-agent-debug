@@ -145,7 +145,9 @@ export class JsonRpcConnection {
     }
 
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, 250);
+      const timer = setTimeout(() => {
+        socket.terminate();
+      }, 250);
       socket.once("close", () => {
         clearTimeout(timer);
         resolve();

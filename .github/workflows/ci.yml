@@ -7,14 +7,22 @@ on:
 
 jobs:
   checks:
-    name: Checks (${{ matrix.os }})
+    name: Checks (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
+        include:
+          - os: ubuntu-latest
+            node: 22
+          - os: windows-latest
+            node: 22
+          - os: macos-latest
+            node: 22
+          - os: ubuntu-latest
+            node: 24
+          - os: windows-latest
+            node: 24
 
     steps:
       - name: Check out repository
@@ -23,7 +31,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - name: Install MCP server dependencies
@@ -45,7 +53,12 @@ jobs:
           node --check examples/fixture/mcp-smoke.mjs
           node --check examples/fixture/ci-smoke.mjs
           node --check examples/fixture/blocked-smoke.mjs
+          node --check examples/fixture/lifecycle-smoke.mjs
+          node --check examples/fixture/test-support.mjs
+          node --check examples/fixture/smoke-assertions.mjs
           node --check examples/external-e2e/electron-vite-react-smoke.mjs
+          node --check examples/host-e2e/smoke.mjs
+          node --check examples/host-e2e/mcp-trace.mjs
 
       - name: Install fixture dependencies
         run: npm ci --prefix examples/fixture
@@ -56,6 +69,6 @@ jobs:
         env:
           FIXTURE_ELECTRON_NO_SANDBOX: "true"
 
-      - name: Run real Electron fixture smoke on Windows
-        if: runner.os == 'Windows'
+      - name: Run real Electron fixture smoke on Windows and macOS
+        if: runner.os != 'Linux'
         run: node examples/fixture/ci-smoke.mjs

@@ -29,5 +29,5 @@ if (fault === "ipc") {
 }
 
 setTimeout(() => {
-  console.log("FIXTURE_RENDERER_READY");
+  console.log("FIXTURE_RENDERER_READY", params.get("run") || "", crypto.randomUUID());
 }, 500);

@@ -6,6 +6,12 @@ import { SessionManager } from "../src/sessions/session-manager.js";
 import type { RuntimeConfig } from "../src/config.js";
 import type { AttachInput, TargetInfo } from "../src/types.js";
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 interface MockDebugger {
   endpoint: string;
   broadcast(message: unknown): void;
@@ -19,6 +25,7 @@ interface MockDebugger {
 
 interface MockDebuggerOptions {
   discoveryDelayMs?: number;
+  beforeDiscovery?: () => Promise<void>;
   closeOnMethod?: string;
   rejectMethod?: string;
 }
@@ -74,7 +81,9 @@ async function startMockDebugger(
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify(body));
     };
-    if (options.discoveryDelayMs) {
+    if (options.beforeDiscovery) {
+      void options.beforeDiscovery().then(writeDiscovery);
+    } else if (options.discoveryDelayMs) {
       setTimeout(writeDiscovery, options.discoveryDelayMs);
     } else {
       writeDiscovery();
@@ -575,6 +584,95 @@ test("serializes concurrent attach operations", async () => {
     await Promise.all([slow.close(), fast.close()]);
   }
 });
+
+for (const order of ["targets-close-attach", "close-targets-attach"] as const) {
+  test(`serializes gated attach with ${order} and preserves the final session`,
+    { timeout: 10_000 }, async (t) => {
+      const entered = deferred();
+      const release = deferred();
+      let discoveryCalls = 0;
+      const renderer = await startMockDebugger([
+        { id: "window-a", type: "page", title: "A", url: "app://a" },
+        { id: "window-b", type: "page", title: "B", url: "app://b" },
+      ], { beforeDiscovery: async () => {
+        discoveryCalls++;
+        if (discoveryCalls === 1) {
+          entered.resolve();
+          await release.promise;
+        }
+      } });
+      const manager = new SessionManager(runtimeConfig());
+      t.after(async () => {
+        release.resolve();
+        await manager.close();
+        await renderer.close();
+      });
+      const first = manager.attach({ rendererUrl: renderer.endpoint, targetId: "window-a" });
+      await entered.promise;
+      const completed: string[] = [];
+      const targets = () => manager.refreshTargets({
+        rendererUrl: renderer.endpoint, targetId: "window-b",
+      }).then((result) => {
+        assert.equal(result.ok, true);
+        if (result.ok) assert.equal(result.data.selectedTarget?.id, "window-b");
+        completed.push("targets");
+      });
+      const close = () => manager.close().then(() => {
+        assert.equal(manager.renderer.isConnected, false);
+        assert.deepEqual(manager.status().targets, []);
+        completed.push("close");
+      });
+      const middle = order.startsWith("targets") ? [targets(), close()] : [close(), targets()];
+      const last = manager.attach({
+        rendererUrl: renderer.endpoint, clearSelection: true, targetId: "window-a",
+      }).then((result) => {
+        assert.equal(result.ok, true);
+        completed.push("attach");
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(discoveryCalls, 1, "queued discovery must not begin before release");
+      assert.deepEqual(completed, []);
+      release.resolve();
+      await Promise.all([first, ...middle, last]);
+      assert.deepEqual(completed, order.split("-"));
+      assert.equal(manager.status().selectedTarget?.id, "window-a");
+      assert.equal(manager.status().renderer.online, true);
+    });
+}
+
+test("already queued targets and attach recover after a rejected close",
+  { timeout: 10_000 }, async (t) => {
+    const renderer = await startMockDebugger([
+      { id: "window", type: "page", title: "A", url: "app://a" },
+    ]);
+    const manager = new SessionManager(runtimeConfig());
+    const originalClose = manager.main.close.bind(manager.main);
+    const entered = deferred();
+    const release = deferred();
+    t.after(async () => {
+      release.resolve();
+      manager.main.close = originalClose;
+      await manager.close();
+      await renderer.close();
+    });
+    await manager.attach({ rendererUrl: renderer.endpoint });
+    manager.main.close = async () => {
+      entered.resolve();
+      await release.promise;
+      manager.main.close = originalClose;
+      throw new Error("queued close failure");
+    };
+    const rejected = assert.rejects(manager.close(), /queued close failure/u);
+    await entered.promise;
+    const targets = manager.refreshTargets({ rendererUrl: renderer.endpoint });
+    const attach = manager.attach({ rendererUrl: renderer.endpoint });
+    release.resolve();
+    const [, refreshed, attached] = await Promise.all([rejected, targets, attach]);
+    assert.equal(refreshed.ok, true);
+    assert.equal(attached.ok, true);
+    assert.equal(manager.status().renderer.online, true);
+    assert.equal(manager.status().selectedTarget?.id, "window");
+  });
 
 test("recovers the operation queue after a failed operation", async () => {
   const first = await startMockDebugger([{ id: "first", type: "node", title: "first", url: "" }]);

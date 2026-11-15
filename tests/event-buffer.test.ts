@@ -20,13 +20,42 @@ test("keeps event count bounded", () => {
   assert.deepEqual(buffer.list({ limit: 10 }).map((item) => item.message), ["two", "three"]);
 });
 
-test("keeps event bytes bounded and supports scoped clearing", () => {
-  const buffer = new EventBuffer(10, 250);
-  buffer.add(event("a".repeat(100)));
-  buffer.add(event("b".repeat(100)));
-  assert.ok(buffer.list({ limit: 10 }).length <= 2);
+test("evicts oldest events by serialized UTF-8 bytes before the count limit", () => {
+  const samples = ["甲", "乙", "丙"].map((message) => ({
+    ...event(message.repeat(40)),
+    observedAt: "2026-01-01T00:00:00.000Z",
+  }));
+  const size = Buffer.byteLength(JSON.stringify(samples[0]), "utf8");
+  const buffer = new EventBuffer(100, size * 2);
+  for (const sample of samples) buffer.add(sample);
+  assert.deepEqual(buffer.list().map((item) => item.message), samples.slice(1).map((item) => item.message));
+  assert.equal(buffer.size, 2);
+  const bytes = buffer.list().reduce((total, item) =>
+    total + Buffer.byteLength(JSON.stringify(item), "utf8"), 0);
+  assert.equal(bytes, size * 2);
   buffer.clear();
   assert.equal(buffer.size, 0);
+  buffer.add(samples[0]!);
+  buffer.add(samples[1]!);
+  assert.equal(buffer.size, 2, "clear must reset the byte accounting");
+});
+
+test("drops one oversized data payload without discarding retained evidence", () => {
+  const buffer = new EventBuffer(10, 1_000);
+  buffer.add(event("before"));
+  buffer.add({ ...event("oversized"), data: { detail: "x".repeat(2_000) } });
+  buffer.add(event("after"));
+  assert.deepEqual(buffer.list().map((item) => item.message), ["before", "after"]);
+});
+
+test("truncates long console messages and rejects unserializable data", () => {
+  const buffer = new EventBuffer(10, 100_000);
+  buffer.add(event("x".repeat(20_000)));
+  const circular: Record<string, unknown> = {};
+  circular.self = circular;
+  buffer.add({ ...event("circular"), data: circular });
+  assert.equal(buffer.size, 1);
+  assert.equal(buffer.list()[0]?.message.length, 8_192);
 });
 
 test("rejects an invalid since timestamp", () => {

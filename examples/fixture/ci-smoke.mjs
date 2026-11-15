@@ -71,3 +71,14 @@ await new Promise((resolve, reject) => {
     reject(new Error(`fixture blocked smoke failed: ${code ?? signal}`));
   });
 });
+
+console.log("Running fixture smoke: reload, window recreation and Electron restart");
+const lifecycle = spawn(process.execPath, [path.join(fixtureRoot, "lifecycle-smoke.mjs")], {
+  stdio: "inherit", env: process.env,
+});
+await new Promise((resolve, reject) => {
+  lifecycle.once("error", reject);
+  lifecycle.once("exit", (code, signal) => code === 0
+    ? resolve()
+    : reject(new Error(`fixture lifecycle smoke failed: ${code ?? signal}`)));
+});

@@ -45,6 +45,7 @@ async function fetchDiscovery(endpoint: string, timeoutMs: number): Promise<Targ
     redirect: "error",
   });
   if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
     throw new DiagnosticException(
       "PROTOCOL_ERROR",
       `discovery 请求失败（HTTP ${response.status}）`,
@@ -56,6 +57,7 @@ async function fetchDiscovery(endpoint: string, timeoutMs: number): Promise<Targ
   try {
     const contentLength = Number(response.headers.get("content-length"));
     if (Number.isFinite(contentLength) && contentLength > MAX_DISCOVERY_RESPONSE_BYTES) {
+      await response.body?.cancel().catch(() => undefined);
       throw new DiagnosticException("OUTPUT_TOO_LARGE", "discovery 响应超过大小上限");
     }
     if (!response.body) {
@@ -84,6 +86,11 @@ async function fetchDiscovery(endpoint: string, timeoutMs: number): Promise<Targ
     body = JSON.parse(text) as unknown;
   } catch (cause) {
     if (cause instanceof DiagnosticException) {
+      throw cause;
+    }
+    // Only a completed but malformed document is a non-retryable JSON error.
+    // Timeout and interrupted streams retain their transport error classification.
+    if (!(cause instanceof SyntaxError)) {
       throw cause;
     }
     throw new DiagnosticException("PROTOCOL_ERROR", "discovery 返回的内容不是有效 JSON", { cause });

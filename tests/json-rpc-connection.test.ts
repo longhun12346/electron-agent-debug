@@ -3,11 +3,75 @@ import { execFile } from "node:child_process";
 import { once } from "node:events";
 import { createServer, type Server } from "node:http";
 import { promisify } from "node:util";
+import { createHash } from "node:crypto";
+import { createServer as createTcpServer, type Socket } from "node:net";
 import test, { type TestContext } from "node:test";
 import { WebSocketServer } from "ws";
 import { JsonRpcConnection } from "../src/protocol/json-rpc-connection.js";
 
 const execFileAsync = promisify(execFile);
+
+test("stalled WebSocket handshake times out and releases its TCP socket",
+  { timeout: 5_000 }, async (t) => {
+    const sockets = new Set<Socket>();
+    const server = createTcpServer((socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+      socket.resume();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const connection = new JsonRpcConnection({ requestTimeoutMs: 100, maxMessageBytes: 4_096 });
+    t.after(async () => {
+      await connection.close();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+    await assert.rejects(connection.connect(`ws://127.0.0.1:${address.port}`), /超时/u);
+    await connection.close();
+    const deadline = Date.now() + 1_000;
+    while (sockets.size && Date.now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(sockets.size, 0);
+    assert.equal(connection.isOpen, false);
+  });
+
+test("close forcibly releases a peer that never answers the WebSocket close frame",
+  { timeout: 5_000 }, async (t) => {
+    const sockets = new Set<Socket>();
+    const server = createTcpServer((socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+      socket.once("data", (request) => {
+        const key = request.toString().match(/Sec-WebSocket-Key: (.+)\r\n/iu)?.[1];
+        assert.ok(key);
+        const accept = createHash("sha1").update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+          .digest("base64");
+        socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n" +
+          `Connection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+        socket.on("data", () => { /* Deliberately ignore close frames. */ });
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const connection = new JsonRpcConnection({ requestTimeoutMs: 1_000, maxMessageBytes: 4_096 });
+    t.after(async () => {
+      await connection.close();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+    await connection.connect(`ws://127.0.0.1:${address.port}`);
+    await connection.close();
+    const deadline = Date.now() + 500;
+    while (sockets.size && Date.now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(sockets.size, 0, "close must release TCP, not only resolve a timeout");
+    assert.equal(connection.isOpen, false);
+  });
 
 async function protocolPeer(t: TestContext, timeoutMs = 1_000) {
   const peer = new WebSocketServer({ port: 0, host: "127.0.0.1" });

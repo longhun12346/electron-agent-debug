@@ -1,109 +1,64 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createServer } from "node:http";
 import test from "node:test";
 import { WebSocketServer } from "ws";
 import { createMcpServer } from "../src/server.js";
 import { SessionManager } from "../src/sessions/session-manager.js";
 import type { RuntimeConfig } from "../src/config.js";
-import type { DiagnosticEvent } from "../src/types.js";
+import { McpProcess } from "./helpers/mcp-process.js";
 
-interface JsonRpcMessage {
-  id?: number;
-  result?: {
-    tools?: Array<{ name: string }>;
-    structuredContent?: {
-      ok?: boolean;
-      error?: { code?: string };
-      data?: { main?: { status?: string }; events?: DiagnosticEvent[] };
-    };
-  };
-}
-
-class McpProcess {
-  private readonly child: ChildProcessWithoutNullStreams;
-  private buffer = "";
-  private readonly pending = new Map<number, {
-    resolve: (message: JsonRpcMessage) => void;
-    reject: (error: Error) => void;
-    timer: NodeJS.Timeout;
-  }>();
-  private failure?: Error;
-
-  constructor() {
-    const env = { ...process.env };
-    for (const name of Object.keys(env)) {
-      if (name.startsWith("ELECTRON_DEBUG_")) delete env[name];
-    }
-    this.child = spawn(process.execPath, ["dist/index.js"], {
-      stdio: ["pipe", "pipe", "pipe"],
-      env,
-    });
-    this.child.once("error", (error) => this.fail(error));
-    this.child.once("exit", (code, signal) =>
-      this.fail(new Error(`MCP process exited: ${code ?? signal}`)));
-    this.child.stdout.on("data", (chunk: Buffer) => {
-      this.buffer += chunk.toString();
-      const lines = this.buffer.split("\n");
-      this.buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.trim()) {
-          continue;
-        }
-        let message: JsonRpcMessage;
-        try {
-          message = JSON.parse(line) as JsonRpcMessage;
-        } catch {
-          this.fail(new Error("MCP stdout contained invalid JSON"));
-          continue;
-        }
-        if (typeof message.id === "number") {
-          const pending = this.pending.get(message.id);
-          if (pending) {
-            clearTimeout(pending.timer);
-            pending.resolve(message);
-          }
-          this.pending.delete(message.id);
-        }
+for (const shutdown of ["stdin-eof", ...(process.platform === "win32" ? [] : ["sigterm"])] as const) {
+  test(`MCP ${shutdown} exits cleanly and releases both active debugger sockets`,
+    { timeout: 10_000 }, async (t) => {
+      const peer = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+      await new Promise<void>((resolve) => peer.once("listening", resolve));
+      const address = peer.address();
+      assert.ok(address && typeof address === "object");
+      peer.on("connection", (socket) => socket.on("message", (raw) => {
+        const { id } = JSON.parse(raw.toString()) as { id: number };
+        socket.send(JSON.stringify({ id, result: {} }));
+      }));
+      const client = new McpProcess();
+      t.after(async () => {
+        await client.close();
+        for (const socket of peer.clients) socket.terminate();
+        await new Promise<void>((resolve) => peer.close(() => resolve()));
+      });
+      await client.request(1, "initialize", {
+        protocolVersion: "2025-03-26", capabilities: {},
+        clientInfo: { name: "shutdown-contract", version: "1.0.0" },
+      });
+      client.notify("notifications/initialized", {});
+      // Keep HTTP discovery separate so both active WebSockets can be counted directly.
+      const discovery = createServer((_request, response) => response.end(JSON.stringify([
+        { id: "main", type: "node",
+          webSocketDebuggerUrl: `ws://127.0.0.1:${address.port}/main` },
+        { id: "renderer", type: "page",
+          webSocketDebuggerUrl: `ws://127.0.0.1:${address.port}/renderer` },
+      ])));
+      await new Promise<void>((resolve) => discovery.listen(0, "127.0.0.1", resolve));
+      t.after(() => new Promise<void>((resolve) => {
+        discovery.closeAllConnections();
+        discovery.close(() => resolve());
+      }));
+      const discoveryAddress = discovery.address();
+      assert.ok(discoveryAddress && typeof discoveryAddress === "object");
+      const url = `http://127.0.0.1:${discoveryAddress.port}`;
+      const response = await client.request(2, "tools/call", {
+        name: "electron_attach", arguments: { mainUrl: url, rendererUrl: url },
+      });
+      assert.equal(response.result?.structuredContent?.data?.main?.status, "online");
+      assert.equal(peer.clients.size, 2);
+      if (shutdown === "stdin-eof") client.child.stdin.end();
+      else client.child.kill("SIGTERM");
+      await client.waitForExit();
+      assert.equal(client.child.exitCode, 0, "must exit naturally without the test killing it");
+      const deadline = Date.now() + 1_000;
+      while (peer.clients.size && Date.now() < deadline) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
       }
+      assert.equal(peer.clients.size, 0);
     });
-  }
-
-  async request(id: number, method: string, params: unknown): Promise<JsonRpcMessage> {
-    if (this.failure) throw this.failure;
-    const response = new Promise<JsonRpcMessage>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`MCP request timed out: ${method}`));
-      }, 5_000);
-      this.pending.set(id, { resolve, reject, timer });
-    });
-    this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
-    return response;
-  }
-
-  notify(method: string, params: unknown): void {
-    this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
-  }
-
-  private fail(error: Error): void {
-    this.failure = error;
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(error);
-    }
-    this.pending.clear();
-  }
-
-  async close(): Promise<void> {
-    if (this.child.exitCode !== null || this.child.signalCode !== null) {
-      return;
-    }
-    const exited = once(this.child, "exit");
-    this.child.kill();
-    await exited.catch(() => undefined);
-  }
 }
 
 test("MCP stdio preserves log scope and scoped clearing through tools/call",
