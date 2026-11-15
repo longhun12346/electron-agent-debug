@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import test from "node:test";
+import { createMcpServer } from "../src/server.js";
+import { SessionManager } from "../src/sessions/session-manager.js";
+import type { RuntimeConfig } from "../src/config.js";
 
 interface JsonRpcMessage {
   id?: number;
@@ -99,4 +102,26 @@ test("returns a structured prerequisite error without endpoint configuration", a
   } finally {
     await process.close();
   }
+});
+
+test("closes the session manager when the MCP server closes", async () => {
+  const config: RuntimeConfig = {
+    requestTimeoutMs: 1_000,
+    discoveryTimeoutMs: 1_000,
+    maxLogEvents: 10,
+    maxLogBytes: 10_000,
+    maxProtocolMessageBytes: 4_096,
+  };
+  const manager = new SessionManager(config);
+  let closeCalls = 0;
+  const originalClose = manager.close.bind(manager);
+  manager.close = async () => {
+    closeCalls += 1;
+    await originalClose();
+  };
+
+  const server = createMcpServer(manager);
+  server.server.onclose?.();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(closeCalls, 1);
 });

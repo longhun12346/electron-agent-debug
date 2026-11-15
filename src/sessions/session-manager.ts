@@ -32,12 +32,14 @@ export class SessionManager {
     this.main = new DiagnosticSession({
       process: "main",
       requestTimeoutMs: config.requestTimeoutMs,
+      maxProtocolMessageBytes: config.maxProtocolMessageBytes,
       maxLogEvents: config.maxLogEvents,
       maxLogBytes: config.maxLogBytes,
     });
     this.renderer = new DiagnosticSession({
       process: "renderer",
       requestTimeoutMs: config.requestTimeoutMs,
+      maxProtocolMessageBytes: config.maxProtocolMessageBytes,
       maxLogEvents: config.maxLogEvents,
       maxLogBytes: config.maxLogBytes,
     });
@@ -179,13 +181,29 @@ export class SessionManager {
     };
   }
 
+  async close(): Promise<void> {
+    await this.serialize(async () => {
+      await Promise.all([
+        this.main.close("Session manager closed"),
+        this.renderer.close("Session manager closed"),
+      ]);
+      this.mainEndpoint = undefined;
+      this.rendererEndpoint = undefined;
+      this.rendererTargets = [];
+      this.selector = {};
+      this.main.setEndpoint(undefined);
+      this.renderer.setEndpoint(undefined);
+    });
+  }
+
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.operationQueue;
-    let release!: () => void;
-    this.operationQueue = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    return previous.then(operation).finally(release);
+    const run = previous.catch(() => undefined).then(operation);
+    this.operationQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   status(): StatusResult {

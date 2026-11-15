@@ -27,6 +27,7 @@ MCP Server 只连接 Agent 已经准备好的 Electron 应用，不启动、停�
 - 发送 MCP `initialize`、`tools/list` 和 `tools/call` 请求，或通过宿主界面完成等价验证。
 - 读取结构化工具结果。
 - 让 Agent 读取本 Skill，或把本 Skill 内容纳入项目级 instructions。
+- 构建和运行 MCP Server 时使用 Node.js 22 或更高版本。
 
 ### Skill 的全局和项目级使用
 
@@ -44,15 +45,16 @@ Skill 的安装或加载不会自动注册 MCP Server。Agent 仍必须单独配
 在开始 Electron 诊断前，Agent 必须自行完成并验证 MCP 接入：
 
 1. 识别当前使用的 Agent 宿主及其 MCP 配置入口。
-2. 检查 `electron-agent-debug` 是否已经配置并可用；如果没有，从 [electron-agent-debug 源仓库](https://github.com/longhun12346/electron-agent-debug) 获取 MCP Server 源码，在 MCP 源仓库中运行 `npm ci` 和 `npm run build`。MCP 源仓库和待诊断的 Electron 项目是两个不同的工作目录。
-3. 只有在未配置时，才在宿主的 MCP 配置中添加 `electron-agent-debug` Server。
-4. 启动或刷新 MCP 配置。
-5. 通过宿主确认 Server 初始化成功，并确认能看到以下四个工具：
+2. 检查 Node.js 版本是否满足 `>=22`；不满足时报告 `BLOCKED`。
+3. 检查 `electron-agent-debug` 是否已经配置并可用；如果没有，从 [electron-agent-debug 源仓库](https://github.com/longhun12346/electron-agent-debug) 获取 MCP Server 源码，在 MCP 源仓库中运行 `npm ci` 和 `npm run build`。MCP 源仓库和待诊断的 Electron 项目是两个不同的工作目录。
+4. 只有在未配置时，才在宿主的 MCP 配置中添加 `electron-agent-debug` Server。
+5. 启动或刷新 MCP 配置。
+6. 通过宿主确认 Server 初始化成功，并确认能看到以下四个工具：
    - `electron_attach`
    - `electron_status`
    - `electron_targets`
    - `electron_logs`
-6. 只有 MCP 接入成功后，才继续准备 Electron 应用和调试 endpoint。
+7. 只有 MCP 接入成功后，才继续准备 Electron 应用和调试 endpoint。
 
 Agent 不应假设 MCP 已经配置，也不应因为 Skill 文件已经从仓库加载就认为 MCP Server 会自动注册。Agent 宿主的配置文件、项目路径和刷新方式由宿主决定；Agent 应根据当前环境实际查找和修改，不应写入不存在的固定配置路径。
 
@@ -140,8 +142,9 @@ electron --inspect=<agent-chosen-main-port> --remote-debugging-port=<agent-chose
    - 记录 `online`、`status`、endpoint 来源、selected target 和 eventCount。
 3. `electron_targets`
    - 需要 renderer 时调用。
-   - 单个 page target 可以自动选择。
-   - 多个 page target 必须使用 `targetId`、完整 URL 或标题选择。
+   - 返回 discovery 到的 page target；只有带有 WebSocket 地址的 target 能建立连接。
+   - 单个可连接 page target 可以自动选择。
+   - 多个可连接 page target 必须使用 `targetId`、完整 URL 或标题选择。
 4. `electron_logs`
    - 读取基线日志和异常。
    - 记住日志只包含 Session 建立后观察到的事件，不代表 attach 前的历史。

@@ -4,12 +4,16 @@ import test from "node:test";
 import { WebSocketServer, type WebSocket } from "ws";
 import { SessionManager } from "../src/sessions/session-manager.js";
 import type { RuntimeConfig } from "../src/config.js";
-import type { TargetInfo } from "../src/types.js";
+import type { AttachInput, TargetInfo } from "../src/types.js";
 
 interface MockDebugger {
   endpoint: string;
   broadcast(message: unknown): void;
-  setTargets(targets: Array<Pick<TargetInfo, "id" | "type" | "title" | "url">>): void;
+  setTargets(
+    targets: Array<Pick<TargetInfo, "id" | "type" | "title" | "url"> & {
+      webSocketDebuggerUrl?: string | null;
+    }>,
+  ): void;
   close(): Promise<void>;
 }
 
@@ -18,7 +22,9 @@ interface MockDebuggerOptions {
 }
 
 async function startMockDebugger(
-  targets: Array<Pick<TargetInfo, "id" | "type" | "title" | "url">>,
+  targets: Array<Pick<TargetInfo, "id" | "type" | "title" | "url"> & {
+    webSocketDebuggerUrl?: string | null;
+  }>,
   options: MockDebuggerOptions = {},
 ): Promise<MockDebugger> {
   const httpServer = createServer();
@@ -51,7 +57,11 @@ async function startMockDebugger(
     const writeDiscovery = () => {
       const body = currentTargets.map((target) => ({
         ...target,
-        webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/${target.id}`,
+        webSocketDebuggerUrl:
+          target.webSocketDebuggerUrl === null
+            ? undefined
+            : target.webSocketDebuggerUrl ??
+              `ws://127.0.0.1:${port}/devtools/page/${target.id}`,
       }));
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify(body));
@@ -92,6 +102,7 @@ function runtimeConfig(mainUrl?: string, rendererUrl?: string): RuntimeConfig {
     discoveryTimeoutMs: 1_000,
     maxLogEvents: 100,
     maxLogBytes: 100_000,
+    maxProtocolMessageBytes: 100_000,
   };
 }
 
@@ -127,7 +138,9 @@ test("attaches both sessions, selects a page, and collects events", async () => 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     const logs = manager.logs({ process: "all", limit: 20 }).events;
-    assert.ok(logs.some((event) => event.process === "renderer" && event.message.includes("renderer-ready")));
+    assert.ok(
+      logs.some((event) => event.process === "renderer" && event.message === "renderer-ready"),
+    );
     assert.ok(logs.some((event) => event.process === "main" && event.kind === "exception"));
   } finally {
     await Promise.all([main.close(), renderer.close()]);
@@ -251,6 +264,51 @@ test("does not report a renderer session online when target selection is blocked
     assert.equal(result.data.renderer.online, false);
     assert.equal(result.data.renderer.selectedTarget, undefined);
     assert.equal(result.data.renderer.error?.code, "TARGET_SELECTION_REQUIRED");
+  } finally {
+    await renderer.close();
+  }
+});
+
+test("returns discovered page targets even when one cannot be attached", async () => {
+  const renderer = await startMockDebugger([
+    { id: "unavailable", type: "page", title: "Unavailable", url: "app://unavailable", webSocketDebuggerUrl: null },
+    { id: "available", type: "page", title: "Available", url: "app://available" },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+
+  try {
+    const result = await manager.attach({ rendererUrl: renderer.endpoint });
+    assert.equal(result.ok, true);
+    if (!result.ok) {
+      return;
+    }
+    assert.deepEqual(
+      result.data.targets.map((target) => target.id),
+      ["unavailable", "available"],
+    );
+    assert.equal(result.data.selectedTarget?.id, "available");
+    assert.equal(result.data.renderer.status, "online");
+  } finally {
+    await renderer.close();
+  }
+});
+
+test("does not attach to the only page target without a WebSocket address", async () => {
+  const renderer = await startMockDebugger([
+    { id: "unavailable", type: "page", title: "Unavailable", url: "app://unavailable", webSocketDebuggerUrl: null },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+
+  try {
+    const result = await manager.attach({ rendererUrl: renderer.endpoint });
+    assert.equal(result.ok, true);
+    if (!result.ok) {
+      return;
+    }
+    assert.equal(result.data.targets.length, 1);
+    assert.equal(result.data.targets[0]?.webSocketDebuggerUrl, undefined);
+    assert.equal(result.data.renderer.status, "offline");
+    assert.equal(result.data.renderer.error?.code, "TARGET_NOT_FOUND");
   } finally {
     await renderer.close();
   }
@@ -390,6 +448,69 @@ test("serializes concurrent attach operations", async () => {
     assert.equal(manager.status().selectedTarget?.id, "fast-window");
   } finally {
     await Promise.all([slow.close(), fast.close()]);
+  }
+});
+
+test("recovers the operation queue after a failed operation", async () => {
+  const first = await startMockDebugger([{ id: "first", type: "node", title: "first", url: "" }]);
+  const second = await startMockDebugger([{ id: "second", type: "node", title: "second", url: "" }]);
+  const manager = new SessionManager(runtimeConfig());
+  const originalClose = manager.main.close.bind(manager.main);
+
+  try {
+    const initial = await manager.attach({ mainUrl: first.endpoint });
+    assert.equal(initial.ok, true);
+
+    manager.main.close = async () => {
+      throw new Error("forced close failure");
+    };
+    await assert.rejects(
+      () => manager.attach({ mainUrl: second.endpoint }),
+      /forced close failure/,
+    );
+
+    manager.main.close = originalClose;
+    const recovered = await manager.attach({ mainUrl: first.endpoint });
+    assert.equal(recovered.ok, true);
+    assert.equal(manager.status().main.endpoint, first.endpoint);
+    assert.equal(manager.status().main.status, "online");
+  } finally {
+    manager.main.close = originalClose;
+    await manager.close();
+    await Promise.all([first.close(), second.close()]);
+  }
+});
+
+test("closes both sessions and resets manager state", async () => {
+  const main = await startMockDebugger([{ id: "main", type: "node", title: "main", url: "" }]);
+  const renderer = await startMockDebugger([
+    { id: "window-a", type: "page", title: "Window A", url: "app://a" },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+
+  try {
+    const attached = await manager.attach({
+      mainUrl: main.endpoint,
+      rendererUrl: renderer.endpoint,
+    });
+    assert.equal(attached.ok, true);
+    assert.equal(manager.main.isConnected, true);
+    assert.equal(manager.renderer.isConnected, true);
+
+    await manager.close();
+    await manager.close();
+
+    const status = manager.status();
+    assert.equal(manager.main.isConnected, false);
+    assert.equal(manager.renderer.isConnected, false);
+    assert.equal(status.main.status, "unconfigured");
+    assert.equal(status.renderer.status, "unconfigured");
+    assert.equal(status.main.endpoint, undefined);
+    assert.equal(status.renderer.endpoint, undefined);
+    assert.equal(status.targets.length, 0);
+    assert.equal(status.selectedTarget, undefined);
+  } finally {
+    await Promise.all([main.close(), renderer.close()]);
   }
 });
 

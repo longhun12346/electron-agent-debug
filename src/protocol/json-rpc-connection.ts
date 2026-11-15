@@ -8,6 +8,7 @@ export interface JsonRpcEvent {
 
 export interface JsonRpcConnectionOptions {
   requestTimeoutMs: number;
+  maxMessageBytes: number;
   onEvent?: (event: JsonRpcEvent) => void;
   onClose?: (reason: string) => void;
 }
@@ -47,7 +48,9 @@ export class JsonRpcConnection {
 
     this.closed = false;
     await new Promise<void>((resolve, reject) => {
-      const socket = new WebSocket(url);
+      const socket = new WebSocket(url, {
+        maxPayload: this.options.maxMessageBytes,
+      });
       this.socket = socket;
       let settled = false;
       const timer = setTimeout(() => {
@@ -112,18 +115,29 @@ export class JsonRpcConnection {
       }, this.options.requestTimeoutMs);
 
       this.pending.set(id, { resolve, reject, timer });
-      this.socket?.send(request, (error) => {
-        if (error) {
-          clearTimeout(timer);
-          this.pending.delete(id);
-          reject(
-            new DiagnosticException("SESSION_DISCONNECTED", "WebSocket 发送失败", {
-              retryable: true,
-              cause: error,
-            }),
-          );
-        }
-      });
+      try {
+        this.socket?.send(request, (error) => {
+          if (error) {
+            clearTimeout(timer);
+            this.pending.delete(id);
+            reject(
+              new DiagnosticException("SESSION_DISCONNECTED", "WebSocket 发送失败", {
+                retryable: true,
+                cause: error,
+              }),
+            );
+          }
+        });
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(
+          new DiagnosticException("SESSION_DISCONNECTED", "WebSocket 发送失败", {
+            retryable: true,
+            cause: error,
+          }),
+        );
+      }
     });
   }
 

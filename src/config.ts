@@ -23,6 +23,7 @@ export interface RuntimeConfig {
   discoveryTimeoutMs: number;
   maxLogEvents: number;
   maxLogBytes: number;
+  maxProtocolMessageBytes: number;
 }
 
 function boundedInteger(
@@ -59,6 +60,12 @@ export function readRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     ),
     maxLogEvents: boundedInteger(env.ELECTRON_DEBUG_MAX_LOG_EVENTS, 500, 10, 10_000),
     maxLogBytes: boundedInteger(env.ELECTRON_DEBUG_MAX_LOG_BYTES, 1_048_576, 4_096, 16_777_216),
+    maxProtocolMessageBytes: boundedInteger(
+      env.ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES,
+      4_194_304,
+      4_096,
+      16_777_216,
+    ),
   };
 }
 

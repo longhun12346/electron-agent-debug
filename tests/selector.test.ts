@@ -38,3 +38,27 @@ test("ignores non-page targets for automatic selection", () => {
   const worker: TargetInfo = { id: "worker", type: "worker", title: "", url: "" };
   assert.equal(codeOf(() => selectTarget([worker], {})), "TARGET_NOT_FOUND");
 });
+
+test("ignores page targets without a debugger WebSocket", () => {
+  const unavailable: TargetInfo = {
+    id: "unavailable",
+    type: "page",
+    title: "Unavailable",
+    url: "http://127.0.0.1/unavailable",
+  };
+  assert.equal(selectTarget([unavailable, page("available", "Available")], {}).id, "available");
+  assert.equal(codeOf(() => selectTarget([unavailable], {})), "TARGET_NOT_FOUND");
+});
+
+test("explains when an explicitly selected page is not attachable", () => {
+  const unavailable: TargetInfo = {
+    id: "unavailable",
+    type: "page",
+    title: "Unavailable",
+    url: "http://127.0.0.1/unavailable",
+  };
+  assert.equal(
+    codeOf(() => selectTarget([unavailable], { targetId: "unavailable" })),
+    "TARGET_NOT_FOUND",
+  );
+});

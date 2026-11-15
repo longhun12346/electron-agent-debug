@@ -38,3 +38,22 @@ test("does not follow discovery redirects", async () => {
     await Promise.all([close(redirect), close(target)]);
   }
 });
+
+test("stops reading an oversized discovery response", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(`[{"id":"${"x".repeat(1_100_000)}"}]`);
+  });
+  const endpoint = await listen(server);
+
+  try {
+    await assert.rejects(
+      () => discoverRenderer(endpoint, { timeoutMs: 1_000 }),
+      (error: unknown) =>
+        error instanceof DiagnosticException &&
+        error.diagnostic.code === "OUTPUT_TOO_LARGE",
+    );
+  } finally {
+    await close(server);
+  }
+});

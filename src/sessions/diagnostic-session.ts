@@ -13,6 +13,7 @@ import type {
 export interface SessionOptions {
   process: ProcessScope;
   requestTimeoutMs: number;
+  maxProtocolMessageBytes: number;
   maxLogEvents: number;
   maxLogBytes: number;
 }
@@ -24,6 +25,27 @@ function stringifyValue(value: unknown): string {
   } catch {
     return "[unserializable]";
   }
+}
+
+function formatConsoleArgument(value: unknown): string {
+  if (typeof value !== "object" || value === null) {
+    return typeof value === "string" ? value : stringifyValue(value);
+  }
+
+  const record = value as Record<string, unknown>;
+  if ("value" in record) {
+    return typeof record.value === "string" ? record.value : stringifyValue(record.value);
+  }
+  if (typeof record.unserializableValue === "string") {
+    return record.unserializableValue;
+  }
+  if (typeof record.description === "string") {
+    return record.description;
+  }
+  if (record.type === "undefined") {
+    return "undefined";
+  }
+  return stringifyValue(value);
 }
 
 function eventFromProtocol(process: ProcessScope, event: JsonRpcEvent): DiagnosticEvent | undefined {
@@ -39,7 +61,7 @@ function eventFromProtocol(process: ProcessScope, event: JsonRpcEvent): Diagnost
       observedAt: now,
       kind: "console",
       level: typeof params.type === "string" ? params.type : "log",
-      message: args.map(stringifyValue).join(" "),
+      message: args.map(formatConsoleArgument).join(" "),
       data: { type: params.type },
     };
   }
@@ -156,6 +178,7 @@ export class DiagnosticSession {
     let connection!: JsonRpcConnection;
     connection = new JsonRpcConnection({
       requestTimeoutMs: this.options.requestTimeoutMs,
+      maxMessageBytes: this.options.maxProtocolMessageBytes,
       onEvent: (event) => this.handleEvent(event),
       onClose: (reason) => this.handleClose(connection, reason),
     });

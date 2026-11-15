@@ -98,6 +98,7 @@ ELECTRON_DEBUG_REQUEST_TIMEOUT_MS=<optional-request-timeout>
 ELECTRON_DEBUG_DISCOVERY_TIMEOUT_MS=<optional-discovery-timeout>
 ELECTRON_DEBUG_MAX_LOG_EVENTS=<optional-event-limit>
 ELECTRON_DEBUG_MAX_LOG_BYTES=<optional-byte-limit>
+ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES=<optional-protocol-message-limit>
 ```
 
 当前版本没有 `ELECTRON_DEBUG_ALLOW_EVAL`、`ELECTRON_DEBUG_OUTPUT_DIR` 或截图/表达式执行配置。若未来增加对应扩展，必须在扩展设计和实现后重新定义这些配置。
@@ -155,7 +156,7 @@ endpoint 解析优先级为：
 
 #### `electron_targets`
 
-读取并返回渲染进程 CDP targets，至少包含：
+读取并返回 discovery 返回的渲染进程 CDP page targets，至少包含：
 
 - target id
 - type
@@ -164,7 +165,7 @@ endpoint 解析优先级为：
 - webSocketDebuggerUrl
 - favicon URL（如果存在）
 
-输入可以包含 `targetId`、`url`、`title` 或 `clearSelection`；这些条件只用于选择当前 page target，不改变发现到的 target 列表。`clearSelection=true` 用于清除之前保存的 target 选择条件和当前选择，再按当前 target 列表重新选择。只有发现单个可用 page target 时才允许自动选择；存在多个候选且 Agent 没有提供选择条件时，返回 `TARGET_SELECTION_REQUIRED`。
+输入可以包含 `targetId`、`url`、`title` 或 `clearSelection`；这些条件只用于选择当前 page target，不改变发现到的 target 列表。`clearSelection=true` 用于清除之前保存的 target 选择条件和当前选择，再按当前 target 列表重新选择。只有发现单个带有可连接 WebSocket 的 page target 时才允许自动选择；没有可连接 target 时返回 `TARGET_NOT_FOUND`，存在多个可连接候选且 Agent 没有提供选择条件时，返回 `TARGET_SELECTION_REQUIRED`。
 
 #### `electron_logs`
 

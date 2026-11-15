@@ -12,6 +12,8 @@ export interface DiscoveryOptions {
   timeoutMs: number;
 }
 
+const MAX_DISCOVERY_RESPONSE_BYTES = 1_048_576;
+
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
@@ -52,10 +54,33 @@ async function fetchDiscovery(endpoint: string, timeoutMs: number): Promise<Targ
 
   let body: unknown;
   try {
-    const text = await response.text();
-    if (Buffer.byteLength(text, "utf8") > 1_048_576) {
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > MAX_DISCOVERY_RESPONSE_BYTES) {
       throw new DiagnosticException("OUTPUT_TOO_LARGE", "discovery 响应超过大小上限");
     }
+    if (!response.body) {
+      throw new DiagnosticException("PROTOCOL_ERROR", "discovery 响应没有可读取的内容");
+    }
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        totalBytes += value.byteLength;
+        if (totalBytes > MAX_DISCOVERY_RESPONSE_BYTES) {
+          await reader.cancel().catch(() => undefined);
+          throw new DiagnosticException("OUTPUT_TOO_LARGE", "discovery 响应超过大小上限");
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const text = Buffer.concat(chunks).toString("utf8");
     body = JSON.parse(text) as unknown;
   } catch (cause) {
     if (cause instanceof DiagnosticException) {

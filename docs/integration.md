@@ -4,6 +4,8 @@
 
 ## 构建和启动
 
+MCP Server 要求 Node.js 22 或更高版本。Agent 应先运行 `node --version` 确认版本满足要求。
+
 在仓库根目录执行：
 
 ```powershell
@@ -70,6 +72,16 @@ MCP 接入和 Skill 加载是两个步骤：
 ```text
 ELECTRON_DEBUG_MAIN_URL=<agent-provided-loopback-endpoint>
 ELECTRON_DEBUG_CDP_URL=<agent-provided-loopback-endpoint>
+```
+
+可选的运行时保护参数如下；不提供时使用项目内置安全上限：
+
+```text
+ELECTRON_DEBUG_REQUEST_TIMEOUT_MS=<optional-request-timeout>
+ELECTRON_DEBUG_DISCOVERY_TIMEOUT_MS=<optional-discovery-timeout>
+ELECTRON_DEBUG_MAX_LOG_EVENTS=<optional-event-limit>
+ELECTRON_DEBUG_MAX_LOG_BYTES=<optional-byte-limit>
+ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES=<optional-protocol-message-limit>
 ```
 
 如果没有通过环境变量配置，Agent 可以在调用 `electron_attach` 时直接传入本次诊断使用的 endpoint。项目不提供默认端口，也不会扫描端口。

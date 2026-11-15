@@ -111,12 +111,12 @@ GET ${ELECTRON_DEBUG_MAIN_URL}/json/list
 GET ${ELECTRON_DEBUG_CDP_URL}/json/list
 ```
 
-渲染进程从 `type=page` 的 targets 中选择当前窗口。选择优先级：
+渲染进程从 discovery 返回的 `type=page` targets 中选择当前窗口；对外返回发现到的 page targets，只有带有 `webSocketDebuggerUrl` 的 target 才能建立诊断 Session。选择优先级：
 
 1. 显式 target id。
 2. 完整 URL 匹配。
 3. 标题匹配。
-4. 只有单个可用 page target 时自动选择；多个候选时要求 Agent 提供选择条件。
+4. 只有单个可连接 page target 时自动选择；多个可连接候选时要求 Agent 提供选择条件。
 
 ## 4. 协议能力
 
@@ -205,6 +205,7 @@ MCP 工具的 `ok` 只表示本次工具调用是否成功，不表示用户代�
 - 日志和异常必须有大小上限并经过可序列化处理；未来实现表达式后，其结果也必须遵守同样限制。
 - stdout 只用于 MCP 协议，诊断日志写 stderr。
 - discovery、WebSocket 建连和单次协议请求都必须有有限超时；一次工具调用不得等待无限期网络操作。
+- WebSocket 单条协议消息必须有大小上限，不能只依赖事件缓存限制。
 - 断线、target 销毁和协议错误必须转换为结构化工具结果。
 
 ## 8. 技术栈
