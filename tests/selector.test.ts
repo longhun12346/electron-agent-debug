@@ -23,7 +23,7 @@ function codeOf(callback: () => unknown): string {
 }
 
 test("selects the only page automatically", () => {
-  assert.equal(selectTarget([page("one", "One")], {}).id, "one");
+  assert.equal(selectTarget([page("one", "One")], {})?.id, "one");
 });
 
 test("requires an explicit selector for multiple pages", () => {
@@ -46,7 +46,7 @@ test("ignores page targets without a debugger WebSocket", () => {
     title: "Unavailable",
     url: "http://127.0.0.1/unavailable",
   };
-  assert.equal(selectTarget([unavailable, page("available", "Available")], {}).id, "available");
+  assert.equal(selectTarget([unavailable, page("available", "Available")], {})?.id, "available");
   assert.equal(codeOf(() => selectTarget([unavailable], {})), "TARGET_NOT_FOUND");
 });
 
@@ -62,3 +62,34 @@ test("explains when an explicitly selected page is not attachable", () => {
     "TARGET_NOT_FOUND",
   );
 });
+
+for (const field of ["url", "title"] as const) {
+  test(`requires targetId when multiple connectable windows share ${field}`, () => {
+    const first = page("first", "Shared");
+    const second = { ...page("second", "Shared"), url: first.url };
+    assert.equal(
+      codeOf(() => selectTarget([first, second], { [field]: first[field] })),
+      "TARGET_SELECTION_REQUIRED",
+    );
+    assert.equal(
+      selectTarget([first, second], { targetId: "second", [field]: first[field] })?.id,
+      "second",
+    );
+  });
+
+  test(`ignores unconnectable ${field} matches when there is one connectable match`, () => {
+    const available = page("available", "Shared");
+    const unavailable = { ...available, id: "unavailable", webSocketDebuggerUrl: undefined };
+    assert.equal(
+      selectTarget([unavailable, available], { [field]: available[field] })?.id,
+      "available",
+    );
+  });
+
+  test(`returns not found for a missing explicit ${field}`, () => {
+    assert.equal(
+      codeOf(() => selectTarget([page("one", "One")], { [field]: "missing" })),
+      "TARGET_NOT_FOUND",
+    );
+  });
+}

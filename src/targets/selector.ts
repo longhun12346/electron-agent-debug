@@ -30,29 +30,43 @@ export function selectTarget(targets: TargetInfo[], selector: TargetSelector): T
     });
   }
   if (selector.url) {
-    const page = allPages.find((target) => target.url === selector.url);
-    if (page && page.webSocketDebuggerUrl === undefined) {
+    const matches = allPages.filter((target) => target.url === selector.url);
+    const available = matches.filter((target) => target.webSocketDebuggerUrl !== undefined);
+    if (available.length > 1) {
+      throw new DiagnosticException(
+        "TARGET_SELECTION_REQUIRED",
+        "多个可连接 page target 匹配 URL，请提供 targetId",
+        { details: { selector: "url", count: available.length } },
+      );
+    }
+    if (available.length === 1) {
+      return available[0];
+    }
+    if (matches.length > 0) {
       throw new DiagnosticException("TARGET_NOT_FOUND", "指定的 target 没有可连接的 WebSocket 地址", {
         retryable: true,
         details: { selector: "url" },
       });
     }
-    const exact = pages.find((target) => target.url === selector.url);
-    if (exact) {
-      return exact;
-    }
   }
   if (selector.title) {
-    const page = allPages.find((target) => target.title === selector.title);
-    if (page && page.webSocketDebuggerUrl === undefined) {
+    const matches = allPages.filter((target) => target.title === selector.title);
+    const available = matches.filter((target) => target.webSocketDebuggerUrl !== undefined);
+    if (available.length > 1) {
+      throw new DiagnosticException(
+        "TARGET_SELECTION_REQUIRED",
+        "多个可连接 page target 匹配标题，请提供 targetId",
+        { details: { selector: "title", count: available.length } },
+      );
+    }
+    if (available.length === 1) {
+      return available[0];
+    }
+    if (matches.length > 0) {
       throw new DiagnosticException("TARGET_NOT_FOUND", "指定的 target 没有可连接的 WebSocket 地址", {
         retryable: true,
         details: { selector: "title" },
       });
-    }
-    const exact = pages.find((target) => target.title === selector.title);
-    if (exact) {
-      return exact;
     }
   }
   if (hasSelector) {

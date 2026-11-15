@@ -88,14 +88,12 @@ async function runBuild(root) {
 }
 
 async function ensureCurrentBuild() {
-  const entry = path.join(currentRoot, "dist", "index.js");
-  const existing = await fs.stat(entry).catch(() => undefined);
-  if (existing?.isFile()) {
-    return { built: false, output: "" };
-  }
-
-  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-  const result = await runCommand(npmCommand, ["run", "build"], currentRoot, process.env);
+  const compiler = path.join(currentRoot, "node_modules", "typescript", "bin", "tsc");
+  await ensureFile(compiler, "当前 MCP TypeScript 编译器（先执行 npm ci）");
+  const result = await runCommand(
+    process.execPath, [compiler, "-p", path.join(currentRoot, "tsconfig.json")],
+    currentRoot, process.env,
+  );
   if (result.code !== 0) {
     throw new Error(`当前 MCP 构建失败：${result.code ?? result.signal}\n${result.output}`);
   }

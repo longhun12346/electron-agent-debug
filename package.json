@@ -21,7 +21,7 @@
     "dev": "tsx src/index.ts",
     "test": "npm run build && tsx --test tests/*.test.ts",
     "test:e2e:external": "node examples/external-e2e/electron-vite-react-smoke.mjs",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.check.json"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.4.0",

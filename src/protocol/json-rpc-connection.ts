@@ -19,14 +19,8 @@ interface PendingRequest {
   timer: NodeJS.Timeout;
 }
 
-interface JsonRpcResponse {
-  id?: number;
-  result?: unknown;
-  error?: {
-    code?: number;
-    message?: string;
-    data?: unknown;
-  };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export class JsonRpcConnection {
@@ -161,26 +155,47 @@ export class JsonRpcConnection {
   }
 
   private handleMessage(raw: string): void {
-    let message: JsonRpcResponse | JsonRpcEvent;
+    let message: unknown;
     try {
-      message = JSON.parse(raw) as JsonRpcResponse | JsonRpcEvent;
+      message = JSON.parse(raw) as unknown;
     } catch {
       this.options.onEvent?.({ method: "protocolError", params: { message: "无效 JSON" } });
       return;
     }
 
-    if ("id" in message && typeof message.id === "number") {
+    if (!isRecord(message)) {
+      this.protocolError("协议消息必须是对象");
+      return;
+    }
+
+    if ("id" in message) {
+      const hasResult = "result" in message;
+      const hasError = "error" in message;
+      if (
+        typeof message.id !== "number" ||
+        !Number.isSafeInteger(message.id) ||
+        hasResult === hasError ||
+        (hasError && (
+          !isRecord(message.error) ||
+          typeof message.error.code !== "number" ||
+          !Number.isInteger(message.error.code) ||
+          typeof message.error.message !== "string"
+        ))
+      ) {
+        this.protocolError("协议响应格式无效");
+        return;
+      }
       const pending = this.pending.get(message.id);
       if (!pending) {
         return;
       }
       this.pending.delete(message.id);
       clearTimeout(pending.timer);
-      if (message.error) {
+      if (hasError && isRecord(message.error)) {
         pending.reject(
           new DiagnosticException(
             "PROTOCOL_ERROR",
-            message.error.message ?? "远端协议请求失败",
+            message.error.message as string,
             {
               details: {
                 code: message.error.code,
@@ -197,7 +212,13 @@ export class JsonRpcConnection {
 
     if ("method" in message && typeof message.method === "string") {
       this.options.onEvent?.({ method: message.method, params: message.params });
+      return;
     }
+    this.protocolError("协议事件格式无效");
+  }
+
+  private protocolError(message: string): void {
+    this.options.onEvent?.({ method: "protocolError", params: { message } });
   }
 
   private rejectPending(error: DiagnosticException): void {

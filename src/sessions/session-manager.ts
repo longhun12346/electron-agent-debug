@@ -224,8 +224,8 @@ export class SessionManager {
   } {
     const clear = input.clear === true;
     const events = [
-      ...this.main.events.list({ ...input, process: "main" }),
-      ...this.renderer.events.list({ ...input, process: "renderer" }),
+      ...(input.process === "renderer" ? [] : this.main.events.list(input)),
+      ...(input.process === "main" ? [] : this.renderer.events.list(input)),
     ]
       .sort((left, right) => left.observedAt.localeCompare(right.observedAt))
       .slice(-(input.limit ?? 100));

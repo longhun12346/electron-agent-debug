@@ -187,7 +187,12 @@ export class DiagnosticSession {
       await connection.connect(websocketUrl);
       this.connection = connection;
       this.websocketUrl = websocketUrl;
-      await this.enableCoreDomains();
+      await this.enableCoreDomains(connection);
+      if (this.connection !== connection || !connection.isOpen) {
+        throw new DiagnosticException("SESSION_DISCONNECTED", "协议域初始化期间连接已断开", {
+          retryable: true,
+        });
+      }
       this.status = "online";
       this.error = undefined;
       this.lastConnectedAt = new Date().toISOString();
@@ -230,7 +235,7 @@ export class DiagnosticSession {
   snapshot(): SessionSnapshot {
     return {
       configured: this.endpoint !== undefined,
-      online: this.status === "online",
+      online: this.status === "online" && this.isConnected,
       status: this.status,
       endpoint: this.endpoint?.url,
       endpointSource: this.endpoint?.source,
@@ -243,18 +248,17 @@ export class DiagnosticSession {
     };
   }
 
-  private async enableCoreDomains(): Promise<void> {
-    if (!this.connection) {
-      throw new DiagnosticException("SESSION_DISCONNECTED", "Session 尚未建立");
-    }
-
+  private async enableCoreDomains(connection: JsonRpcConnection): Promise<void> {
     const domains = this.options.process === "renderer"
       ? ["Runtime.enable", "Log.enable"]
       : ["Runtime.enable"];
     for (const method of domains) {
       try {
-        await this.connection.request(method);
+        await connection.request(method);
       } catch (error) {
+        if (!connection.isOpen) {
+          throw error;
+        }
         this.events.add({
           process: this.options.process,
           targetId: this.selectedTarget?.id,

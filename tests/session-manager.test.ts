@@ -19,6 +19,8 @@ interface MockDebugger {
 
 interface MockDebuggerOptions {
   discoveryDelayMs?: number;
+  closeOnMethod?: string;
+  rejectMethod?: string;
 }
 
 async function startMockDebugger(
@@ -36,9 +38,15 @@ async function startMockDebugger(
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
     socket.on("message", (raw) => {
-      const message = JSON.parse(raw.toString()) as { id?: number };
+      const message = JSON.parse(raw.toString()) as { id?: number; method?: string };
+      if (message.method === options.closeOnMethod) {
+        socket.close(1000, "closed during domain setup");
+        return;
+      }
       if (message.id !== undefined) {
-        socket.send(JSON.stringify({ id: message.id, result: { ok: true } }));
+        socket.send(JSON.stringify(message.method === options.rejectMethod
+          ? { id: message.id, error: { code: -32601, message: "unsupported method" } }
+          : { id: message.id, result: { ok: true } }));
       }
     });
   });
@@ -105,6 +113,122 @@ function runtimeConfig(mainUrl?: string, rendererUrl?: string): RuntimeConfig {
     maxProtocolMessageBytes: 100_000,
   };
 }
+
+for (const scope of ["main", "renderer", "all", undefined] as const) {
+  test(`filters manager logs for ${scope ?? "default"} before applying limit`, () => {
+    const manager = new SessionManager(runtimeConfig());
+    for (const [process, message, observedAt, level] of [
+      ["main", "old-main", "2026-01-01T00:00:00.000Z", "error"],
+      ["main", "new-main", "2026-01-01T00:00:01.000Z", "error"],
+      ["renderer", "renderer-error", "2026-01-01T00:00:02.000Z", "error"],
+      ["renderer", "renderer-log", "2026-01-01T00:00:03.000Z", "log"],
+    ] as const) {
+      manager[process].events.add({ process, message, observedAt, level, kind: "console" });
+    }
+    const events = manager.logs({
+      process: scope,
+      level: "error",
+      since: "2026-01-01T00:00:01.000Z",
+      limit: 1,
+    }).events;
+    assert.deepEqual(events.map((event) => event.message),
+      scope === "main" ? ["new-main"] : ["renderer-error"]);
+  });
+
+  test(`clears only requested log scope ${scope ?? "default"}`, () => {
+    const manager = new SessionManager(runtimeConfig());
+    for (const process of ["main", "renderer"] as const) {
+      manager[process].events.add({
+        process, message: process, observedAt: "2026-01-01T00:00:00.000Z",
+        level: "log", kind: "console",
+      });
+    }
+    const result = manager.logs({ process: scope, clear: true });
+    assert.equal(result.cleared, true);
+    assert.deepEqual(result.events.map((event) => event.process),
+      scope && scope !== "all" ? [scope] : ["main", "renderer"]);
+    assert.equal(manager.main.events.size, scope === "renderer" ? 1 : 0);
+    assert.equal(manager.renderer.events.size, scope === "main" ? 1 : 0);
+  });
+}
+
+for (const failingProcess of ["main", "renderer"] as const) {
+  test(`does not report ${failingProcess} online after disconnect during domain setup`, async () => {
+    const main = await startMockDebugger(
+      [{ id: "main", type: "node", title: "Main", url: "" }],
+      failingProcess === "main" ? { closeOnMethod: "Runtime.enable" } : {},
+    );
+    const renderer = await startMockDebugger(
+      [{ id: "window-a", type: "page", title: "A", url: "app://a" }],
+      failingProcess === "renderer" ? { closeOnMethod: "Runtime.enable" } : {},
+    );
+    const manager = new SessionManager(runtimeConfig());
+    try {
+      const attached = await manager.attach({ mainUrl: main.endpoint, rendererUrl: renderer.endpoint });
+      assert.equal(attached.ok, true);
+      if (!attached.ok) return;
+      assert.equal(attached.data[failingProcess].online, false);
+      assert.equal(attached.data[failingProcess].status, "offline");
+      assert.equal(manager[failingProcess].isConnected, false);
+      assert.ok(attached.data.errors.length > 0);
+      const otherProcess = failingProcess === "main" ? "renderer" : "main";
+      assert.equal(attached.data[otherProcess].online, true);
+    } finally {
+      await manager.close();
+      await Promise.all([main.close(), renderer.close()]);
+    }
+  });
+}
+
+test("renderer disconnect during Log.enable cannot report online", async () => {
+  const renderer = await startMockDebugger(
+    [{ id: "window-a", type: "page", title: "A", url: "app://a" }],
+    { closeOnMethod: "Log.enable" },
+  );
+  const manager = new SessionManager(runtimeConfig());
+  try {
+    const result = await manager.attach({ rendererUrl: renderer.endpoint });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.data.renderer.status, "offline");
+    assert.equal(result.data.renderer.online, false);
+    assert.equal(result.data.selectedTarget, undefined);
+    assert.ok(result.data.errors.length > 0);
+  } finally {
+    await manager.close();
+    await renderer.close();
+  }
+});
+
+test("unsupported optional renderer domain records a warning and preserves live Runtime", async () => {
+  const renderer = await startMockDebugger(
+    [{ id: "window-a", type: "page", title: "A", url: "app://a" }],
+    { rejectMethod: "Log.enable" },
+  );
+  const manager = new SessionManager(runtimeConfig());
+  try {
+    const result = await manager.attach({ rendererUrl: renderer.endpoint });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.data.renderer.online, true);
+    assert.equal(manager.renderer.isConnected, true);
+    assert.ok(manager.logs({ process: "renderer" }).events.some((event) =>
+      event.kind === "protocol" && event.level === "warn" && event.message.includes("Log.enable")));
+  } finally {
+    await manager.close();
+    await renderer.close();
+  }
+});
+
+test("invalid log timestamp cannot clear existing evidence", () => {
+  const manager = new SessionManager(runtimeConfig());
+  manager.main.events.add({
+    process: "main", observedAt: "2026-01-01T00:00:00.000Z",
+    kind: "console", message: "retained",
+  });
+  assert.throws(() => manager.logs({ since: "invalid", clear: true }), /since/u);
+  assert.equal(manager.main.events.size, 1);
+});
 
 test("attaches both sessions, selects a page, and collects events", async () => {
   const main = await startMockDebugger([{ id: "main", type: "node", title: "main", url: "" }]);
