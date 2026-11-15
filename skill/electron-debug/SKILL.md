@@ -1,6 +1,7 @@
 ---
 name: electron-debug
 description: Diagnose a running local Electron application after code changes by attaching to Node Inspector and Chromium DevTools Protocol endpoints, then collecting status, targets, and logs for Agent-led verification. Use when runtime evidence is needed from an Electron project; this skill does not start or control the application.
+license: MIT
 ---
 
 # Electron Debug Skill
