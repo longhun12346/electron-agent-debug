@@ -25,8 +25,11 @@
 ```powershell
 $env:ELECTRON_E2E_PROJECT_ROOT = "D:\workspace\github\electron-vite-react-e2e"
 $env:ELECTRON_E2E_ELECTRON = "D:\workspace\github\electron-agent-debug\examples\fixture\node_modules\electron\dist\electron.exe"
+npm run build
 npm run test:e2e:external
 ```
+
+脚本会检查当前 MCP 的 `dist/index.js`；如果构建产物不存在，会自动执行一次 `npm run build`。外部项目仍然必须由调用者提前准备依赖。
 
 `ELECTRON_E2E_ELECTRON` 是测试使用的 Electron 可执行文件；正式 CI 应该指向外部项目声明的 Electron 版本。当前本地快照因为依赖安装脚本没有下载 Electron 二进制，使用 fixture 中已有的可执行文件完成协议链路验收。
 

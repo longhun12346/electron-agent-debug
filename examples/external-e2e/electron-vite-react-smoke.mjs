@@ -87,6 +87,21 @@ async function runBuild(root) {
   return { skipped: false, ...result };
 }
 
+async function ensureCurrentBuild() {
+  const entry = path.join(currentRoot, "dist", "index.js");
+  const existing = await fs.stat(entry).catch(() => undefined);
+  if (existing?.isFile()) {
+    return { built: false, output: "" };
+  }
+
+  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  const result = await runCommand(npmCommand, ["run", "build"], currentRoot, process.env);
+  if (result.code !== 0) {
+    throw new Error(`当前 MCP 构建失败：${result.code ?? result.signal}\n${result.output}`);
+  }
+  return { built: true, output: result.output };
+}
+
 async function waitForDiscovery(port, label, hasExpectedTarget) {
   const url = `http://127.0.0.1:${port}/json/list`;
   const deadline = Date.now() + 30_000;
@@ -221,6 +236,7 @@ const root = requireProjectRoot();
 await ensureDirectory(root, "外部项目目录");
 await ensureDirectory(path.join(root, "node_modules"), "外部项目依赖目录");
 await ensureDirectory(currentRoot, "当前项目目录");
+const currentMcpBuild = await ensureCurrentBuild();
 
 if (!electronPath) {
   throw new Error("请提供 ELECTRON_E2E_ELECTRON");
@@ -261,6 +277,7 @@ const client = new McpClient(currentRoot, {
 
 const result = {
   projectRoot: root,
+  currentMcpBuild,
   mainPort,
   rendererPort,
   build,

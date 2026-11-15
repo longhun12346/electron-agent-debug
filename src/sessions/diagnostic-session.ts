@@ -16,6 +16,7 @@ export interface SessionOptions {
   maxProtocolMessageBytes: number;
   maxLogEvents: number;
   maxLogBytes: number;
+  onDisconnected?: () => void;
 }
 
 function stringifyValue(value: unknown): string {
@@ -294,5 +295,6 @@ export class DiagnosticSession {
       level: "error",
       message: reason,
     });
+    this.options.onDisconnected?.();
   }
 }

@@ -386,6 +386,7 @@ test("clears the selected target when the renderer session disconnects", async (
     const status = manager.status();
     assert.equal(status.renderer.status, "offline");
     assert.equal(status.renderer.selectedTarget, undefined);
+    assert.deepEqual(status.targets, []);
   } finally {
     await renderer.close();
   }

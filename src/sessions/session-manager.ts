@@ -42,6 +42,9 @@ export class SessionManager {
       maxProtocolMessageBytes: config.maxProtocolMessageBytes,
       maxLogEvents: config.maxLogEvents,
       maxLogBytes: config.maxLogBytes,
+      onDisconnected: () => {
+        this.rendererTargets = [];
+      },
     });
   }
 

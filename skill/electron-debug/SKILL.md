@@ -159,8 +159,8 @@ electron --inspect=<agent-chosen-main-port> --remote-debugging-port=<agent-chose
 Agent 使用项目已有命令或回归步骤验证预期行为，例如：
 
 - `npm test`
-- `npm run typecheck`
-- `pnpm test:e2e`
+- `npm run lint`
+- 项目已有的 E2E 命令（例如 `npm run test:e2e`）
 - 项目文档中规定的启动、点击、输入或 IPC 流程
 
 MCP Server 不替 Agent 执行业务操作，也不把“连接成功”当成业务验证成功。
