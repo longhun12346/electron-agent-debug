@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -78,12 +78,18 @@ test("archived Skill works in isolated project and global installation layouts",
     }
     await validateReferences(installed);
     assert.ok(sourceFiles.includes("VERSION.md"));
+    // Exercise filesystem aliases too: macOS resolves /var to /private/var.
+    let runtimeRoot = installed;
+    if (layout.startsWith("isolated-global")) {
+      runtimeRoot = path.join(temporary, "global installation alias");
+      await symlink(installed, runtimeRoot, process.platform === "win32" ? "junction" : "dir");
+    }
     const audit = path.join(temporary, `audit-${layout.startsWith("project") ? "project" : "global"}`);
     const client = new McpProcess({
-      entry: path.join(installed, "runtime/launch.cjs"), cwd: installed,
+      entry: path.join(runtimeRoot, "runtime/launch.cjs"), cwd: runtimeRoot,
       nodeArgs: ["--require", path.join(root, "tests/helpers/isolated-runtime-guard.cjs")],
       env: {
-        NODE_PATH: "", NODE_OPTIONS: "", ISOLATED_SKILL_ROOT: installed, ISOLATED_AUDIT_FILE: audit,
+        NODE_PATH: "", NODE_OPTIONS: "", ISOLATED_SKILL_ROOT: runtimeRoot, ISOLATED_AUDIT_FILE: audit,
       },
     });
     try {
