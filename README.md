@@ -18,6 +18,22 @@ GitHub 仓库是 Skill、MCP Server 源码和文档的权威分发来源。Agent
 
 Skill 可以全局安装供多个 Electron 项目使用，也可以作为项目级规则随单个项目使用。全局目录、项目级目录和加载方式由 Agent 宿主决定；两种安装方式都不会自动注册 MCP。
 
+## 安装 Skill
+
+使用支持 Agent Skills 的宿主时，可以从 GitHub 直接安装项目级 Skill：
+
+```powershell
+npx skills add longhun12346/electron-agent-debug --skill electron-debug
+```
+
+希望在多个项目中复用时，可以安装到全局 Skill 目录：
+
+```powershell
+npx skills add longhun12346/electron-agent-debug --skill electron-debug --global
+```
+
+Skill 安装只负责让 Agent 能加载诊断流程，不会自动配置或启动 MCP Server。MCP 配置、Electron 应用启动和 endpoint 准备仍由 Agent 根据当前宿主和项目完成。
+
 核心 MCP 工具只有四个：`electron_attach`、`electron_status`、`electron_targets` 和 `electron_logs`。当前版本不提供截图、表达式执行、DOM 操作或断点调试；这些能力由 Agent 使用项目已有测试或其他工具完成。
 
 ## 适用场景
