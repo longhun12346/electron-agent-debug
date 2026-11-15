@@ -1,15 +1,10 @@
 # Source
 
-第一阶段实现一个 attach-only Electron 诊断适配层，核心公开 4 个 MCP 工具：
+这里是 attach-only Electron 诊断适配层的 TypeScript 源码。当前公开且已实现的 MCP 工具只有：
 
 - `electron_attach`
 - `electron_status`
 - `electron_targets`
 - `electron_logs`
 
-可选扩展工具：
-
-- `renderer_screenshot`
-- `electron_evaluate`
-
-截图和 evaluate 不属于核心诊断链路，只有在真实验证需要时才实现。重连、target 重新发现和事件缓存属于内部能力。
+截图、evaluate、DOM 操作、断点和应用生命周期控制当前都未实现，也不属于核心验收前提。重连、target 重新发现和事件缓存属于内部能力。

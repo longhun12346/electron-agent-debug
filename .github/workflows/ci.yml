@@ -44,6 +44,8 @@ jobs:
           node --check examples/fixture/smoke.mjs
           node --check examples/fixture/mcp-smoke.mjs
           node --check examples/fixture/ci-smoke.mjs
+          node --check examples/fixture/blocked-smoke.mjs
+          node --check examples/external-e2e/electron-vite-react-smoke.mjs
 
       - name: Install fixture dependencies
         run: npm ci --prefix examples/fixture

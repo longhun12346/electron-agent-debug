@@ -32,7 +32,7 @@ node mcp-smoke.mjs
 
 脚本会自行启动 fixture 和 MCP Server，并输出 attach、status 和 logs 的结果。MCP Server 只连接脚本提供的 endpoint，不负责猜测入口或扫描端口。
 
-要一次验证默认态、主进程窗口故障、renderer 故障和 IPC 故障，可以运行：
+要一次验证默认态、主进程窗口故障、renderer 故障、IPC 故障和缺少 endpoint 的 `BLOCKED` 场景，可以运行：
 
 ```powershell
 node ci-smoke.mjs
@@ -47,6 +47,7 @@ node ci-smoke.mjs
 - `main-window`：主进程窗口创建失败。
 - `renderer`：renderer 报告运行时异常。
 - `ipc`：IPC handler 调用失败。
+- `blocked-smoke.mjs`：没有提供 endpoint 时返回结构化前提错误，由 Agent 判断为 `BLOCKED`。
 
 例如在 PowerShell 中：
 

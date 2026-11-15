@@ -20,9 +20,13 @@
 
 应用必须由测试脚本启动，并开放主进程 Inspector 和渲染进程 CDP。MCP Server 本身不负责启动或停止 fixture。
 
-截图和 evaluate 只作为可选扩展验证；fixture 的核心验收应先依赖 attach、status、targets 和 logs 收集运行时事实，再由测试脚本或 Agent 根据预期行为判断故障态和修复态。
+fixture 的核心验收依赖 attach、status、targets 和 logs 收集运行时事实，再由测试脚本或 Agent 根据预期行为判断故障态和修复态。DOM、截图、业务交互和断点不属于当前 MCP fixture 的核心范围。
 
 `fixture/` 提供最小 Electron 应用。启动时由 Agent 或测试脚本自行注入 Inspector/CDP 参数。
+
+## 外部项目验收
+
+真实的 `electron-vite/electron-vite-react` 双通道验收脚本见 [external-e2e](external-e2e/README.md)。它是 opt-in 测试，不属于默认测试，也不会把外部项目依赖加入当前 MCP Server。
 
 可通过 `FIXTURE_FAULT=main-window`、`FIXTURE_FAULT=renderer` 或 `FIXTURE_FAULT=ipc` 选择故障态。故障开关只属于 fixture 验证，不是 MCP Server 的配置。
 

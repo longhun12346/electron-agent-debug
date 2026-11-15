@@ -133,7 +133,7 @@
 
 采用“自建薄适配层 + 借鉴社区设计”的方案：
 
-- 核心公开工具固定为 4 个，截图和 evaluate 只作为可选扩展。
+- 核心公开工具固定为 4 个，截图和 evaluate 仅作为未来候选扩展，不属于当前实现。
 - 只 attach 已运行的本地 Electron。
 - 主进程和 renderer 各使用一个 Session。
 - reconnect、target 重新发现和缓存作为内部能力。

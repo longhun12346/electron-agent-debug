@@ -87,6 +87,7 @@ function eventFromProtocol(process: ProcessScope, event: JsonRpcEvent): Diagnost
 
 export class DiagnosticSession {
   private connection?: JsonRpcConnection;
+  private websocketUrl?: string;
   private endpoint?: EndpointConfig;
   private selectedTarget?: TargetInfo;
   private status: PublicSessionStatus = "unconfigured";
@@ -109,20 +110,26 @@ export class DiagnosticSession {
   }
 
   setEndpoint(endpoint: EndpointConfig | undefined): void {
+    const changed = this.endpoint?.url !== endpoint?.url;
     this.endpoint = endpoint;
     if (!endpoint) {
       this.status = "unconfigured";
       this.error = undefined;
       this.selectedTarget = undefined;
-    } else {
+      this.websocketUrl = undefined;
+    } else if (changed || !this.isConnected) {
       this.status = "offline";
+      this.error = undefined;
+      if (changed) {
+        this.selectedTarget = undefined;
+        this.websocketUrl = undefined;
+      }
     }
   }
 
-  setDiscoveryOnline(endpoint: EndpointConfig): void {
-    this.endpoint = endpoint;
-    this.status = "online";
-    this.error = undefined;
+  setError(error: ReturnType<typeof toDiagnosticError>): void {
+    this.error = error;
+    this.status = this.endpoint ? "offline" : "unconfigured";
   }
 
   clearTargetSelection(): void {
@@ -133,8 +140,12 @@ export class DiagnosticSession {
     if (
       this.connection?.isOpen &&
       this.endpoint?.url === endpoint.url &&
-      this.selectedTarget?.id === target?.id
+      this.selectedTarget?.id === target?.id &&
+      this.websocketUrl === websocketUrl
     ) {
+      this.endpoint = endpoint;
+      this.status = "online";
+      this.error = undefined;
       return;
     }
 
@@ -142,14 +153,16 @@ export class DiagnosticSession {
     this.endpoint = endpoint;
     this.selectedTarget = target;
 
-    const connection = new JsonRpcConnection({
+    let connection!: JsonRpcConnection;
+    connection = new JsonRpcConnection({
       requestTimeoutMs: this.options.requestTimeoutMs,
       onEvent: (event) => this.handleEvent(event),
-      onClose: (reason) => this.handleClose(reason),
+      onClose: (reason) => this.handleClose(connection, reason),
     });
     try {
       await connection.connect(websocketUrl);
       this.connection = connection;
+      this.websocketUrl = websocketUrl;
       await this.enableCoreDomains();
       this.status = "online";
       this.error = undefined;
@@ -165,6 +178,8 @@ export class DiagnosticSession {
     } catch (error) {
       await connection.close();
       this.connection = undefined;
+      this.websocketUrl = undefined;
+      this.selectedTarget = undefined;
       this.status = "offline";
       this.error = toDiagnosticError(error, "SESSION_DISCONNECTED");
       this.lastDisconnectedAt = new Date().toISOString();
@@ -176,8 +191,10 @@ export class DiagnosticSession {
   async close(reason = "Session closed"): Promise<void> {
     const connection = this.connection;
     this.connection = undefined;
+    this.websocketUrl = undefined;
     this.selectedTarget = undefined;
     if (!connection) {
+      this.status = this.endpoint ? "offline" : "unconfigured";
       return;
     }
     await connection.close();
@@ -235,14 +252,20 @@ export class DiagnosticSession {
     }
   }
 
-  private handleClose(reason: string): void {
+  private handleClose(connection: JsonRpcConnection, reason: string): void {
+    if (this.connection !== connection) {
+      return;
+    }
+    const targetId = this.selectedTarget?.id;
     this.connection = undefined;
+    this.websocketUrl = undefined;
+    this.selectedTarget = undefined;
     this.status = this.endpoint ? "offline" : "unconfigured";
     this.lastDisconnectedAt = new Date().toISOString();
     this.lastDisconnectReason = reason;
     this.events.add({
       process: this.options.process,
-      targetId: this.selectedTarget?.id,
+      targetId,
       observedAt: new Date().toISOString(),
       kind: "connection",
       level: "error",

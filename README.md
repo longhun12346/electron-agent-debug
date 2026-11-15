@@ -14,7 +14,11 @@
 1. 通过 stdio 暴露给 Agent 的轻量 MCP Server。
 2. 一个项目级 Electron Debug Skill，规定编码后的诊断顺序、工具选择和证据要求。
 
-核心 MCP 工具只有四个：`electron_attach`、`electron_status`、`electron_targets` 和 `electron_logs`。截图与 `electron_evaluate` 只有在核心证据不足时才按需加入。
+GitHub 仓库是 Skill、MCP Server 源码和文档的权威分发来源。Agent 需要自行从当前仓库加载 Skill，并把构建后的 MCP Server 配置到当前宿主；仓库内容不会自动修改宿主配置。
+
+Skill 可以全局安装供多个 Electron 项目使用，也可以作为项目级规则随单个项目使用。全局目录、项目级目录和加载方式由 Agent 宿主决定；两种安装方式都不会自动注册 MCP。
+
+核心 MCP 工具只有四个：`electron_attach`、`electron_status`、`electron_targets` 和 `electron_logs`。当前版本不提供截图、表达式执行、DOM 操作或断点调试；这些能力由 Agent 使用项目已有测试或其他工具完成。
 
 ## 适用场景
 
@@ -32,7 +36,7 @@ Agent 可以使用本项目完成：
 - 主进程和渲染进程日志收集。
 - 当前窗口 target 选择和重新发现。
 - 修复后的 reload、连接恢复和状态检查。
-- 按需使用可选的截图或 evaluate 扩展。
+- 为 Agent 判断 `PASS`、`FAIL` 或 `BLOCKED` 提供结构化运行时证据。
 
 ## 设计边界
 
@@ -41,20 +45,20 @@ Agent 可以使用本项目完成：
 - 不负责启动、停止、打包或发布 Electron 应用。
 - 不提供通用桌面自动化、完整网络录制、性能分析、heap snapshot 或 HAR 导出。
 - 不以替代 VS Code 源码级断点和单步调试为目标。
-- 截图和主进程/渲染进程表达式执行属于可选扩展，默认关闭。
+- 不提供截图、表达式执行、DOM 操作、业务自动化或源码级断点调试。
 
 ## Agent 使用诊断流程
 
 当 Agent 需要验证 Electron 修改时，Skill 指导它执行以下流程；项目不监听文件保存，也不自动启动验证：
 
-1. 根据修改文件和用户问题判断主进程、渲染进程或双进程范围。
-2. 调用 `electron_attach`，确认本次诊断所需的调试通道；未提供的通道保持未配置。
-3. 调用 `electron_status` 和 `electron_logs` 建立修改前后的运行时证据。
-4. 必要时调用 `electron_targets` 选择目标窗口。
-5. 只有核心状态、target 和日志不足时，才按需启用截图或 evaluate 扩展。
+1. Agent 配置并验证 MCP Server，加载本项目 Skill。
+2. 根据修改文件和用户问题判断主进程、渲染进程或双进程范围。
+3. 调用 `electron_attach`，确认本次诊断所需的调试通道；未提供的通道保持未配置。
+4. 调用 `electron_status`、`electron_targets` 和 `electron_logs` 建立修改前后的运行时证据。
+5. 使用项目已有测试或其他 Agent 工具完成 DOM、业务操作和视觉验证。
 6. 根据修改范围执行 Electron 重启或当前 target reload。
-7. 重新读取状态和日志；只有视觉问题或证据不足时才按需截图。
-8. 由 Agent 结合用户目标和 MCP 返回的观察结果完成自己的判断和报告。
+7. 重新读取状态、target 和日志；视觉、DOM 和业务交互由项目已有测试或其他 Agent 工具补充。
+8. 由 Agent 结合用户目标、项目回归结果和 MCP 返回的观察结果完成自己的判断和报告。
 
 ## 项目文档
 
@@ -78,4 +82,4 @@ npm run lint
 
 ## 开发状态
 
-当前阶段：核心 MCP Server、双 Session、契约测试、本地协议模拟测试和最小 Electron fixture 源码已实现；可选截图/evaluate 扩展仍按后续阶段实现。
+当前阶段：核心 MCP Server、双 Session、契约测试、本地协议模拟测试、最小 Electron fixture、Agent 调试 Skill 和外部 Electron 项目 opt-in E2E harness 已实现；项目保持 attach-only 轻量边界。

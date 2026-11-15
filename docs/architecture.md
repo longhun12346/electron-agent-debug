@@ -19,7 +19,7 @@ MCP 诊断适配层
       ▼
 状态、日志和异常
       │
-      └── 按需使用可选的表达式或截图扩展
+      └── 未来可按需增加表达式或截图扩展
       │
       ▼
 Agent 根据用户目标进行分析
@@ -71,7 +71,7 @@ SessionManager
     └── event buffer
 ```
 
-RendererSession 可以在已连接但尚未选定 target 的状态下存在；此时通道可以报告 target 列表，但依赖当前 target 的操作必须返回 `TARGET_SELECTION_REQUIRED` 或 `TARGET_NOT_FOUND`。
+Renderer discovery 可以在尚未选定 target 时返回 target 列表；当前实现只有在选定一个可连接的 page target 后才建立 RendererSession。没有唯一 target 时，renderer Session 保持 `offline`，并返回 `TARGET_SELECTION_REQUIRED` 或 `TARGET_NOT_FOUND`。
 
 每个请求带有递增 request id。响应通过 request id 与 Promise 对应。事件消息写入有上限的内存缓存，不阻塞工具调用。
 
@@ -164,12 +164,11 @@ GET ${ELECTRON_DEBUG_CDP_URL}/json/list
 - `TARGET_NOT_FOUND`
 - `TARGET_SELECTION_REQUIRED`
 - `SESSION_DISCONNECTED`
-- `EVALUATION_DISABLED`
-- `EVALUATION_TIMEOUT`
-- `OUTPUT_TOO_LARGE`
-- `OUTPUT_PATH_DENIED`
-- `OUTPUT_DIR_NOT_CONFIGURED`
 - `PROTOCOL_ERROR`
+
+未来实现 evaluate 或截图扩展时，才需要增加 `EVALUATION_DISABLED`、`EVALUATION_TIMEOUT`、
+`OUTPUT_PATH_DENIED` 和 `OUTPUT_DIR_NOT_CONFIGURED` 等扩展错误码。`OUTPUT_TOO_LARGE`
+当前只用于拒绝过大的 discovery 响应；日志事件使用 Session 自己的缓存上限。
 
 ## 6. Skill 与 MCP 的边界
 
@@ -201,9 +200,9 @@ MCP 工具的 `ok` 只表示本次工具调用是否成功，不表示用户代�
 
 - 只允许连接回环地址。
 - HTTP discovery 返回的 WebSocket 地址也必须重新校验。
-- 可选表达式执行默认关闭，并限制时间、并发和结果大小。
-- 可选截图的解析后路径必须位于 Agent 提供的输出目录内，并拒绝通过符号链接逃逸目录。
-- 日志、异常和表达式结果必须有大小上限并经过可序列化处理。
+- 如果未来实现表达式执行，默认关闭，并限制时间、并发和结果大小。
+- 如果未来实现截图，解析后的路径必须位于 Agent 提供的输出目录内，并拒绝通过符号链接逃逸目录。
+- 日志和异常必须有大小上限并经过可序列化处理；未来实现表达式后，其结果也必须遵守同样限制。
 - stdout 只用于 MCP 协议，诊断日志写 stderr。
 - discovery、WebSocket 建连和单次协议请求都必须有有限超时；一次工具调用不得等待无限期网络操作。
 - 断线、target 销毁和协议错误必须转换为结构化工具结果。

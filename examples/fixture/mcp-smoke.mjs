@@ -99,7 +99,37 @@ function structuredData(response, label) {
   return value.data;
 }
 
-function assertSmokeResults(attachData, statusData, logsData) {
+function expectedMessages(fault) {
+  return {
+    renderer: ["FIXTURE_RENDERER_FAILURE"],
+    ipc: ["FIXTURE_IPC_CALL_FAILURE", "FIXTURE_IPC_HANDLER_FAILURE"],
+  }[fault] ?? ["FIXTURE_RENDERER_READY"];
+}
+
+async function waitForExpectedLogs(client, fault, requestId) {
+  const expected = expectedMessages(fault);
+  const deadline = Date.now() + 5_000;
+  let response;
+  let data;
+
+  while (Date.now() < deadline) {
+    response = await client.request(requestId++, "tools/call", {
+      name: "electron_logs",
+      arguments: { process: "all", limit: 50 },
+    });
+    data = structuredData(response, "electron_logs");
+    if (data.events?.some((event) =>
+      expected.some((message) => event.message?.includes(message)),
+    )) {
+      return { response, data };
+    }
+    await delay(100);
+  }
+
+  return { response, data };
+}
+
+function assertSmokeResults(attachData, statusData, targetsData, logsData) {
   if (!attachData.main?.online) {
     throw new Error(`main session is not online: ${JSON.stringify(attachData.main)}`);
   }
@@ -124,16 +154,15 @@ function assertSmokeResults(attachData, statusData, logsData) {
   if (!statusData.renderer?.online || !statusData.selectedTarget) {
     throw new Error(`status does not report an online renderer target: ${JSON.stringify(statusData.renderer)}`);
   }
+  if (!targetsData.targets?.length || !targetsData.selectedTarget) {
+    throw new Error(`electron_targets did not select a renderer target: ${JSON.stringify(targetsData)}`);
+  }
 
-  const expectedMessages = {
-    renderer: ["FIXTURE_RENDERER_FAILURE"],
-    ipc: ["FIXTURE_IPC_CALL_FAILURE", "FIXTURE_IPC_HANDLER_FAILURE"],
-  }[fault] ?? ["FIXTURE_RENDERER_READY"];
   const evidence = logsData.events?.some((event) =>
-    expectedMessages.some((message) => event.message?.includes(message)),
+    expectedMessages(fault).some((message) => event.message?.includes(message)),
   );
   if (!evidence) {
-    throw new Error(`did not find expected fixture evidence: ${expectedMessages.join(" or ")}`);
+    throw new Error(`did not find expected fixture evidence: ${expectedMessages(fault).join(" or ")}`);
   }
 }
 
@@ -155,20 +184,21 @@ try {
       name: "electron_attach",
       arguments: {},
     });
-    await delay(750);
     const status = await client.request(3, "tools/call", {
       name: "electron_status",
       arguments: {},
     });
-    const logs = await client.request(4, "tools/call", {
-      name: "electron_logs",
-      arguments: { process: "all", limit: 50 },
+    const targets = await client.request(4, "tools/call", {
+      name: "electron_targets",
+      arguments: {},
     });
+    const logsResult = await waitForExpectedLogs(client, process.env.FIXTURE_FAULT || "", 5);
     const attachData = structuredData(attach, "electron_attach");
     const statusData = structuredData(status, "electron_status");
-    const logsData = structuredData(logs, "electron_logs");
-    assertSmokeResults(attachData, statusData, logsData);
-    console.log(JSON.stringify({ attach, status, logs }, null, 2));
+    const targetsData = structuredData(targets, "electron_targets");
+    const logsData = logsResult.data;
+    assertSmokeResults(attachData, statusData, targetsData, logsData);
+    console.log(JSON.stringify({ attach, status, targets, logs: logsResult.response }, null, 2));
   } finally {
     client.close();
   }

@@ -9,6 +9,7 @@ import type { TargetInfo } from "../src/types.js";
 interface MockDebugger {
   endpoint: string;
   broadcast(message: unknown): void;
+  setTargets(targets: Array<Pick<TargetInfo, "id" | "type" | "title" | "url">>): void;
   close(): Promise<void>;
 }
 
@@ -23,6 +24,7 @@ async function startMockDebugger(
   const httpServer = createServer();
   const wsServer = new WebSocketServer({ server: httpServer });
   const sockets = new Set<WebSocket>();
+  let currentTargets = targets;
 
   wsServer.on("connection", (socket) => {
     sockets.add(socket);
@@ -47,7 +49,7 @@ async function startMockDebugger(
       return;
     }
     const writeDiscovery = () => {
-      const body = targets.map((target) => ({
+      const body = currentTargets.map((target) => ({
         ...target,
         webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/${target.id}`,
       }));
@@ -68,6 +70,9 @@ async function startMockDebugger(
       for (const socket of sockets) {
         socket.send(raw);
       }
+    },
+    setTargets(nextTargets) {
+      currentTargets = nextTargets;
     },
     async close() {
       for (const socket of sockets) {
@@ -129,6 +134,32 @@ test("attaches both sessions, selects a page, and collects events", async () => 
   }
 });
 
+test("keeps an idempotently reattached session online", async () => {
+  const main = await startMockDebugger([{ id: "main", type: "node", title: "main", url: "" }]);
+  const renderer = await startMockDebugger([
+    { id: "window-a", type: "page", title: "Window A", url: "app://a" },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+
+  try {
+    const first = await manager.attach({
+      mainUrl: main.endpoint,
+      rendererUrl: renderer.endpoint,
+    });
+    assert.equal(first.ok, true);
+
+    const second = await manager.attach({
+      mainUrl: main.endpoint,
+      rendererUrl: renderer.endpoint,
+    });
+    assert.equal(second.ok, true);
+    assert.equal(manager.status().main.status, "online");
+    assert.equal(manager.status().renderer.status, "online");
+  } finally {
+    await Promise.all([main.close(), renderer.close()]);
+  }
+});
+
 test("allows a renderer-only attach", async () => {
   const renderer = await startMockDebugger([
     { id: "window-a", type: "page", title: "Window A", url: "app://a" },
@@ -168,6 +199,135 @@ test("keeps the renderer result when the main endpoint is unavailable", async ()
     assert.equal(result.data.main.status, "offline");
     assert.equal(result.data.renderer.status, "online");
     assert.ok(result.data.errors.some((error) => error.code === "MAIN_INSPECTOR_UNAVAILABLE"));
+  } finally {
+    await renderer.close();
+  }
+});
+
+test("preserves the other session when one endpoint input is invalid", async () => {
+  const main = await startMockDebugger([{ id: "main", type: "node", title: "main", url: "" }]);
+  const renderer = await startMockDebugger([
+    { id: "window-a", type: "page", title: "Window A", url: "app://a" },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+
+  try {
+    const first = await manager.attach({
+      mainUrl: main.endpoint,
+      rendererUrl: renderer.endpoint,
+    });
+    assert.equal(first.ok, true);
+
+    const second = await manager.attach({
+      mainUrl: "not-a-url",
+      rendererUrl: renderer.endpoint,
+    });
+    assert.equal(second.ok, true);
+    if (!second.ok) {
+      return;
+    }
+    assert.equal(second.data.main.status, "online");
+    assert.equal(second.data.renderer.status, "online");
+    assert.ok(second.data.errors.some((error) => error.code === "INVALID_ENDPOINT"));
+  } finally {
+    await Promise.all([main.close(), renderer.close()]);
+  }
+});
+
+test("does not report a renderer session online when target selection is blocked", async () => {
+  const renderer = await startMockDebugger([
+    { id: "window-a", type: "page", title: "Window A", url: "app://a" },
+    { id: "window-b", type: "page", title: "Window B", url: "app://b" },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+
+  try {
+    const result = await manager.attach({ rendererUrl: renderer.endpoint });
+    assert.equal(result.ok, true);
+    if (!result.ok) {
+      return;
+    }
+    assert.equal(result.data.renderer.status, "offline");
+    assert.equal(result.data.renderer.online, false);
+    assert.equal(result.data.renderer.selectedTarget, undefined);
+    assert.equal(result.data.renderer.error?.code, "TARGET_SELECTION_REQUIRED");
+  } finally {
+    await renderer.close();
+  }
+});
+
+test("clears stale renderer evidence when discovery fails", async () => {
+  const renderer = await startMockDebugger([
+    { id: "window-a", type: "page", title: "Window A", url: "app://a" },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+  let rendererClosed = false;
+
+  try {
+    const first = await manager.attach({ rendererUrl: renderer.endpoint });
+    assert.equal(first.ok, true);
+    await renderer.close();
+    rendererClosed = true;
+
+    const second = await manager.attach({ rendererUrl: renderer.endpoint });
+    assert.equal(second.ok, true);
+    if (!second.ok) {
+      return;
+    }
+    assert.equal(second.data.targets.length, 0);
+    assert.equal(second.data.renderer.selectedTarget, undefined);
+    assert.equal(second.data.renderer.status, "offline");
+    assert.equal(second.data.renderer.error?.code, "RENDERER_CDP_UNAVAILABLE");
+  } finally {
+    if (!rendererClosed) {
+      await renderer.close();
+    }
+  }
+});
+
+test("automatically selects a replacement page when the old target disappears", async () => {
+  const renderer = await startMockDebugger([
+    { id: "window-old", type: "page", title: "Old", url: "app://old" },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+
+  try {
+    const first = await manager.attach({ rendererUrl: renderer.endpoint });
+    assert.equal(first.ok, true);
+    assert.equal(first.data.selectedTarget?.id, "window-old");
+
+    renderer.setTargets([
+      { id: "window-new", type: "page", title: "New", url: "app://new" },
+    ]);
+    const second = await manager.attach({ rendererUrl: renderer.endpoint });
+    assert.equal(second.ok, true);
+    if (!second.ok) {
+      return;
+    }
+    assert.equal(second.data.selectedTarget?.id, "window-new");
+    assert.equal(second.data.renderer.status, "online");
+  } finally {
+    await renderer.close();
+  }
+});
+
+test("clears the selected target when the renderer session disconnects", async () => {
+  const renderer = await startMockDebugger([
+    { id: "window-a", type: "page", title: "Window A", url: "app://a" },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+
+  try {
+    const result = await manager.attach({ rendererUrl: renderer.endpoint });
+    assert.equal(result.ok, true);
+    assert.equal(manager.status().renderer.selectedTarget?.id, "window-a");
+
+    await renderer.close();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const status = manager.status();
+    assert.equal(status.renderer.status, "offline");
+    assert.equal(status.renderer.selectedTarget, undefined);
   } finally {
     await renderer.close();
   }

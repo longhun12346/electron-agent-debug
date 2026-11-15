@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Attach-only Electron diagnostics adapter and Agent skill guidance.",
   "license": "MIT",
+  "private": true,
   "repository": {
     "type": "git",
     "url": "git+https://github.com/longhun12346/electron-agent-debug.git"
@@ -12,17 +13,6 @@
   },
   "homepage": "https://github.com/longhun12346/electron-agent-debug",
   "type": "module",
-  "bin": {
-    "electron-agent-debug": "dist/index.js"
-  },
-  "files": [
-    "dist",
-    "docs",
-    "skill",
-    "examples/fixture/README.md",
-    "README.md",
-    "LICENSE"
-  ],
   "engines": {
     "node": ">=22"
   },
@@ -30,8 +20,8 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "test": "npm run build && tsx --test tests/*.test.ts",
-    "lint": "tsc -p tsconfig.json --noEmit",
-    "prepack": "npm run build"
+    "test:e2e:external": "node examples/external-e2e/electron-vite-react-smoke.mjs",
+    "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.4.0",

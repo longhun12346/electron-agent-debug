@@ -55,3 +55,19 @@ async function runSmoke(fault) {
 for (const fault of ["", "main-window", "renderer", "ipc"]) {
   await runSmoke(fault);
 }
+
+console.log("Running fixture smoke: blocked");
+const blocked = spawn(process.execPath, [path.join(fixtureRoot, "blocked-smoke.mjs")], {
+  stdio: "inherit",
+  env: process.env,
+});
+await new Promise((resolve, reject) => {
+  blocked.once("error", reject);
+  blocked.once("exit", (code, signal) => {
+    if (code === 0) {
+      resolve();
+      return;
+    }
+    reject(new Error(`fixture blocked smoke failed: ${code ?? signal}`));
+  });
+});

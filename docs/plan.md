@@ -14,9 +14,9 @@ Agent 可以通过 MCP 和 Skill 获得：
 1. 连接两个调试通道。
 2. 根据修改范围判断主进程、preload/IPC 或渲染进程。
 3. 读取状态、日志和异常。
-4. 在核心证据不足时，按需执行可选的受控诊断。
+4. 在核心证据不足时，由 Agent 使用项目已有测试或其他工具补充诊断；当前 MCP 不执行页面代码。
 5. 根据修改范围重启 Electron 或 reload 当前窗口。
-6. 向 Agent 提供状态、日志和异常等核心运行时证据；截图作为可选扩展。
+6. 向 Agent 提供状态、日志和异常等核心运行时证据；截图和 evaluate 只是未来候选扩展。
 
 项目不负责启动或停止应用，不判断业务是否通过，也不实现完整源码级调试器。Agent 可以在 MCP 之外使用项目已有命令准备和重启应用。项目不监听文件保存；是否发起验证由 Agent 工作流决定。
 
@@ -55,7 +55,7 @@ Electron 窗口内的 DevTools 主要用于渲染进程；主进程需要通过 
 
 ### 方案 A：自建轻量适配层
 
-保留本仓库，自己实现 4 个核心 MCP 工具和两个调试 Session；截图与 evaluate 作为可选扩展。
+保留本仓库，自己实现 4 个核心 MCP 工具和两个调试 Session；截图与 evaluate 暂不实现，只保留为未来候选。
 
 优点：
 
@@ -190,7 +190,9 @@ endpoint 来源按以下顺序解析：
 
 `clear` 只清空当前 MCP Server 进程内对应 Session 的有界内存缓存，不删除项目日志，不影响 Electron 应用，也不影响其他 Server 进程。
 
-### 可选扩展：`electron_evaluate`
+### 未来候选扩展：`electron_evaluate`（当前未实现）
+
+本节是未来候选设计，当前版本不提供该工具，也不把它作为 Agent 验收前提。
 
 作用：执行一次受控诊断表达式。
 
@@ -214,11 +216,13 @@ endpoint 来源按以下顺序解析：
 - Skill 优先使用固定检查，evaluate 只作为兜底。
 - evaluate 结果不能单独证明修复成功，必须结合目标行为或日志验证。
 
-### 可选扩展：`renderer_screenshot`
+### 未来候选扩展：`renderer_screenshot`（当前未实现）
+
+本节是未来候选设计，当前版本不提供该工具，也不把它作为 Agent 验收前提。
 
 作用：在 Agent 明确需要视觉证据时，截取当前 renderer target 页面并写入受控目录。
 
-输出目录只在启用并调用该扩展时必需。不实现持续截图、视频录制和截图对比。
+输出目录只有未来实现并调用该扩展时才需要。不实现持续截图、视频录制和截图对比。
 
 ## 5. 内部模块
 
@@ -241,7 +245,7 @@ src/
     core-tools.ts
 ```
 
-当前实现将主进程和 renderer 的协议差异收敛在共享的 `DiagnosticSession` 和 `SessionManager` 中；重连、target 重新发现、事件缓存和 Session 重建都属于内部模块，不暴露为独立 MCP 工具。截图和 evaluate 仍是后续可选扩展，只有核心链路无法提供足够证据时才新增对应模块。
+当前实现将主进程和 renderer 的协议差异收敛在共享的 `DiagnosticSession` 和 `SessionManager` 中；重连、target 重新发现、事件缓存和 Session 重建都属于内部模块，不暴露为独立 MCP 工具。截图和 evaluate 是未来候选扩展，只有核心链路无法提供足够证据时才重新评估。
 
 ## 6. 协议实现策略
 
@@ -281,7 +285,7 @@ Server 不接受 Agent 直接传入任意 WebSocket URL；只信任经过协议�
 - `Page.captureScreenshot`
 - `Runtime.evaluate`
 
-Renderer CDP 连接成功但没有选定 page target 时，Session 仍可报告 target 列表；任何需要当前 target 的操作都必须返回明确的 target 选择错误。核心实现不得把“CDP 在线”当作“业务窗口已正确加载”。
+Renderer discovery 可以在没有选定 page target 时返回 target 列表；当前实现只有在选定可连接的 page target 后才建立 renderer Session。没有唯一 target 时，renderer Session 保持离线并返回明确的 target 选择错误。核心实现不得把 discovery 成功当作“业务窗口已正确加载”。
 
 ### 通用 JSON-RPC
 
@@ -331,8 +335,8 @@ online        Session 可发送请求并接收事件
 - 不允许 Agent 传入任意 WebSocket URL。
 - Discovery 返回的 WebSocket URL 必须再次校验。
 - stdout 只输出 MCP 协议，日志写 stderr。
-- 可选 evaluate 默认关闭，且其超时、并发数和结果大小有上限。
-- 可选截图的解析后路径必须位于 Agent 提供的输出目录内，并拒绝通过符号链接逃逸目录。
+- 如果未来实现 evaluate，默认关闭，且其超时、并发数和结果大小有上限。
+- 如果未来实现截图，解析后的路径必须位于 Agent 提供的输出目录内，并拒绝通过符号链接逃逸目录。
 - 日志、异常和表达式结果必须有大小上限并经过可序列化处理。
 - 事件缓存使用 ring buffer，按条数和字节数设上限。
 - 不引入 Playwright、Electron runtime、浏览器下载器和桌面控制框架。
@@ -388,6 +392,9 @@ online        Session 可发送请求并接收事件
 - 每个 fixture 提供故障态和修复态。
 - 完成 Skill 中的通道选择、证据收集和使用顺序规则。
 - 编写核心工具契约测试和最小端到端验收脚本。
+- 增加缺少 endpoint 的 `BLOCKED` 场景验收，并让 fixture 显式覆盖 `electron_targets`。
+- 增加固定外部项目 commit、动态端口和双通道工具调用的 opt-in E2E harness。
+- 验证 GitHub 仓库中的 Skill、源码和文档边界，并验证本地 CLI stdio 启动入口。
 
 完成标准：
 
@@ -397,6 +404,8 @@ online        Session 可发送请求并接收事件
 - 应用未启动时返回结构化连接错误。
 - 契约测试覆盖 endpoint 校验、部分 attach、target 选择、Session 状态、日志上限和 `clear` 作用域。
 - Skill 明确要求 Agent 提供项目检查或回归步骤，并由 Agent 输出 `PASS`、`FAIL` 或 `BLOCKED`。
+- 外部项目 harness 能独立报告诊断层结果，不把上游项目自身的业务断言混入诊断结论。
+- GitHub 仓库包含构建所需源码、Skill 和文档；本地 CLI 能完成 MCP 初始化且不污染 stdout。
 
 这三个 fixture 只证明核心诊断链路可用，不代表项目覆盖所有 Electron 故障类型。
 
@@ -420,7 +429,7 @@ online        Session 可发送请求并接收事件
 
 通过 Session 能力声明处理。主进程不支持的 domain 返回能力不足，不让整个 Server 失败。
 
-### 可选 evaluate 的超时不等于目标代码已经停止
+### 未来 evaluate 候选的超时不等于目标代码已经停止
 
 客户端超时只能保证 Agent 不再等待。终止执行应视协议能力做 best-effort，不能把 evaluate 作为唯一的成功依据。固定状态、日志和回归行为必须是主要证据。
 
@@ -450,9 +459,9 @@ Skill 只能规定 Agent 在修改后执行验证。真正的自动触发由 Age
 | 主进程/渲染进程 | 提供两个独立 Session | 决定检查单个进程还是联合检查 |
 | preload/IPC | 返回两边的观察结果 | 结合主进程和 renderer 证据判断问题 |
 | target | 发现和选择当前 page target | 指定目标窗口和确认目标是否正确 |
-| 表达式执行 | 只提供受限 evaluate | 决定是否需要执行以及如何解释结果 |
+| 表达式执行 | 当前不提供；未来可评估受限 evaluate | 决定是否需要执行以及如何解释结果 |
 | 日志 | 采集并返回受控证据 | 判断证据是否证明用户目标已经满足 |
-| 可选截图 | 仅在扩展启用后采集受控证据 | 判断截图是否有助于证明用户目标 |
+| 可选截图 | 当前不提供；未来可评估受控证据 | 判断截图是否有助于证明用户目标 |
 | fixture | 不启动、不注入故障 | 启动测试应用、设置故障态和预期结果 |
 | 触发时机 | 不监听文件保存 | 在编码完成后按 Skill 主动发起验证 |
 
@@ -461,7 +470,7 @@ Skill 只能规定 Agent 在修改后执行验证。真正的自动触发由 Age
 - 事件只保留在有上限的内存缓存中；核心工具不主动写文件。
 - 原始 console 参数、异常对象和 evaluate 结果必须经过大小限制和可序列化处理。
 - MCP Server 不把完整日志自动写入项目目录。
-- 启用截图扩展时，截图只能写入 Agent 提供的输出目录，并返回文件路径和元数据。
+- 如果未来实现截图，截图只能写入 Agent 提供的输出目录，并返回文件路径和元数据。
 - 工具错误可以包含诊断细节，但不能回显环境变量中的敏感值。
 
 ### 11.2 Session 和并发边界
@@ -470,7 +479,7 @@ Skill 只能规定 Agent 在修改后执行验证。真正的自动触发由 Age
 
 - Session 状态属于当前 Server 进程。
 - 工具调用按连接顺序处理同一 target 的状态变更。
-- 启用 evaluate 扩展时，同一 target 的 evaluate 默认不并发执行。
+- 如果未来实现 evaluate，同一 target 的 evaluate 默认不并发执行。
 - 多 Agent 或多项目共享同一个 Server 进程不在第一阶段支持范围内。
 
 如果未来需要多客户端共享，必须先增加显式 session id、权限隔离和 target 隔离，不能直接复用当前全局状态。
@@ -502,7 +511,7 @@ Skill 只能规定 Agent 在修改后执行验证。真正的自动触发由 Age
 
 按需提供：
 
-- 诊断输出目录；只有启用并请求截图扩展时必需。
+- 诊断输出目录；只有未来实现并请求截图扩展时必需。
 
 以下内容属于稳定的产品或协议契约，可以固定：
 
@@ -510,15 +519,15 @@ Skill 只能规定 Agent 在修改后执行验证。真正的自动触发由 Age
 - discovery 使用 endpoint 下的 `/json/list`。
 - 只允许回环地址。
 - 工具名称、错误结构和 Session 边界。
-- 可选 evaluate 默认关闭。
+- 如果未来实现 evaluate，默认关闭。
 - 单个 Server 进程的单 Agent 会话假设。
 - endpoint 来源优先级：工具输入、环境变量、当前 Session 配置、无默认值。
 
 以下内容属于安全上限，可以有默认值，但不能被项目业务逻辑覆盖：
 
-- 可选 evaluate 最大执行时间。
-- 单次结果最大字节数。
+- 如果未来实现 evaluate，其最大执行时间。
+- 事件缓存最大条数和字节数；当前没有独立于日志缓存的统一工具结果字节上限。
 - 事件缓存最大条数和字节数。
-- 可选截图输出路径约束。
+- 如果未来实现截图，输出路径约束。
 
-安全上限允许 Agent 在调用时进一步收紧；没有 Agent 提供的任何 endpoint 时，MCP 不猜测、不扫描、不回退到固定值；只提供一个 endpoint 时允许部分诊断。输出目录只在启用并请求截图扩展时必需，target 选择条件只在存在多个候选时必需。
+安全上限允许 Agent 在调用时进一步收紧；没有 Agent 提供的任何 endpoint 时，MCP 不猜测、不扫描、不回退到固定值；只提供一个 endpoint 时允许部分诊断。输出目录只有未来实现并请求截图扩展时才需要，target 选择条件只在存在多个候选时必需。

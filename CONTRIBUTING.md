@@ -5,7 +5,7 @@
 - Node.js 22 或更高版本。
 - 根目录依赖用于 MCP Server、测试和 TypeScript 构建。
 - `examples/fixture` 是独立的 Electron 示例包，使用自己的 `package.json` 和 lockfile。
-- 根包可以通过 npm 发布；`prepack` 会在打包前生成 `dist`，发布内容由 `package.json` 的 `files` 字段限定。
+- 根目录使用 npm 管理构建、测试和开发依赖；公开交付以 GitHub 仓库、Skill 文件和源码为准。
 
 ## 常用命令
 
@@ -22,7 +22,7 @@ npm run build
 
 ## Electron fixture
 
-fixture 的安装和运行说明位于 [`examples/fixture/README.md`](examples/fixture/README.md)。主进程 Inspector 和 renderer CDP 的端口由运行 Agent 或测试脚本分配，仓库不固定端口，也不提交 `node_modules`、构建产物或 Electron 下载缓存。`examples/fixture/ci-smoke.mjs` 会动态分配端口并验证四种核心场景。
+fixture 的安装和运行说明位于 [`examples/fixture/README.md`](examples/fixture/README.md)。主进程 Inspector 和 renderer CDP 的端口由运行 Agent 或测试脚本分配，仓库不固定端口，也不提交 `node_modules`、构建产物或 Electron 下载缓存。`examples/fixture/ci-smoke.mjs` 会动态分配端口并验证默认、主进程、renderer、IPC 和缺少 endpoint 五种场景。
 
 ## CI
 

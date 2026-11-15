@@ -86,9 +86,13 @@ export class SessionManager {
         });
         await this.main.connect(resolved.main, discovered.websocketUrl as string);
       } catch (error) {
-        errors.push(toDiagnosticError(error, "MAIN_INSPECTOR_UNAVAILABLE"));
+        const diagnostic = toDiagnosticError(error, "MAIN_INSPECTOR_UNAVAILABLE");
+        await this.main.close("Main attach failed");
+        this.main.setEndpoint(resolved.main);
+        this.main.setError(diagnostic);
+        errors.push(diagnostic);
       }
-    } else {
+    } else if (!resolved.mainError) {
       await this.main.close("Main endpoint not configured");
       this.mainEndpoint = undefined;
       this.main.setEndpoint(undefined);
@@ -101,7 +105,7 @@ export class SessionManager {
       } catch (error) {
         errors.push(toDiagnosticError(error, "RENDERER_CDP_UNAVAILABLE"));
       }
-    } else {
+    } else if (!resolved.rendererError) {
       await this.renderer.close("Renderer endpoint not configured");
       this.rendererEndpoint = undefined;
       this.rendererTargets = [];
@@ -219,9 +223,13 @@ export class SessionManager {
   private resolveEndpoints(input: AttachInput, errors: DiagnosticError[]): {
     main?: EndpointConfig;
     renderer?: EndpointConfig;
+    mainError: boolean;
+    rendererError: boolean;
   } {
     let main: EndpointConfig | undefined;
     let renderer: EndpointConfig | undefined;
+    let mainError = false;
+    let rendererError = false;
     try {
       main = resolveEndpoint(
         input.mainUrl,
@@ -230,6 +238,7 @@ export class SessionManager {
         "mainUrl",
       );
     } catch (error) {
+      mainError = true;
       errors.push(toDiagnosticError(error, "ENDPOINT_CONFIG_INVALID"));
     }
     try {
@@ -240,9 +249,10 @@ export class SessionManager {
         "rendererUrl",
       );
     } catch (error) {
+      rendererError = true;
       errors.push(toDiagnosticError(error, "ENDPOINT_CONFIG_INVALID"));
     }
-    return { main, renderer };
+    return { main, renderer, mainError, rendererError };
   }
 
   private resolveRendererEndpoint(
@@ -267,23 +277,37 @@ export class SessionManager {
     errors: DiagnosticError[],
   ): Promise<void> {
     const previousEndpoint = this.renderer.endpointConfig?.url;
-    const previousTarget = this.renderer.snapshot().selectedTarget;
     if (previousEndpoint !== undefined && previousEndpoint !== endpoint.url) {
       await this.renderer.close("Renderer endpoint changed");
     }
 
-    const discovered = await discoverRenderer(endpoint.url, {
-      timeoutMs: this.config.discoveryTimeoutMs,
-    });
+    this.renderer.setEndpoint(endpoint);
+    this.rendererTargets = [];
+
+    let discovered: Awaited<ReturnType<typeof discoverRenderer>>;
+    try {
+      discovered = await discoverRenderer(endpoint.url, {
+        timeoutMs: this.config.discoveryTimeoutMs,
+      });
+    } catch (error) {
+      const diagnostic = toDiagnosticError(error, "RENDERER_CDP_UNAVAILABLE");
+      await this.renderer.close("Renderer discovery failed");
+      this.renderer.setEndpoint(endpoint);
+      this.renderer.setError(diagnostic);
+      errors.push(diagnostic);
+      return;
+    }
     this.rendererTargets = pageTargets(discovered.targets);
-    this.renderer.setDiscoveryOnline(endpoint);
 
     let target: TargetInfo;
     try {
       const previous = this.renderer.snapshot().selectedTarget;
-      const selector = Object.values(this.selector).some(Boolean)
+      const hasExplicitSelector = Object.values(this.selector).some(Boolean);
+      const previousStillExists =
+        previous !== undefined && this.rendererTargets.some((candidate) => candidate.id === previous.id);
+      const selector = hasExplicitSelector
         ? this.selector
-        : previous
+        : previousStillExists
           ? { targetId: previous.id }
           : {};
       const selected = selectTarget(this.rendererTargets, selector);
@@ -292,31 +316,33 @@ export class SessionManager {
       }
       target = selected;
     } catch (error) {
-      if (previousTarget) {
-        await this.renderer.close("Renderer target selection changed");
-        this.renderer.setDiscoveryOnline(endpoint);
-      }
-      errors.push(toDiagnosticError(error, "TARGET_NOT_FOUND"));
+      const diagnostic = toDiagnosticError(error, "TARGET_NOT_FOUND");
+      await this.renderer.close("Renderer target selection failed");
+      this.renderer.setEndpoint(endpoint);
+      this.renderer.setError(diagnostic);
+      errors.push(diagnostic);
       return;
     }
 
     if (!target.webSocketDebuggerUrl) {
-      if (previousTarget) {
-        await this.renderer.close("Renderer target has no WebSocket");
-        this.renderer.setDiscoveryOnline(endpoint);
-      }
-      errors.push({
+      const diagnostic = {
         code: "TARGET_NOT_FOUND",
         message: "选中的 target 没有可连接的 WebSocket 地址",
         retryable: true,
-      });
+      };
+      await this.renderer.close("Renderer target has no WebSocket");
+      this.renderer.setEndpoint(endpoint);
+      this.renderer.setError(diagnostic);
+      errors.push(diagnostic);
       return;
     }
 
     try {
       await this.renderer.connect(endpoint, target.webSocketDebuggerUrl, target);
     } catch (error) {
-      errors.push(toDiagnosticError(error, "RENDERER_CDP_UNAVAILABLE"));
+      const diagnostic = toDiagnosticError(error, "RENDERER_CDP_UNAVAILABLE");
+      this.renderer.setError(diagnostic);
+      errors.push(diagnostic);
     }
   }
 }
