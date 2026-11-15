@@ -1,6 +1,6 @@
 ---
 name: electron-debug
-description: Diagnose a running local Electron application after code changes using the MCP runtime bundled with this skill. Collect main-process Inspector and renderer CDP status, targets, logs, and exceptions for Agent-led verification.
+description: Use when validating Electron main-process, BrowserWindow, renderer, preload, or IPC changes, or investigating a blank window or runtime error in a running local Electron app. Collect Inspector/CDP status, targets, logs, and exceptions using the bundled attach-only MCP runtime for Agent-led verification.
 license: MIT
 ---
 
@@ -75,24 +75,33 @@ Agent 可以通过项目已有启动命令支持的参数暴露所需 endpoint�
 ## 工作流程
 
 ```text
-[确认任务、包来源与诊断前提]
-                |
-                v
-[校验随包 MCP -> 配置宿主 -> 确认四工具可见]
-                |
-                v
-[attach -> status -> 按需 targets -> logs]
-                |
-                v
-[Agent 执行项目已有测试或业务回归]
-                |
-                v
-[Agent 按需 reload / 重启 -> 重新连接和收集证据]
-                |
-                v
-[Agent 根据预期行为与证据判断 PASS / FAIL / BLOCKED]
+┌──────────────────────────────────────────┐
+│ 确认任务、包来源与诊断前提               │
+└────────────────────┬─────────────────────┘
+                     ▼
+┌──────────────────────────────────────────┐
+│ 校验随包 MCP → 配置宿主 → 确认四工具可见 │
+└────────────────────┬─────────────────────┘
+                     ▼
+┌──────────────────────────────────────────┐
+│ attach → status → 按需 targets → logs    │
+└────────────────────┬─────────────────────┘
+                     ▼
+┌──────────────────────────────────────────┐
+│ Agent 执行项目已有测试或业务回归         │
+└────────────────────┬─────────────────────┘
+                     ▼
+┌──────────────────────────────────────────┐
+│ Agent 按需 reload / 重启 → 重新收集证据  │
+└────────────────────┬─────────────────────┘
+                     ▼
+┌──────────────────────────────────────────┐
+│ Agent 根据预期行为与证据判断结果         │
+│ PASS / FAIL / BLOCKED                    │
+└──────────────────────────────────────────┘
 
-任何阶段缺少前提或完整性检查失败 -> [BLOCKED，说明缺少什么]
+任何阶段缺少必要前提或完整性检查失败
+    └─► BLOCKED：说明缺少什么
 ```
 
 1. **收集基线**：向 `electron_attach` 传入本次实际的 `mainUrl` 和/或 `rendererUrl`；如使用环境变量，可以省略相应输入。分别记录两个通道的状态与错误。部分成功时保留可用通道证据。
