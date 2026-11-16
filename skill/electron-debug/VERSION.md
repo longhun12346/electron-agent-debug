@@ -9,7 +9,7 @@
 - SKILL.md 补充：就绪信号的选择与 `elapsedMs` 为 0 的排查、attach 后的历史事件与 `afterSeq`、截图和快照不脱敏、preload/IPC 的主进程证据取法、无网络观察工具时用 `performance.getEntriesByType('resource')` 查看请求。
 - SKILL.md 新增「未提供的能力与替代做法」：网络请求、调用栈、局部变量、断点、点击输入、窗口列表、内存、原生对话框。
 - SKILL.md 明确适用范围为本地开发环境，打包后的应用不在支持范围内。
-- SKILL.md 补充 utility process（指定 `--inspect` 端口后可按主进程方式连接）以及 webview、worker、跨域 iframe 的处理思路。
+- SKILL.md 补充 utility process 的两种开调试口方式（fork 时 `--inspect`；运行中用 `app.getAppMetrics()` 取 pid 后调用 `process._debugProcess(pid)`，端口冲突时配合 `--inspect-port`），开口后按主进程方式 attach；另补充 webview、worker、跨域 iframe 的处理思路。工具不变。
 
 ## 1.1.0
 

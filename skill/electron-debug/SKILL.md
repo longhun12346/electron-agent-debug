@@ -43,7 +43,7 @@ MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运
 | 点击、输入 | `electron_evaluate`(renderer) 调用 `element.click()` 或 `dispatchEvent`；表单输入需用原生 setter 赋值后再派发 `input` 事件 | 事件的 `isTrusted` 为 false，依赖真实输入的逻辑覆盖不到，改用项目已有的测试工具 |
 | 列出窗口 | `electron_evaluate`(main) 用 `process.mainModule.require('electron').BrowserWindow.getAllWindows()` | 只读窗口状态，不用于操作 |
 | 内存 | main 用 `process.memoryUsage()`；renderer 用 `performance.memory`（Chromium 非标准接口） | 只是当前读数，不能做泄漏分析 |
-| utility process 里的代码 | 启动时给 `utilityProcess.fork` 加 `execArgv: ['--inspect=<端口>']`，把 `electron_attach` 的 `mainUrl` 指向该端口，就能像主进程一样 `electron_evaluate`(main) 和读日志 | 一个会话只有一个主进程通道：连 utility 时就看不到应用主进程，需要时分别 attach |
+| utility process 里的代码 | 先让它开调试口，再把 `electron_attach` 的 `mainUrl` 指向该端口，就能像主进程一样 `electron_evaluate`(main) 和读日志。开口有两种：① 启动时给 `utilityProcess.fork` 加 `execArgv: ['--inspect=<端口>']`；② 应用已在运行时，先 attach 主进程，用 `electron_evaluate`(main) 执行 `app.getAppMetrics()`，筛 `serviceName === 'node.mojom.NodeService'` 的项（`name` 即 fork 时的 `serviceName`）取 pid，再调 `process._debugProcess(pid)`，之后 attach 该端口，attach 失败说明没开成。端口默认 9229，被占用或有多个 utility 时，fork 加 `execArgv: ['--inspect-port=<各自端口>']`（只指定端口，不自动开启） | `process._debugProcess` 是未公开接口，Windows 上实测可用；端口被占用时调用不报错但不会开启，必须以 attach 结果为准。一个会话只有一个主进程通道：连 utility 时就看不到应用主进程，需要时分别 attach |
 | webview、worker、跨域 iframe 里的代码 | 不能直接连接。让它们用 `postMessage` 把值传回页面，再用 `electron_evaluate`(renderer) 读取或打印；同源 iframe 可通过 `iframe.contentDocument` 读取 | 这些目标里的日志和求值不在工具范围内 |
 | 原生对话框、菜单 | 提示用户人工操作 | 见使用建议第 5 条 |
 
