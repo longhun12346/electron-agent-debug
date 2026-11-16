@@ -1,13 +1,13 @@
 # electron-agent-debug
 
-一个面向编码 Agent 的轻量 Electron 双通道诊断能力和使用指南。
+一个面向编码 Agent 的 Electron 运行时诊断能力和使用指南。
 
-项目只提供两类内容：
+项目提供两类内容：
 
-1. 通过 MCP 提供连接主进程 Node Inspector 和渲染进程 Chromium DevTools Protocol 的诊断能力。
-2. 通过 Skill 指导 Agent 根据修改范围选择通道、收集证据和进行验证。
+1. 通过 MCP 提供观察和检查已运行 Electron 应用的能力：主进程 Node Inspector 与渲染进程 CDP 双通道、统一日志时间线、求值、截图、无障碍树快照和原生对话框替身。
+2. 通过 Skill 给出使用建议和证据矩阵。Skill 只是指导，能力由 MCP 提供。
 
-项目不替 Agent 判断业务是否正确，也不由 MCP Server 启动、停止或验收用户的 Electron 应用。Agent 可以使用项目已有命令准备和重启应用。
+项目不替 Agent 判断业务是否正确；业务回归和最终结论由 Agent 完成。
 
 项目由两部分组成：
 
@@ -36,11 +36,19 @@ npx skills add longhun12346/electron-agent-debug --skill electron-debug --global
 
 GitHub Release 的 Skill ZIP 附带构建来源证明，绑定发布工作流及源码提交；第三方安装渠道的安装包以该渠道的发布和扫描结果为准。本地完整性校验不独立证明发布者身份。配置、升级和来源验证边界见 [MCP 接入说明](skill/electron-debug/references/mcp-setup.md)。
 
-核心 MCP 工具只有四个：`electron_attach`、`electron_status`、`electron_targets` 和 `electron_logs`。当前版本不提供截图、表达式执行、DOM 操作或断点调试；这些能力由 Agent 使用项目已有测试或其他工具完成。
+## MCP 工具
+
+| 类别 | 工具 |
+| --- | --- |
+| 连接 | `electron_attach`、`electron_targets` |
+| 观察 | `electron_status`、`electron_logs`、`electron_wait_for` |
+| 检查 | `electron_evaluate`、`electron_screenshot`、`electron_dom_snapshot` |
+
+MCP 只 attach，不启动应用：Agent 用项目已有命令启动 Electron 并加上 `--inspect`、`--remote-debugging-port`，再用 `electron_attach` 传入实际 endpoint。`electron_evaluate` 和表达式型 `electron_wait_for` 默认开启，宿主可在 MCP 配置的 env 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用。截图保存到 `ELECTRON_DEBUG_OUTPUT_DIR`（默认系统临时目录，保留最近 50 张）。
 
 ## 适用场景
 
-Agent 需要先准备或确认 Electron 应用已经通过项目已有命令启动，并把实际的 Inspector/CDP endpoint 提供给 MCP Server。端口由项目和 Agent 决定，示意为：
+Agent 启动应用后，用 `electron_attach` 连接并提供实际的 Inspector/CDP endpoint。示意：
 
 ```powershell
 electron --inspect=<main-inspector-port> --remote-debugging-port=<renderer-cdp-port> .
@@ -48,35 +56,34 @@ electron --inspect=<main-inspector-port> --remote-debugging-port=<renderer-cdp-p
 
 Agent 可以使用本项目完成：
 
-- 主进程启动失败、窗口创建和运行时异常验证。
+- 主进程启动失败、窗口创建、崩溃和退出原因验证。
 - preload、contextBridge 和 IPC 联调。
 - 页面白屏、前端异常、target URL 和运行时日志验证。
-- 主进程和渲染进程日志收集。
-- 当前窗口 target 选择和重新发现。
-- 修复后的 reload、连接恢复和状态检查。
+- 通过截图和无障碍树确认页面实际内容。
+- 用原生对话框替身驱动依赖系统对话框的流程。
+- 修复后的重启、reload、连接恢复和状态检查。
 - 为 Agent 判断 `PASS`、`FAIL` 或 `BLOCKED` 提供结构化运行时证据。
 
 ## 设计边界
 
-- 只连接 Agent 已准备或确认运行的本地 Electron 应用。
 - 默认只允许 `127.0.0.1`、`::1` 或 `localhost`。
-- 不负责启动、停止、打包或发布 Electron 应用。
-- 不提供通用桌面自动化、完整网络录制、性能分析、heap snapshot 或 HAR 导出。
-- 不以替代 VS Code 源码级断点和单步调试为目标。
-- 不提供截图、表达式执行、DOM 操作、业务自动化或源码级断点调试。
+- 不启动、停止或重启应用，只连接 Agent 已启动的应用。
+- 输出有大小上限，并对常见密钥字段脱敏。
+- 不含任何项目专属逻辑。
+- 不提供通用桌面自动化、网络录制、性能分析、heap snapshot 或源码级断点调试。
+- 原生菜单不被替身覆盖；窗口隐藏或最小化时无法截图。
 
 ## Agent 使用诊断流程
 
-当 Agent 需要验证 Electron 修改时，Skill 指导它执行以下流程；项目不监听文件保存，也不自动启动验证：
+当 Agent 需要验证 Electron 修改时，Skill 建议按以下流程执行；项目不监听文件保存，也不自动启动验证：
 
 1. Agent 配置并验证 MCP Server，加载本项目 Skill。
 2. 根据修改文件和用户问题判断主进程、渲染进程或双进程范围。
-3. 调用 `electron_attach`，确认本次诊断所需的调试通道；未提供的通道保持未配置。
-4. 调用 `electron_status`、`electron_targets` 和 `electron_logs` 建立修改前后的运行时证据。
-5. 使用项目已有测试或其他 Agent 工具完成 DOM、业务操作和视觉验证。
-6. 根据修改范围执行 Electron 重启或当前 target reload。
-7. 重新读取状态、target 和日志；视觉、DOM 和业务交互由项目已有测试或其他 Agent 工具补充。
-8. 由 Agent 结合用户目标、项目回归结果和 MCP 返回的观察结果完成自己的判断和报告。
+3. 用项目已有命令启动应用（加 `--inspect`、`--remote-debugging-port`），调用 `electron_attach` 建立诊断通道。
+4. 用 `electron_wait_for` 等待就绪信号，用 `electron_status`、`electron_logs` 建立证据。
+5. 执行业务回归；需要时用 `electron_evaluate`、`electron_screenshot`、`electron_dom_snapshot` 取证；原生对话框由用户人工操作。
+6. 修改后由 Agent 重启应用并重新 attach，或 reload，重新收集证据。
+7. 由 Agent 结合用户目标、回归结果和 MCP 返回的观察结果完成判断和报告。
 
 ## 项目文档
 
@@ -100,4 +107,4 @@ npm run lint
 
 ## 开发状态
 
-当前阶段：核心 MCP Server、双 Session、契约测试、本地协议模拟测试、最小 Electron fixture、Agent 调试 Skill 和外部 Electron 项目 opt-in E2E harness 已实现；项目保持 attach-only 轻量边界。
+当前阶段：核心 MCP Server、双 Session、求值/截图/无障碍树、统一时间线、契约与集成测试（含模拟 Electron 应用）、Agent 调试 Skill 和外部 Electron 项目 opt-in E2E harness 已实现。命令行入口（与 MCP 共用核心）尚未实现。

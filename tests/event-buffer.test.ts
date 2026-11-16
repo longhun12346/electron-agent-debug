@@ -25,7 +25,9 @@ test("evicts oldest events by serialized UTF-8 bytes before the count limit", ()
     ...event(message.repeat(40)),
     observedAt: "2026-01-01T00:00:00.000Z",
   }));
-  const size = Buffer.byteLength(JSON.stringify(samples[0]), "utf8");
+  const probe = new EventBuffer(100, 10_000);
+  probe.add(samples[0]!);
+  const size = Buffer.byteLength(JSON.stringify(probe.list()[0]), "utf8");
   const buffer = new EventBuffer(100, size * 2);
   for (const sample of samples) buffer.add(sample);
   assert.deepEqual(buffer.list().map((item) => item.message), samples.slice(1).map((item) => item.message));

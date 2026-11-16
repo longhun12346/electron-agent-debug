@@ -4,14 +4,14 @@
 
 本项目是一个面向编码 Agent 的 Electron 双通道诊断能力和使用指南，不是通用 Electron 调试器，也不是业务验收系统。
 
-核心场景是：Agent 修改 Electron 项目代码后，Agent 自行准备或确认应用已经通过项目命令启动，再按照 Skill 指引连接运行中的应用，获取运行时事实和证据。
+核心场景是：Agent 修改 Electron 项目代码后，attach 到 Agent 已启动的应用，获取运行时事实和证据，并在需要时执行表达式、等待条件、截图和读取无障碍树。
 
 项目价值来自以下组合：
 
 - 同时观察 Electron 主进程和渲染进程。
 - 把 preload、contextBridge 和 IPC 问题放到两个进程之间联合诊断。
-- 通过 Skill 指导 Agent 选择通道、检查顺序和证据类型。
-- 默认只连接本地已启动应用，不接管应用生命周期。
+- 提供能力为先：工具拥有运行时检查能力，应用启动交给 Agent；Skill 只提供指导和建议。
+- 工具输出结构化、有界、脱敏、仅限回环，不含项目专属逻辑。
 - 返回适合 Agent 消化的结构化状态、日志、异常和连接错误；最终诊断结论由 Agent 结合项目回归结果自行判断。
 
 ## 1. 背景
@@ -23,20 +23,20 @@ Electron 应用的主进程和渲染进程使用不同的调试入口：
 
 编码 Agent 需要同时查看两个进程的状态，才能处理白屏、窗口创建失败、preload 注入失败、IPC 失效、主进程异常和前端运行时错误等问题。
 
-现有大型 Electron 调试工具的工具数量和依赖较多。本项目采用轻量实现，只提供 Agent 调试真正需要的最小工具集，并通过一个 Skill 固定调试流程。
+现有大型 Electron 调试工具的工具数量和依赖较多。本项目保持轻量实现，只提供 Agent 调试真正需要的工具集（当前 8 个），并通过一个薄 Skill 给出使用建议。
 
 ## 2. 目标
 
 ### 2.1 产品目标
 
-让本地编码 Agent 能够在需要诊断 Electron 应用时，基于 Skill 指引连接 Agent 已准备或确认运行的应用，并获得以下能力：
+让本地编码 Agent 能够在需要诊断 Electron 应用时，通过本工具启动应用，或连接 Agent 已准备的运行中应用，并获得以下能力：
 
 1. 识别主进程 Inspector 和渲染进程 CDP 是否可用。
 2. 选择正确的渲染窗口。
 3. 根据修改范围判断主进程、preload/IPC 或渲染进程。
-4. 读取两个进程的日志和异常；当前版本不提供页面执行、截图或源码级调试能力。
-5. 由 Agent 使用项目已有命令，根据修改范围重启 Electron 或 reload 当前窗口。
-6. 重新读取日志和状态，为 Agent 自己的分析和报告提供证据；视觉证据由项目已有测试或其他 Agent 工具提供。
+4. 读取两个进程和应用进程的日志、异常、退出码与退出原因；对本工具启动的应用执行表达式、等待条件、截图、读取无障碍树和替换原生对话框。当前版本不提供源码级调试。
+5. 使用项目已有命令，根据修改范围重启 Electron（并重新 attach）或 reload 当前窗口。
+6. 重新读取日志和状态，为 Agent 自己的分析和报告提供证据；业务级视觉判断仍由项目已有测试或 Agent 自行完成。
 
 ### 2.2 技术目标
 
@@ -44,21 +44,20 @@ Electron 应用的主进程和渲染进程使用不同的调试入口：
 - MCP Server 使用 WebSocket 连接 Node Inspector 和 CDP。
 - 只允许连接回环地址：`127.0.0.1`、`::1` 或 `localhost`。
 - 不设置任何固定端口。Agent 按诊断范围提供实际 endpoint；至少提供一个 endpoint 才能执行 attach。
-- 核心对外工具数量控制在第一阶段 4 个：attach、status、targets 和 logs。
-- `renderer_screenshot` 和 `electron_evaluate` 是未来候选扩展，当前版本不实现，也不阻塞核心链路交付。
-- 如果未来实现 evaluate，每次表达式执行必须有超时和结果大小限制。
+- 当前对外工具共 8 个：attach、status、targets、logs（Phase 1 基线），以及 evaluate、wait_for、screenshot、dom_snapshot。会弹出原生对话框的流程由 Agent 提示用户人工操作，不提供自动化替身。
+- 表达式执行必须有超时和结果大小限制，且默认只用于由本工具启动的应用。
 - 渲染进程 reload 或窗口销毁后，Agent 再次调用 `electron_attach` 或 `electron_targets` 时能够重新发现 target。
 - 连接断开后，`electron_attach` 或 `electron_targets` 会进行有限恢复；`electron_status` 和 `electron_logs` 只返回当前已缓存的状态和事件。
 
 ### 2.3 轻量性判定
 
-以下条件是第一阶段保持轻量的硬约束：
+以下条件保持工具轻量：
 
-- 核心 MCP 工具只有 `electron_attach`、`electron_status`、`electron_targets` 和 `electron_logs`。
-- MCP Server 只连接已运行的应用，不启动、停止、重启、扫描或猜测应用。
+- 不新增与诊断无关的工具；每个工具返回结构化、有界、脱敏的结果。
+- MCP Server 不启动、停止或重启应用，只 attach 到 Agent 已启动的应用；不扫描或猜测应用。
 - 只管理一个 Agent 会话和当前 page target，不递归管理 iframe、worker、webview 或多客户端共享状态。
 - 只在工具调用期间进行有限恢复，不运行持续轮询或无限期后台重连。
-- 截图和 evaluate 默认不实现；即使实现，也不能成为核心验收前提。
+- 不依赖业务项目的专属逻辑；evaluate 默认只连接回环地址的应用。
 - 不引入 Playwright、浏览器下载器、桌面自动化框架或完整 CDP 封装。
 
 ## 3. Agent 前提契约
@@ -101,7 +100,11 @@ ELECTRON_DEBUG_MAX_LOG_BYTES=<optional-byte-limit>
 ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES=<optional-protocol-message-limit>
 ```
 
-当前版本没有 `ELECTRON_DEBUG_ALLOW_EVAL`、`ELECTRON_DEBUG_OUTPUT_DIR` 或截图/表达式执行配置。若未来增加对应扩展，必须在扩展设计和实现后重新定义这些配置。
+可选的运行时配置（宿主设置，不是 Agent 参数）：
+
+- `ELECTRON_DEBUG_ALLOW_EVAL=0`（或 `false`）：禁用 evaluate 和 expression 型 wait_for，此时这些工具返回 `EVALUATION_NOT_ALLOWED`。默认开启，因为 endpoint 只允许回环地址。
+- `ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES`：单条协议消息上限，默认且最大 256 MiB（与 Puppeteer、Playwright 的 `maxPayload` 一致）。
+- `ELECTRON_DEBUG_OUTPUT_DIR`：截图输出目录，默认系统临时目录下的 `electron-agent-debug`。
 
 endpoint 配置只接受用于 discovery 的本地 HTTP(S) URL；MCP 不接受 Agent 直接传入任意 WebSocket URL。discovery 返回的 WebSocket 地址必须再次校验协议和回环主机，不能因为它来自本地 HTTP 响应就跳过校验。
 
@@ -181,46 +184,43 @@ endpoint 解析优先级为：
 
 `since` 必须是可解析的日期时间字符串；格式无效时返回参数错误，不返回空日志作为替代。
 
-### 未来候选扩展：受控诊断表达式
+`process` 可取 `main`、`renderer`、`app` 或 `all`。main、renderer 和 app（应用 stdout/stderr）事件共享递增的 `seq` 并按其排序；结果返回 `lastSeq`，`afterSeq` 只返回其后的事件，用于续读。`clear` 也可清空 `app` 缓冲。所有事件消息在写入缓存前脱敏。
 
-以下内容是未来候选能力，不属于当前版本实现，也不是核心验收前提。
+### P0：运行时检查
 
-#### `electron_evaluate`（当前未实现）
+#### `electron_evaluate`
 
-在主进程或当前渲染 target 执行短时诊断表达式，通过 `scope` 参数选择上下文。Skill 默认只提供只读表达式，但 MCP 不承诺能够静态证明表达式没有副作用：
+在主进程 Inspector 或当前选中的 renderer target 执行 JavaScript（`Runtime.evaluate`，`replMode`，默认等待 Promise）。
 
 ```json
 {
   "scope": "main",
-  "expression": "process.type"
+  "expression": "process.mainModule.require('electron').app.getName()"
 }
 ```
 
-要求：
+- 宿主设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 时返回 `EVALUATION_NOT_ALLOWED`。
+- 默认超时 3 秒（100 毫秒至 30 秒），结果默认最多 64 KiB（256 B 至 1 MiB）；超限时返回截断文本并标记 `truncated`。
+- 返回值按值序列化，不可序列化值（如 `NaN`）转为文本；异常返回 `EVALUATION_FAILED`；结果和错误文本经过脱敏。
+- 主进程全局没有 `require`，使用 `process.mainModule.require('electron')`。
+- 表达式可能修改应用状态，只用于验证；超时或断线必须返回明确错误，不得视为验证成功。
 
-- 仅在 `ELECTRON_DEBUG_ALLOW_EVAL=true` 时可用。
-- 默认超时 3 秒，调用者可降低但不能超过安全上限。
-- 返回值必须 JSON 可序列化；不可序列化值转为摘要。
-- 限制返回内容大小。
-- Skill 必须优先使用状态、日志和固定检查，只有无法完成验证时才调用此工具。
-- 禁止无限循环、阻塞 I/O、主动退出进程或修改生产数据。
-- “只读”是 Skill 的使用约束，不是 MCP 能够完全静态证明的属性；表达式可能产生副作用。
-- 超时或连接断开时返回明确的工具错误，不得把调用视为验证成功。
+#### `electron_wait_for`
 
-### 未来候选扩展：`renderer_screenshot`
+等待一个条件成立，超时返回 `WAIT_TIMEOUT`（含最后的 `lastSeq` 和最近错误）。二选一：
 
-以下内容是未来候选能力，不属于当前版本实现，也不是核心验收前提。
+- `log`：事件消息包含 `contains`，可限定 `process`、`level`，默认也检查已缓存事件，`afterSeq` 只看其后事件。
+- `expression`：按 `intervalMs`（50 毫秒至 5 秒）反复执行表达式直到返回真值，规则同 evaluate。
 
-截取当前渲染 target 的页面截图并写入受控输出目录。
+`timeoutMs` 默认 10 秒，上限 120 秒。
 
-返回：
+#### `electron_screenshot`
 
-- 绝对文件路径
-- 图片格式
-- 页面 URL
-- 截图时间
+对当前 renderer target 截图，保存到 `ELECTRON_DEBUG_OUTPUT_DIR`（默认系统临时目录下的 `electron-agent-debug`），返回路径、字节数、格式、target 和 URL，不返回图像内容。支持 `png` 和 `jpeg`（含 `quality`）。目录权限 0700、文件权限 0600，只保留最近 50 张。窗口被隐藏或最小化时 Chromium 不响应，调用超时失败。
 
-只有启用该扩展时才需要输出目录；默认只允许写入 `ELECTRON_DEBUG_OUTPUT_DIR`。
+#### `electron_dom_snapshot`
+
+读取当前 renderer 的无障碍树（`Accessibility.getFullAXTree`），渲染为缩进文本（`role "name" value=".." [状态]`），忽略的节点被穿透，与父节点同名的静态文本被合并，输入框的值经过脱敏。节点数有上限（默认 400，最多 2000），超限标记 `truncated`。不在页面执行脚本，附加模式也可使用。
 
 重连、target 重新发现和 Session 重建属于 MCP Server 内部行为，不单独暴露为工具。`electron_attach` 必须幂等，并在连接失效时重新发现端点和 target。
 
@@ -238,7 +238,7 @@ endpoint 解析优先级为：
 
 记录指定 IPC channel 的发送方向、参数摘要、时间和结果。默认不记录完整敏感参数。
 
-P1 不属于第一阶段交付，也不属于当前项目的核心目标。只有在核心 4 个工具已经稳定提供编码后验证所需的运行时事实时，才评估是否需要接入已有调试能力。
+P1 不属于当前交付。只有现有工具仍无法提供编码后验证所需的运行时事实时，才评估是否需要接入已有调试能力。
 
 ## 5. Skill 需求
 
@@ -251,8 +251,8 @@ Skill 必须明确以下判断规则：
 - preload、contextBridge 和 IPC 问题必须同时检查主进程与渲染进程。
 - 主进程代码或 preload 修改后必须重启 Electron。
 - 渲染进程代码修改后优先 reload 当前 target。
-- 如果未来实现 `electron_evaluate`，调用前必须说明目的、执行上下文和预期结果，避免执行破坏性表达式。
-- 如果未来启用 evaluate，先收集日志和状态，再执行表达式；不能一开始就盲目修改运行时状态。
+- 调用 `electron_evaluate` 前先说明目的、执行上下文和预期结果，避免执行破坏性表达式。
+- 先收集日志和状态，再执行表达式；不能一开始就盲目修改运行时状态。
 - 每次编码修改由 Agent/Skill 根据预期行为和观察结果输出 `PASS`、`FAIL` 或 `BLOCKED`。
 - `PASS` 必须有可复核的运行时证据；`FAIL` 必须指出异常或不符合预期的观察结果；`BLOCKED` 必须说明缺少的前提。
 - MCP Server 只返回工具调用状态、结构化观察结果和连接错误，不判断业务是否修复成功。
@@ -265,9 +265,9 @@ Skill 必须明确以下判断规则：
 
 - 只允许 `127.0.0.1`、`::1` 或 `localhost`。
 - 不接受 Agent 传入任意远程 WebSocket URL。
-- 当前没有主进程或渲染进程执行代码的 MCP 能力；未来扩展如增加执行能力，必须默认关闭并显式配置。
-- 如果未来实现截图扩展，解析后的路径必须位于 Agent 提供的输出目录内，并拒绝通过符号链接逃逸目录。
-- 日志、异常和表达式结果必须经过大小限制和可序列化处理，不能无界回显敏感内容。
+- 主进程或渲染进程执行代码默认开启（仅回环 endpoint），宿主可用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用。
+- 截图写入 `ELECTRON_DEBUG_OUTPUT_DIR`（默认系统临时目录），文件名由工具生成，权限为仅当前用户可读写。
+- 日志、应用输出、异常和表达式结果必须经过大小限制、可序列化处理和常见密钥脱敏，不能无界回显敏感内容。
 - 错误信息不得泄露环境变量、完整本地路径以外的敏感内容。
 
 ### 稳定性
@@ -280,15 +280,14 @@ Skill 必须明确以下判断规则：
 ### 性能
 
 - 普通状态查询目标响应时间小于 1 秒。
-- 如果未来实现表达式执行，默认超时 3 秒。
-- 日志事件缓存按条数和字节数限制；当前没有独立于日志缓存的统一工具结果字节上限。
-- 当前不实现截图和持续网络抓取；未来扩展也不得主动持续执行。
+- 表达式执行默认超时 3 秒，上限 30 秒，结果默认 64 KiB、上限 1 MiB。
+- 日志事件缓存按条数和字节数限制；DOM 快照有节点数上限（默认 400，最多 2000）。
+- 不做持续网络抓取；截图、evaluate 和 wait_for 都只在工具调用期间执行，wait_for 有超时上限（120 秒）。
 - 不进行无限期后台重连；断线恢复只在工具调用或 `electron_attach` 时进行有限尝试。
 
 ## 7. 非目标
 
-- 由 MCP Server 主动启动、停止或重启用户的 Electron 应用。
-- 代替用户选择开发命令、入口文件或窗口。
+- 由 MCP Server 替用户猜测开发命令、入口文件或窗口，或同时管理多个应用。
 - 提供完整桌面 UI 自动化。
 - 提供完整网络录制、性能分析、heap snapshot、HAR 导出或源码级调试器。
 - 连接公网或局域网中的远程 Electron 应用。
@@ -296,14 +295,14 @@ Skill 必须明确以下判断规则：
 ### 职责边界
 
 - Agent/Skill 负责最终验收、问题归属、根因解释和是否修复的判断。
-- MCP Server 当前负责连接、协议、target、日志和状态；未来扩展可再增加受控诊断或证据产物。
+- MCP Server 负责连接、协议、target、日志和状态，以及受控的运行时检查（evaluate、wait_for、截图、DOM 快照）。
 - MCP Server 不读取源码、不修改项目文件、不执行 git 操作，也不替代 Agent 的代码分析。
-- MCP Server 不管理 Electron 应用生命周期；启动、停止和重启由 Agent 使用项目已有的开发命令完成。
+- MCP Server 只 attach 到 Agent 自行启动的应用，不管理其生命周期；不猜测入口、不扫描端口。
 - Agent 必须在调用 MCP 前准备工作目录、调试端点和本次修改的预期行为或回归操作。
 - Agent 如果无法提供这些前提，应报告前提缺失，而不是宣称代码失败或修复成功。
 - 主进程和渲染进程使用独立 Session；preload 和 IPC 问题由 Agent 联合使用两个 Session 判断。
 - 第一阶段只处理当前 Electron page target，不递归管理 iframe、worker、webview 或其他浏览器 target。
-- 当前没有执行表达式的 MCP 工具；其他工具只观察或生成受控证据。
+- 表达式执行只连接回环地址的应用，可由宿主禁用。
 - fixture 负责启动应用、注入故障和定义预期行为；MCP Server 只负责连接 fixture 并返回观察结果。
 
 ## 8. 验收标准
@@ -319,12 +318,11 @@ Skill 必须明确以下判断规则：
 - 主进程 console 异常和渲染进程 console 异常能够分别读取。
 - Agent 可以通过状态、target 和日志结果获得主进程、渲染进程以及 preload/IPC 问题的核心运行时事实；具体 API 返回值、DOM 内容和业务结果由项目已有检查或 Agent 的回归操作提供，未来扩展不属于当前前提。
 
-### 未来候选扩展验收
+### 生命周期与检查能力验收
 
-启用对应扩展后，再增加以下验收：
-
-- 如果实现 `electron_evaluate`，它应能返回主进程的 `process.type` 或等价状态，以及 renderer 的 `window.location.href`。
-- 如果实现 `renderer_screenshot`，它应能生成可打开的 PNG 文件。
+- `electron_evaluate` 能返回主进程和 renderer 的值；异常、超大结果、不可序列化值和超时都有结构化结果；密钥被脱敏。
+- evaluate 和 expression 型 wait_for 在宿主设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 时被拒绝（`EVALUATION_NOT_ALLOWED`）；DOM 快照不受限。
+- `electron_screenshot` 生成可打开的 PNG 文件并只保留最近 50 张；窗口隐藏或最小化时超时失败并提示。
 
 ### Skill 工作流
 
@@ -336,8 +334,8 @@ Skill 必须明确以下判断规则：
 ### 安全
 
 - 连接 `192.168.x.x` 或公网地址时被拒绝。
-- 如果未来实现 evaluate，且 `ELECTRON_DEBUG_ALLOW_EVAL=false`，调用应被拒绝并给出清晰提示。
-- 如果未来实现截图，截图不得写到输出目录之外。
+- `ELECTRON_DEBUG_ALLOW_EVAL=0` 时 evaluate 被拒绝并给出清晰提示。
+- 截图只写到输出目录内，文件名由工具生成。
 
 ### Agent 使用验证
 
@@ -364,7 +362,7 @@ Skill 必须明确以下判断规则：
 2. 选择当前目标窗口。
 3. 检查页面 URL、标题、关键 DOM 或运行时异常。
 4. 渲染代码修改后优先 reload 当前 target。
-5. 重新读取日志；视觉、DOM 和交互问题由项目已有测试或其他 Agent 工具补充。
+5. 重新读取日志；可用 `electron_dom_snapshot` 和 `electron_screenshot` 取得页面证据，业务交互问题由项目已有测试或其他 Agent 工具补充。
 6. 根据 MCP 返回的观察结果输出 `PASS`、`FAIL` 或 `BLOCKED`。
 
 ### 修改 preload 或 IPC
@@ -385,7 +383,7 @@ Skill 必须明确以下判断规则：
 - 实现本机端点校验、端点发现和 WebSocket 会话管理。
 - 确保 MCP stdio 的 stdout 不被调试日志污染。
 
-### Phase 1：核心四工具
+### Phase 1：核心诊断工具（基线）
 
 - 实现主进程和 renderer Session。
 - 实现 `electron_attach`、`electron_status`、`electron_targets` 和 `electron_logs`。
@@ -402,11 +400,15 @@ Skill 必须明确以下判断规则：
 - 增加修改范围到诊断通道的判断规则。
 - 增加重启、reload、连接恢复和证据要求。
 
-### Phase 3：可选诊断扩展
+### Phase 3：能力优先扩展（已实现）
 
-- 只有核心链路证明不足时，才实现 `renderer_screenshot`。
-- 只有项目已有检查、回归操作和固定日志仍不足以观察目标状态时，才实现 `electron_evaluate`。
-- 断点、暂停、单步、调用栈、IPC trace 和 source map 继续作为未来候选。
+设计取向：Skill 只提供指导和建议，提供能力才是最重要的。工具直接拥有运行时检查能力，输出保持结构化、有界、脱敏、仅限回环，且不含任何项目专属逻辑。
+
+- 运行时检查：`electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`。
+- 统一时间线：main、renderer、app 事件共享递增 `seq`，日志支持 `afterSeq` 续读和 `lastSeq`。
+- Skill 收敛为薄页面：何时使用、按修改类型列出的证据矩阵、工具组合方式。
+
+仍未实现：断点、暂停、单步、调用栈、IPC trace、source map、原生对话框和菜单替身，以及与 MCP 共享核心的 CLI 入口（需要常驻进程，暂缓）。
 
 ## 11. 成功标准
 

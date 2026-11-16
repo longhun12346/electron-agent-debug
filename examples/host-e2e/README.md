@@ -16,7 +16,7 @@ node examples/host-e2e/smoke.mjs claude <absolute-claude-executable>
 
 测试启动动态端口的真实 Electron fixture，通过本次临时 MCP 配置连接透明 stdio relay，并显式向宿主提供 Skill 内容。relay 只记录 MCP 协议流量，生产 Server 无需修改。测试检查：
 
-- 宿主实际调用了 attach、status、targets、logs 四个工具。
+- 宿主实际调用了 attach、status、targets、logs 这几个诊断工具（该测试只覆盖它们；MCP 另有生命周期和检查工具，由单元和 stdio 测试覆盖）。
 - attach/status 的真实返回报告主进程和 renderer 在线。
 - targets 返回窗口且选中了 target。
 - logs 同时包含主进程 IPC handler 错误和 renderer 调用错误，通道必须正确。

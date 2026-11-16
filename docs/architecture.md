@@ -19,13 +19,13 @@ MCP 诊断适配层
       ▼
 状态、日志和异常
       │
-      └── 未来可按需增加表达式或截图扩展
+      └── 按需执行表达式、等待条件、截图、无障碍树快照
       │
       ▼
 Agent 根据用户目标进行分析
 ```
 
-MCP Server 只负责连接和诊断，不负责启动或控制用户应用的生命周期。
+MCP Server 只 attach 到 Agent 已启动的应用，不启动、停止或重启应用。工具不包含项目专属逻辑，也不替 Agent 做业务回归。
 
 ## 1. 总体结构
 
@@ -41,7 +41,8 @@ electron-agent-debug MCP Server
     │     └── WebSocket → Agent-provided main endpoint
     ├── Renderer CDP Session
     │     └── WebSocket → Agent-provided renderer endpoint
-    ├── Event Buffer
+    ├── Event Buffer（main / renderer 共享递增 seq 的统一时间线）
+    ├── Inspector (evaluate / wait_for / screenshot / dom_snapshot)
     ├── Diagnostic State
     └── Tool Router
 
@@ -52,7 +53,9 @@ Electron App
 
 ## 2. 会话模型
 
-MCP Server 启动后不主动连接应用，第一次调用 `electron_attach` 时读取 Agent 已提供的端点并建立可用的 Session。连接由 Agent 在诊断阶段触发，Server 不尝试启动或猜测 Electron 应用。
+MCP Server 启动后不主动连接应用。第一次调用 `electron_attach` 时读取 Agent 已提供的端点并建立 Session。Server 不猜测或扫描 Electron 应用。
+
+attach、targets 刷新和 close 经同一个操作队列串行执行；Inspector 的 evaluate、wait_for、截图和快照不排队，避免长时间等待阻塞连接操作。
 
 主进程和渲染进程使用两个相互独立、可部分建立的 Session：
 
@@ -135,7 +138,11 @@ GET ${ELECTRON_DEBUG_CDP_URL}/json/list
 
 实现时应按 Session 能力处理协议差异；某个 domain 不支持或启用失败时，返回局部能力状态，不得让 MCP Server 退出。核心 Session 只启用日志和状态所需的 domain。
 
-只有启用对应扩展时才启用 `Page` 或 `Runtime.evaluate`。
+按需使用的能力：
+
+- `Runtime.evaluate`：`electron_evaluate`、expression 型 `electron_wait_for`（主进程与 renderer 各自的 Session），受下文的门控约束。
+- `Page.captureScreenshot`：`electron_screenshot`。窗口被隐藏或最小化时 Chromium 不响应，调用以超时失败并提示显示窗口。
+- `Accessibility.getFullAXTree`：`electron_dom_snapshot`，不在页面执行脚本，附加模式也可用。
 
 ## 5. 错误模型
 
@@ -166,9 +173,14 @@ GET ${ELECTRON_DEBUG_CDP_URL}/json/list
 - `SESSION_DISCONNECTED`
 - `PROTOCOL_ERROR`
 
-未来实现 evaluate 或截图扩展时，才需要增加 `EVALUATION_DISABLED`、`EVALUATION_TIMEOUT`、
-`OUTPUT_PATH_DENIED` 和 `OUTPUT_DIR_NOT_CONFIGURED` 等扩展错误码。`OUTPUT_TOO_LARGE`
-当前只用于拒绝过大的 discovery 响应；日志事件使用 Session 自己的缓存上限。
+检查能力增加以下错误码：
+
+- `INVALID_ARGUMENT`
+- `EVALUATION_NOT_ALLOWED`、`EVALUATION_FAILED`
+- `WAIT_TIMEOUT`
+- `SCREENSHOT_FAILED`、`SNAPSHOT_FAILED`
+
+`OUTPUT_TOO_LARGE` 当前只用于拒绝过大的 discovery 响应；日志事件使用 Session 自己的缓存上限，evaluate 结果超过 `maxResultBytes` 时在成功结果中标记 `truncated`。
 
 ## 6. Skill 与 MCP 的边界
 
@@ -200,9 +212,10 @@ MCP 工具的 `ok` 只表示本次工具调用是否成功，不表示用户代�
 
 - 只允许连接回环地址。
 - HTTP discovery 返回的 WebSocket 地址也必须重新校验。
-- 如果未来实现表达式执行，默认关闭，并限制时间、并发和结果大小。
-- 如果未来实现截图，解析后的路径必须位于 Agent 提供的输出目录内，并拒绝通过符号链接逃逸目录。
-- 日志和异常必须有大小上限并经过可序列化处理；未来实现表达式后，其结果也必须遵守同样限制。
+- 表达式执行（`electron_evaluate`、expression 型 `wait_for`）默认开启（只连接回环地址）；宿主可在 MCP 配置的 `env` 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用，此时返回 `EVALUATION_NOT_ALLOWED`。执行有超时（默认 3 秒，上限 30 秒）和结果大小限制（默认 64 KiB，上限 1 MiB）。
+- 截图写入 `ELECTRON_DEBUG_OUTPUT_DIR`（默认系统临时目录下的 `electron-agent-debug`），目录权限 0700、文件权限 0600，文件名由工具生成，只保留最近 50 张；不返回图像内容。
+- 日志、异常和 evaluate 结果都经过脱敏（token、secret、password、api key、authorization、cookie 等键值和 Bearer 令牌），并有大小上限。
+- 托管应用的 stdout 和 stderr 逐行进入 `app` 通道；停止时 Windows 使用 `taskkill /T /F`，POSIX 使用进程组信号，覆盖子进程树。
 - stdout 只用于 MCP 协议，诊断日志写 stderr。
 - discovery、WebSocket 建连和单次协议请求都必须有有限超时；一次工具调用不得等待无限期网络操作。
 - WebSocket 单条协议消息必须有大小上限，不能只依赖事件缓存限制。

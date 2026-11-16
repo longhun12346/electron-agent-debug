@@ -54,6 +54,18 @@ test("builds the discovery path without changing an explicit json list path", ()
   assert.equal(discoveryUrl("http://127.0.0.1/json/list"), "http://127.0.0.1/json/list");
 });
 
+test("evaluation is allowed by default and disabled only by an explicit 0 or false", () => {
+  assert.equal(readRuntimeConfig({}).allowEval, true);
+  assert.equal(readRuntimeConfig({ ELECTRON_DEBUG_ALLOW_EVAL: "1" }).allowEval, true);
+  for (const value of ["0", "false", " FALSE "]) {
+    assert.equal(readRuntimeConfig({ ELECTRON_DEBUG_ALLOW_EVAL: value }).allowEval, false);
+  }
+});
+
+test("defaults the protocol message limit to the 256 MiB that Puppeteer and Playwright accept", () => {
+  assert.equal(readRuntimeConfig({}).maxProtocolMessageBytes, 268_435_456);
+});
+
 test("reads a bounded protocol message limit", () => {
   const config = readRuntimeConfig({
     ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES: "8192",
@@ -75,7 +87,7 @@ for (const [name, key, minimum, maximum] of [
   ["ELECTRON_DEBUG_DISCOVERY_TIMEOUT_MS", "discoveryTimeoutMs", 100, 30_000],
   ["ELECTRON_DEBUG_MAX_LOG_EVENTS", "maxLogEvents", 10, 10_000],
   ["ELECTRON_DEBUG_MAX_LOG_BYTES", "maxLogBytes", 4_096, 16_777_216],
-  ["ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES", "maxProtocolMessageBytes", 4_096, 16_777_216],
+  ["ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES", "maxProtocolMessageBytes", 4_096, 268_435_456],
 ] as const) {
   test(`${name} validates both bounds, invalid numbers and blank fallback`, () => {
     for (const value of [minimum, maximum]) {

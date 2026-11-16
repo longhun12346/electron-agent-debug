@@ -1,5 +1,7 @@
 export type ProcessScope = "main" | "renderer";
 
+export type EvaluateScope = "main" | "renderer";
+
 export type PublicSessionStatus = "unconfigured" | "offline" | "online";
 
 export type EndpointSource = "attach_input" | "environment" | "session";
@@ -28,6 +30,7 @@ export interface TargetInfo {
 }
 
 export interface DiagnosticEvent {
+  seq?: number;
   process: ProcessScope;
   targetId?: string;
   observedAt: string;
@@ -66,6 +69,8 @@ export interface AttachResult {
   errors: DiagnosticError[];
 }
 
+export type Result<T> = { ok: true; data: T } | { ok: false; error: DiagnosticError };
+
 export interface StatusResult {
   main: SessionSnapshot;
   renderer: SessionSnapshot;
@@ -78,5 +83,7 @@ export interface LogsInput {
   level?: string;
   limit?: number;
   since?: string;
+  afterSeq?: number;
   clear?: boolean;
 }
+

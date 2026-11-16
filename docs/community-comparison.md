@@ -2,7 +2,7 @@
 
 调研时间：2026-11-14。
 
-社区项目更新较快，下面的 star、commit 和工具数量只作为当前快照，不作为质量保证。重点比较它们是否适合本项目的目标：双通道、attach-only、编码后验证和轻量实现。
+社区项目更新较快，下面的 star、commit 和工具数量只作为当前快照，不作为质量保证。重点比较它们是否适合本项目的目标：双通道、编码后验证和轻量实现。
 
 ## 1. 主要项目
 
@@ -51,7 +51,7 @@
 
 需要重新设计：
 
-- attach-only 生命周期。
+- 只 attach 到 Agent 已启动的应用，不管理应用生命周期。
 - 回环地址和 WebSocket 地址二次校验。
 - 更小的工具集。
 - fixture 和自动化验收。
@@ -133,8 +133,8 @@
 
 采用“自建薄适配层 + 借鉴社区设计”的方案：
 
-- 核心公开工具固定为 4 个，截图和 evaluate 仅作为未来候选扩展，不属于当前实现。
-- 只 attach 已运行的本地 Electron。
+- 核心诊断工具 4 个，加上运行时检查（evaluate、wait_for、screenshot、dom_snapshot），共 8 个；evaluate 类能力默认开启，可用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用。
+- 可以由工具启动并管理一个应用，也可以只 attach 已运行的本地 Electron。
 - 主进程和 renderer 各使用一个 Session。
 - reconnect、target 重新发现和缓存作为内部能力。
 - 先实现三类 fixture 和 Agent 使用验证。

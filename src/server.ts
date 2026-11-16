@@ -4,6 +4,7 @@ import { version } from "./version.js";
 import { errorResult, toDiagnosticError } from "./errors.js";
 import { SessionManager } from "./sessions/session-manager.js";
 import { registerCoreTools } from "./tools/core-tools.js";
+import { registerInspectionTools } from "./tools/inspection-tools.js";
 
 export function createMcpServer(manager = new SessionManager()): McpServer {
   const server = new McpServer({
@@ -11,6 +12,7 @@ export function createMcpServer(manager = new SessionManager()): McpServer {
     version,
   });
   registerCoreTools(server, manager);
+  registerInspectionTools(server, manager);
   server.server.onclose = () => {
     void manager.close();
   };

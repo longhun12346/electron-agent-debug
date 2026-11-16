@@ -1,7 +1,7 @@
 {
   "name": "electron-agent-debug",
-  "version": "0.1.1",
-  "description": "Attach-only Electron diagnostics adapter and Agent skill guidance.",
+  "version": "0.2.0",
+  "description": "Electron runtime diagnostics MCP server (attach, inspect, evaluate, screenshot) and Agent skill guidance.",
   "license": "MIT",
   "private": true,
   "repository": {

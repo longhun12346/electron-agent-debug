@@ -42,7 +42,10 @@ npm run check:skill
 | 连接与退出 | 建连握手停滞、对端不响应 close frame 时实际释放 TCP；stdin EOF 后独立 MCP 进程自然退出且两条连接均关闭；非 Windows 另测 SIGTERM |
 | 并发队列 | 显式 gate 阻塞 discovery，交错 attach/targets/close；断言排队期间没有提前 discovery、完成顺序和最终 target；失败操作后已排队任务仍执行 |
 | IPC 证据断言 | 正反用例要求主进程 handler 和 renderer 调用侧各自出现预期证据；只有单侧、通道标错、两侧交换都失败 |
-| Skill 包 | 创建并解压真实 tar 到隔离的项目/全局目录，禁止联网及加载包外模块，验证完整 MCP 初始化和四工具调用；检查引用，检测篡改、缺文件和越界 manifest |
+| Skill 包 | 创建并解压真实 tar 到隔离的项目/全局目录，禁止联网及加载包外模块，验证完整 MCP 初始化和工具调用；检查引用，检测篡改、缺文件和越界 manifest |
+| MCP 端到端 | `tests/mcp-lifecycle.test.ts` 启动测试替身应用，经 stdio 走完 attach、evaluate、logs，并验证设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 时被拒绝 |
+| 检查能力 | `tests/inspection.test.ts` 用 `tests/helpers/fake-electron-app.cjs` 测试 evaluate 的门控（`ELECTRON_DEBUG_ALLOW_EVAL=0` 时拒绝）、截断、脱敏、超时、Promise 与顶层 await；wait_for 的 log/expression 与 `WAIT_TIMEOUT`；截图写入私有目录；无障碍树渲染及节点上限 |
+| 统一时间线 | main/renderer 事件共享递增 `seq`，`afterSeq` 与 `lastSeq` 可续读 |
 
 这些测试通过只证明所覆盖的契约。外部 Electron 项目的业务操作、视觉结果和真实 Agent 宿主接入仍需分别验证，不能用测试数量或一次 CI 成功代替。
 
@@ -59,7 +62,7 @@ Linux 无显示环境时使用 `FIXTURE_ELECTRON_NO_SANDBOX=true xvfb-run -a nod
 
 完整 smoke 包括默认、主进程失败、renderer 失败、IPC 失败、缺少 endpoint，以及真实 renderer reload、BrowserWindow 重建、Electron 正常退出后以新端口重启。生命周期测试始终使用同一个 MCP 进程，检查旧 target 清理、新 target 选择和新一轮双通道证据；清空日志后还会检查旧运行标记未混入新结果。
 
-fixture 的父子进程 IPC 仅供测试驱动 reload、重建和退出，未添加到 MCP；生产 Server 仍只有四个诊断工具。
+fixture 的父子进程 IPC 仅供测试驱动 reload、重建和退出，未添加到 MCP。生产 Server 另外提供 evaluate、wait_for、截图、DOM 快照工具；这些由 `tests/` 中的替身应用覆盖，真实 Electron 的截图要求窗口可见（隐藏或最小化的窗口会让 `Page.captureScreenshot` 超时）。
 
 ## CI
 
@@ -82,7 +85,7 @@ node examples/host-e2e/smoke.mjs codex <absolute-codex-executable>
 node examples/host-e2e/smoke.mjs claude <absolute-claude-executable>
 ```
 
-脚本在临时目录配置本次 MCP，显式提供当前 Skill 内容，启动真实 IPC 故障 fixture，再让宿主调用四个诊断工具。以透明 stdio trace 中的实际请求、响应和双侧 IPC 证据断言结果，不接受模型口头声称成功。测试使用命令行临时 MCP 配置和工具授权，不修改用户保存的宿主配置。成功后删除临时产物，失败则保留本机 trace 供定位；不要提交宿主日志。
+脚本在临时目录配置本次 MCP，显式提供当前 Skill 内容，启动真实 IPC 故障 fixture，再让宿主调用 attach、status、targets、logs 诊断工具。以透明 stdio trace 中的实际请求、响应和双侧 IPC 证据断言结果，不接受模型口头声称成功。测试使用命令行临时 MCP 配置和工具授权，不修改用户保存的宿主配置。成功后删除临时产物，失败则保留本机 trace 供定位；不要提交宿主日志。
 
 本轮还在隔离副本中分别移除日志字节淘汰和将 IPC 的全量匹配弱化为任一匹配，确认新增测试均会失败。此操作用于验证断言敏感性，不修改工作区实现。
 

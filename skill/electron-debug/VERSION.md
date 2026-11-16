@@ -1,5 +1,12 @@
 # 版本记录
 
+## 1.1.0
+
+- MCP 0.2.0：统一日志时间线增加 `seq` 游标。MCP 只 attach，不启动、停止或重启应用；启动应用并暴露 `--inspect` 与 `--remote-debugging-port` 由 Agent 负责。
+- 新增 `electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`；求值默认开启（仅回环 endpoint），宿主设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 可禁用；协议单条消息上限默认提高到 256 MiB（与 Puppeteer、Playwright 一致），大型 renderer 不再因 1009 被断开；日志脱敏覆盖 JSON 字符串化后的内容。
+- 新增 `ELECTRON_DEBUG_OUTPUT_DIR`；输出统一有界并脱敏。
+- SKILL.md 精简为使用建议和证据矩阵。旧宿主配置无需更改入口，但需确认 8 个工具可见。
+
 ## 1.0.4
 
 - 在 description 中明确 Electron 代码变更验证、白屏和运行时错误等触发场景。

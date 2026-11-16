@@ -1,4 +1,4 @@
-import { EventBuffer } from "../events/event-buffer.js";
+import { EventBuffer, type EventSequence } from "../events/event-buffer.js";
 import { DiagnosticException, toDiagnosticError } from "../errors.js";
 import { JsonRpcConnection, type JsonRpcEvent } from "../protocol/json-rpc-connection.js";
 import type {
@@ -16,6 +16,7 @@ export interface SessionOptions {
   maxProtocolMessageBytes: number;
   maxLogEvents: number;
   maxLogBytes: number;
+  sequence?: EventSequence;
   onDisconnected?: () => void;
 }
 
@@ -121,7 +122,7 @@ export class DiagnosticSession {
   readonly events: EventBuffer;
 
   constructor(private readonly options: SessionOptions) {
-    this.events = new EventBuffer(options.maxLogEvents, options.maxLogBytes);
+    this.events = new EventBuffer(options.maxLogEvents, options.maxLogBytes, options.sequence);
   }
 
   get isConnected(): boolean {
@@ -230,6 +231,15 @@ export class DiagnosticSession {
     this.status = this.endpoint ? "offline" : "unconfigured";
     this.lastDisconnectedAt = new Date().toISOString();
     this.lastDisconnectReason = reason;
+  }
+
+  async request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {
+    if (!this.connection?.isOpen) {
+      throw new DiagnosticException("SESSION_DISCONNECTED", `${this.options.process} 通道当前不可用`, {
+        retryable: true,
+      });
+    }
+    return this.connection.request(method, params, timeoutMs);
   }
 
   snapshot(): SessionSnapshot {

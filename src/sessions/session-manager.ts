@@ -4,23 +4,28 @@ import {
   type RuntimeConfig,
 } from "../config.js";
 import { discoverMain, discoverRenderer, pageTargets } from "../discovery.js";
+import { EventSequence } from "../events/event-buffer.js";
 import { DiagnosticException, errorResult, toDiagnosticError } from "../errors.js";
 import { selectTarget, type TargetSelector } from "../targets/selector.js";
 import type {
   AttachInput,
   AttachResult,
   DiagnosticError,
+  DiagnosticEvent,
   EndpointConfig,
   LogsInput,
   StatusResult,
   TargetInfo,
 } from "../types.js";
 import { DiagnosticSession } from "./diagnostic-session.js";
+import { Inspector } from "./inspector.js";
 
 export class SessionManager {
   readonly config: RuntimeConfig;
   readonly main: DiagnosticSession;
   readonly renderer: DiagnosticSession;
+  readonly inspector: Inspector;
+  private readonly sequence = new EventSequence();
   private mainEndpoint?: EndpointConfig;
   private rendererEndpoint?: EndpointConfig;
   private rendererTargets: TargetInfo[] = [];
@@ -31,6 +36,7 @@ export class SessionManager {
     this.config = config;
     this.main = new DiagnosticSession({
       process: "main",
+      sequence: this.sequence,
       requestTimeoutMs: config.requestTimeoutMs,
       maxProtocolMessageBytes: config.maxProtocolMessageBytes,
       maxLogEvents: config.maxLogEvents,
@@ -38,6 +44,7 @@ export class SessionManager {
     });
     this.renderer = new DiagnosticSession({
       process: "renderer",
+      sequence: this.sequence,
       requestTimeoutMs: config.requestTimeoutMs,
       maxProtocolMessageBytes: config.maxProtocolMessageBytes,
       maxLogEvents: config.maxLogEvents,
@@ -45,6 +52,13 @@ export class SessionManager {
       onDisconnected: () => {
         this.rendererTargets = [];
       },
+    });
+    this.inspector = new Inspector({
+      config,
+      main: this.main,
+      renderer: this.renderer,
+      listEvents: (input) => this.collectEvents(input),
+      lastSeq: () => this.sequence.last,
     });
   }
 
@@ -219,26 +233,32 @@ export class SessionManager {
   }
 
   logs(input: LogsInput): {
-    events: ReturnType<DiagnosticSession["events"]["list"]>;
+    events: DiagnosticEvent[];
     cleared: boolean;
+    lastSeq: number;
   } {
     const clear = input.clear === true;
-    const events = [
-      ...(input.process === "renderer" ? [] : this.main.events.list(input)),
-      ...(input.process === "main" ? [] : this.renderer.events.list(input)),
-    ]
-      .sort((left, right) => left.observedAt.localeCompare(right.observedAt))
-      .slice(-(input.limit ?? 100));
+    const events = this.collectEvents(input).slice(-(input.limit ?? 100));
+    const lastSeq = this.sequence.last;
 
     if (clear) {
-      if (!input.process || input.process === "all" || input.process === "main") {
+      const scope = input.process ?? "all";
+      if (scope === "all" || scope === "main") {
         this.main.events.clear();
       }
-      if (!input.process || input.process === "all" || input.process === "renderer") {
+      if (scope === "all" || scope === "renderer") {
         this.renderer.events.clear();
       }
     }
-    return { events, cleared: clear };
+    return { events, cleared: clear, lastSeq };
+  }
+
+  private collectEvents(input: LogsInput): DiagnosticEvent[] {
+    const scope = input.process ?? "all";
+    return [
+      ...(scope === "all" || scope === "main" ? this.main.events.list(input) : []),
+      ...(scope === "all" || scope === "renderer" ? this.renderer.events.list(input) : []),
+    ].sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0));
   }
 
   private resolveEndpoints(input: AttachInput, errors: DiagnosticError[]): {

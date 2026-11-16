@@ -126,7 +126,7 @@ test("MCP stdio preserves log scope and scoped clearing through tools/call",
     }
   });
 
-test("registers exactly the four core tools", async () => {
+test("registers the diagnostic, lifecycle and inspection tools", async () => {
   const process = new McpProcess();
   try {
     await process.request(1, "initialize", {
@@ -138,7 +138,11 @@ test("registers exactly the four core tools", async () => {
     const response = await process.request(2, "tools/list", {});
     assert.deepEqual(
       response.result?.tools?.map((tool) => tool.name),
-      ["electron_attach", "electron_status", "electron_targets", "electron_logs"],
+      [
+        "electron_attach", "electron_status", "electron_targets", "electron_logs",
+        "electron_evaluate", "electron_wait_for", "electron_screenshot",
+        "electron_dom_snapshot",
+      ],
     );
   } finally {
     await process.close();

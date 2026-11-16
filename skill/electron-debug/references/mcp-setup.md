@@ -43,7 +43,7 @@ gh attestation verify <absolute-release-zip> --repo longhun12346/electron-agent-
 }
 ```
 
-这是概念示例，字段与刷新方式以实际宿主为准。已存在相同 Server 时先核对其入口和版本，避免重复注册。刷新后确认 `electron_attach`、`electron_status`、`electron_targets`、`electron_logs` 可见。MCP 启动成功不代表 Electron 已启动或业务已通过。
+这是概念示例，字段与刷新方式以实际宿主为准。已存在相同 Server 时先核对其入口和版本，避免重复注册。刷新后确认全部 8 个工具可见：`electron_attach`、`electron_status`、`electron_targets`、`electron_logs`、`electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`。MCP 启动成功不代表 Electron 已启动或业务已通过。
 
 ## 更新与迁移
 
@@ -55,7 +55,7 @@ gh attestation verify <absolute-release-zip> --repo longhun12346/electron-agent-
 
 ## Endpoint 与保护参数
 
-MCP 通过 stdio 通信，不监听诊断服务端口，也不启动 Electron。Agent 在调用 `electron_attach` 时传入实际回环 HTTP(S) discovery URL，或通过宿主提供环境变量：
+MCP 通过 stdio 通信，不监听诊断服务端口。应用由 Agent 用项目已有命令启动并带上 `--inspect`、`--remote-debugging-port`；在调用 `electron_attach` 时传入实际回环 HTTP(S) discovery URL，或通过宿主提供环境变量：
 
 ```text
 ELECTRON_DEBUG_MAIN_URL=<agent-provided-loopback-endpoint>
@@ -70,8 +70,12 @@ ELECTRON_DEBUG_DISCOVERY_TIMEOUT_MS=<optional-discovery-timeout>
 ELECTRON_DEBUG_MAX_LOG_EVENTS=<optional-event-limit>
 ELECTRON_DEBUG_MAX_LOG_BYTES=<optional-byte-limit>
 ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES=<optional-protocol-message-limit>
+ELECTRON_DEBUG_OUTPUT_DIR=<optional-screenshot-directory>
+ELECTRON_DEBUG_ALLOW_EVAL=<optional, 0 or false to disable evaluation>
 ```
 
-端口由 Agent 或项目启动方式动态确定；不扫描端口，不猜测 target。主进程问题使用 Inspector，renderer 问题使用 CDP，preload/IPC 使用双通道。Electron 重启后重新 attach；窗口重建后重新发现 target。
+`ELECTRON_DEBUG_OUTPUT_DIR` 指定截图目录，默认系统临时目录下的 `electron-agent-debug`，仅保留最近 50 张。`electron_evaluate` 和表达式型 `electron_wait_for` 默认开启（endpoint 只允许回环地址）；宿主在 `env` 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 可禁用，此时返回 `EVALUATION_NOT_ALLOWED`。单条协议消息上限默认 256 MiB，与 Puppeteer、Playwright 一致；可用 `ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES` 调小。
 
-业务测试、DOM、视觉验证以及最终结论由 Agent 完成，MCP 只提供状态、target、日志和结构化错误。
+端口由 Agent 动态确定；不扫描端口，不猜测 target。主进程问题使用 Inspector，renderer 问题使用 CDP，preload/IPC 使用双通道。应用重启后由 Agent 重新 `electron_attach`；窗口重建后重新发现 target。
+
+业务测试以及最终结论由 Agent 完成，MCP 提供状态、target、日志、检查结果和结构化错误。

@@ -28,10 +28,11 @@ const logsSchema = z.object({
   since: z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
     message: "since 必须是有效的日期时间字符串",
   }).optional(),
+  afterSeq: z.number().int().min(0).optional(),
   clear: z.boolean().optional(),
 });
 
-function toolResult(value: unknown, isError = false) {
+export function toolResult(value: unknown, isError = false) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value) }],
     structuredContent: value as Record<string, unknown>,
@@ -45,7 +46,7 @@ export function registerCoreTools(server: McpServer, manager: SessionManager): v
     {
       title: "Attach to Electron diagnostics",
       description:
-        "连接 Agent 提供的本地主进程 Inspector 和/或 renderer CDP endpoint；不启动 Electron。",
+        "连接 Agent 提供的本地主进程 Inspector 和/或 renderer CDP endpoint；不启动 Electron；应用由 Agent 用项目已有命令启动（加 --inspect 和 --remote-debugging-port）。",
       inputSchema: attachSchema,
     },
     async (input) => {
@@ -59,7 +60,7 @@ export function registerCoreTools(server: McpServer, manager: SessionManager): v
     "electron_status",
     {
       title: "Read Electron diagnostic status",
-      description: "读取当前 Session、target 和事件数量，不执行应用代码。",
+      description: "读取两个通道的 Session、target 和事件数量，不执行应用代码。",
       inputSchema: z.object({}),
     },
     async () => toolResult({ ok: true, data: manager.status() }),
@@ -83,7 +84,7 @@ export function registerCoreTools(server: McpServer, manager: SessionManager): v
     "electron_logs",
     {
       title: "Read Electron diagnostic logs",
-      description: "读取当前 MCP Server 进程内有界缓存的主进程和 renderer 事件。",
+      description: "读取当前 MCP Server 进程内有界缓存的统一时间线：主进程和 renderer 的事件，按 seq 排序。返回 lastSeq，下次用 afterSeq 只读取之后的事件。",
       inputSchema: logsSchema,
     },
     async (input) => {

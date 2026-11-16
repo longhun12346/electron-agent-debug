@@ -1,4 +1,5 @@
 import { DiagnosticException } from "../errors.js";
+import { redact } from "../redact.js";
 import type { DiagnosticEvent, LogsInput, ProcessScope } from "../types.js";
 
 function byteSize(value: unknown): number {
@@ -9,6 +10,19 @@ function byteSize(value: unknown): number {
   }
 }
 
+export class EventSequence {
+  private value = 0;
+
+  next(): number {
+    this.value += 1;
+    return this.value;
+  }
+
+  get last(): number {
+    return this.value;
+  }
+}
+
 export class EventBuffer {
   private readonly events: DiagnosticEvent[] = [];
   private bytes = 0;
@@ -16,12 +30,14 @@ export class EventBuffer {
   constructor(
     private readonly maxEvents: number,
     private readonly maxBytes: number,
+    private readonly sequence = new EventSequence(),
   ) {}
 
   add(event: DiagnosticEvent): void {
     const normalized: DiagnosticEvent = {
       ...event,
-      message: event.message.slice(0, 8_192),
+      seq: this.sequence.next(),
+      message: redact(event.message.slice(0, 8_192)),
     };
     const size = byteSize(normalized);
     if (size > this.maxBytes) {
@@ -50,6 +66,7 @@ export class EventBuffer {
       .filter((event) => process === "all" || event.process === (process as ProcessScope))
       .filter((event) => !input.level || event.level === input.level)
       .filter((event) => since === undefined || Date.parse(event.observedAt) >= since)
+      .filter((event) => input.afterSeq === undefined || (event.seq ?? 0) > input.afterSeq)
       .slice(-limit);
   }
 

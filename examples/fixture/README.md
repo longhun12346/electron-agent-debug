@@ -1,6 +1,6 @@
 # Electron 诊断 fixture
 
-这个 fixture 用于验证 attach-only MCP 诊断适配层的最小真实链路。它不会替 MCP Server 管理应用生命周期；启动、停止和端口分配由 Agent 或测试脚本负责。
+这个 fixture 用于验证 MCP 诊断适配层的 attach 链路。这里的脚本自行启动、停止 fixture 并分配端口，再通过 `electron_attach` 连接；evaluate、wait_for、截图等工具由 `tests/` 中的测试替身覆盖，不依赖本 fixture。
 
 ## 安装
 

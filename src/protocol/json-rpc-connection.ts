@@ -79,16 +79,19 @@ export class JsonRpcConnection {
         }
       });
       socket.on("message", (data) => this.handleMessage(data.toString()));
-      socket.on("close", (_code, reason) => {
+      socket.on("close", (code, reason) => {
         this.closed = true;
-        const text = reason.toString() || "WebSocket 已关闭";
+        const text = reason.toString()
+          || (code === 1009
+            ? "WebSocket 已关闭：单条协议消息超过 ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES 上限（close code 1009）"
+            : `WebSocket 已关闭（close code ${code}）`);
         this.rejectPending(new DiagnosticException("SESSION_DISCONNECTED", text, { retryable: true }));
         this.options.onClose?.(text);
       });
     });
   }
 
-  async request(method: string, params?: unknown): Promise<unknown> {
+  async request(method: string, params?: unknown, timeoutMs = this.options.requestTimeoutMs): Promise<unknown> {
     if (!this.isOpen || !this.socket) {
       throw new DiagnosticException("SESSION_DISCONNECTED", "Session 当前不可用", {
         retryable: true,
@@ -106,7 +109,7 @@ export class JsonRpcConnection {
             retryable: true,
           }),
         );
-      }, this.options.requestTimeoutMs);
+      }, timeoutMs);
 
       this.pending.set(id, { resolve, reject, timer });
       try {
