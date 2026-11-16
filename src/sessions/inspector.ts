@@ -163,7 +163,7 @@ export class Inspector {
       const target = this.deps.renderer.snapshot().selectedTarget;
       return {
         ok: true,
-        data: { path: file, bytes: image.length, format, targetId: target?.id, url: target?.url },
+        data: { path: file, bytes: image.length, format, targetId: target?.id, url: await this.currentUrl() },
       };
     } catch (error) {
       const diagnostic = toDiagnosticError(error, "SCREENSHOT_FAILED");
@@ -183,9 +183,23 @@ export class Inspector {
       ) as { nodes?: AxNode[] };
       const rendering = renderAxTree(response.nodes ?? [], clamp(input.maxNodes, 400, 1, 2_000));
       const target = this.deps.renderer.snapshot().selectedTarget;
-      return { ok: true, data: { targetId: target?.id, url: target?.url, ...rendering } };
+      return { ok: true, data: { targetId: target?.id, url: await this.currentUrl(), ...rendering } };
     } catch (error) {
       return errorResult(toDiagnosticError(error, "SNAPSHOT_FAILED"));
+    }
+  }
+
+  private async currentUrl(): Promise<string | undefined> {
+    const fallback = this.deps.renderer.snapshot().selectedTarget?.url;
+    try {
+      const history = await this.deps.renderer.request("Page.getNavigationHistory", {}) as {
+        currentIndex?: number;
+        entries?: Array<{ url?: string }>;
+      };
+      const url = history.entries?.[history.currentIndex ?? -1]?.url;
+      return typeof url === "string" ? url : fallback;
+    } catch {
+      return fallback;
     }
   }
 

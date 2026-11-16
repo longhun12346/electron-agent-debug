@@ -5,6 +5,11 @@
 - MCP 0.3.0：同一入口新增批处理模式 `launch.cjs --run`，从 stdin 读取 JSON 工具调用数组并在同一进程内顺序执行，不需要注册 MCP；工具集合与 MCP 完全一致。
 - SKILL.md 的接入部分改为二选一：注册 MCP，或使用批处理模式。已注册 MCP 的宿主无需任何改动。
 - Node.js 要求从 22 放宽到 20，运行文件按 Node 20 构建。
+- `electron_dom_snapshot` 和 `electron_screenshot` 返回的 `url` 改为取当前导航历史条目，SPA 路由切换后不再沿用 attach 时的旧地址。
+- SKILL.md 补充：就绪信号的选择与 `elapsedMs` 为 0 的排查、attach 后的历史事件与 `afterSeq`、截图和快照不脱敏、preload/IPC 的主进程证据取法、无网络观察工具时用 `performance.getEntriesByType('resource')` 查看请求。
+- SKILL.md 新增「未提供的能力与替代做法」：网络请求、调用栈、局部变量、断点、点击输入、窗口列表、内存、原生对话框。
+- SKILL.md 明确适用范围为本地开发环境，打包后的应用不在支持范围内。
+- SKILL.md 补充 utility process（指定 `--inspect` 端口后可按主进程方式连接）以及 webview、worker、跨域 iframe 的处理思路。
 
 ## 1.1.0
 

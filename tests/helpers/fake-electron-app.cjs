@@ -72,6 +72,9 @@ function answer(scope, socket, message) {
   }
   if (message.method === "Page.captureScreenshot") return reply({ data: png });
   if (message.method === "Accessibility.getFullAXTree") return reply({ nodes: axNodes });
+  if (message.method === "Page.getNavigationHistory") {
+    return reply({ currentIndex: 1, entries: [{ url: "app://fixture" }, { url: "app://fixture/#/after-navigation" }] });
+  }
   reply({});
 }
 

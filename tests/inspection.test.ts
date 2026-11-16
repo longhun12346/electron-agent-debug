@@ -160,6 +160,7 @@ test("screenshot writes a private PNG into the configured directory", { timeout:
       assert.deepEqual([...bytes.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
       assert.equal(shot.data.bytes, bytes.length);
       assert.equal(shot.data.targetId, "page-1");
+      assert.equal(shot.data.url, "app://fixture/#/after-navigation");
       assert.equal((await readdir(outputDir)).length, 1);
     });
   } finally {
@@ -183,6 +184,7 @@ test("dom snapshot renders the accessibility tree compactly and within the node 
   await withAttachedApp({}, async (manager) => {
     const snapshot = await manager.inspector.domSnapshot({});
     assert.ok(snapshot.ok, JSON.stringify(snapshot));
+    assert.equal(snapshot.data.url, "app://fixture/#/after-navigation");
     assert.equal(snapshot.data.text, [
       'RootWebArea "Fixture"',
       '  button "Save" [disabled]',
