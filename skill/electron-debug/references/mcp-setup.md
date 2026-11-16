@@ -2,7 +2,7 @@
 
 ## 前提
 
-Agent 宿主支持本地 MCP stdio Server；本机具备 Node.js 22 或更高版本；当前 Skill 已通过任务认可的安装渠道获取。应用运行、endpoint 和业务回归由 Agent 准备。
+Agent 使用 MCP 时，宿主需支持本地 MCP stdio Server；不注册 MCP 时用下文的批处理模式。两种方式都要求本机具备 Node.js 22 或更高版本，当前 Skill 已通过任务认可的安装渠道获取。应用运行、endpoint 和业务回归由 Agent 准备。
 
 ## 随包运行文件
 
@@ -44,6 +44,28 @@ gh attestation verify <absolute-release-zip> --repo longhun12346/electron-agent-
 ```
 
 这是概念示例，字段与刷新方式以实际宿主为准。已存在相同 Server 时先核对其入口和版本，避免重复注册。刷新后确认全部 8 个工具可见：`electron_attach`、`electron_status`、`electron_targets`、`electron_logs`、`electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`。MCP 启动成功不代表 Electron 已启动或业务已通过。
+
+## 不注册 MCP：批处理模式
+
+宿主没有配置 MCP、或不想修改宿主配置时，完整性检查通过后直接运行同一入口：
+
+```text
+node <absolute-skill-directory>/runtime/launch.cjs --run
+```
+
+stdin 传入 JSON 数组，每项为 `{"tool": "<工具名>", "arguments": {...}, "continueOnError": false}`，`arguments` 和 `continueOnError` 可省略。工具名和参数与 MCP 完全相同。各步骤在同一个进程、同一个连接内按顺序执行，例如：
+
+```json
+[
+  {"tool": "electron_attach", "arguments": {"mainUrl": "http://127.0.0.1:9229", "rendererUrl": "http://127.0.0.1:9222"}},
+  {"tool": "electron_wait_for", "arguments": {"log": {"contains": "ready"}, "timeoutMs": 15000}},
+  {"tool": "electron_evaluate", "arguments": {"scope": "renderer", "expression": "document.title"}}
+]
+```
+
+stdout 输出一行 JSON：`{"ok": true|false, "results": [{"tool", "ok", "result"}, ...]}`，`result` 与 MCP 工具返回的 `structuredContent` 相同。某一步失败时默认停止，后续步骤标记为 `skipped`；该步骤设置 `continueOnError: true` 则继续。全部成功时退出码为 0，否则为 1。输入上限 1 MiB、100 步。输入内容经 shell 传递时，优先用文件或 heredoc，避免引号转义。
+
+进程退出后连接和日志缓存随之消失，下一次执行要重新 `electron_attach`；`electron_logs` 只能读到本次执行期间观察到的事件。需要跨多轮保持连接或累积日志时，改为注册 MCP。环境变量保护参数（如 `ELECTRON_DEBUG_ALLOW_EVAL=0`）在两种方式下同样生效。
 
 ## 更新与迁移
 

@@ -32,7 +32,7 @@ npx skills add longhun12346/electron-agent-debug --skill electron-debug
 npx skills add longhun12346/electron-agent-debug --skill electron-debug --global
 ```
 
-应安装完整 Skill 目录，包括 `runtime` 和 `references`。安装不会自动配置或启动 MCP；Agent 核对安装来源后，使用 `node <absolute-skill-directory>/runtime/launch.cjs --verify` 检查完整性，再将同一入口配置到宿主。Electron 应用启动和 endpoint 准备仍由 Agent 根据当前宿主和项目完成。
+应安装完整 Skill 目录，包括 `runtime` 和 `references`。安装不会自动配置或启动 MCP；Agent 核对安装来源后，使用 `node <absolute-skill-directory>/runtime/launch.cjs --verify` 检查完整性，再将同一入口配置到宿主，或不注册 MCP、改用 `launch.cjs --run` 批处理模式（见 [MCP 接入说明](skill/electron-debug/references/mcp-setup.md)）。Electron 应用启动和 endpoint 准备仍由 Agent 根据当前宿主和项目完成。
 
 GitHub Release 的 Skill ZIP 附带构建来源证明，绑定发布工作流及源码提交；第三方安装渠道的安装包以该渠道的发布和扫描结果为准。本地完整性校验不独立证明发布者身份。配置、升级和来源验证边界见 [MCP 接入说明](skill/electron-debug/references/mcp-setup.md)。
 
@@ -107,4 +107,4 @@ npm run lint
 
 ## 开发状态
 
-当前阶段：核心 MCP Server、双 Session、求值/截图/无障碍树、统一时间线、契约与集成测试（含模拟 Electron 应用）、Agent 调试 Skill 和外部 Electron 项目 opt-in E2E harness 已实现。命令行入口（与 MCP 共用核心）尚未实现。
+当前阶段：核心 MCP Server、双 Session、求值/截图/无障碍树、统一时间线、契约与集成测试（含模拟 Electron 应用）、Agent 调试 Skill 和外部 Electron 项目 opt-in E2E harness 已实现。同一入口还提供不注册 MCP 的批处理模式（`launch.cjs --run`）。

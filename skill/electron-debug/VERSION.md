@@ -1,5 +1,10 @@
 # 版本记录
 
+## 1.2.0
+
+- MCP 0.3.0：同一入口新增批处理模式 `launch.cjs --run`，从 stdin 读取 JSON 工具调用数组并在同一进程内顺序执行，不需要注册 MCP；工具集合与 MCP 完全一致。
+- SKILL.md 的接入部分改为二选一：注册 MCP，或使用批处理模式。已注册 MCP 的宿主无需任何改动。
+
 ## 1.1.0
 
 - MCP 0.2.0：统一日志时间线增加 `seq` 游标。MCP 只 attach，不启动、停止或重启应用；启动应用并暴露 `--inspect` 与 `--remote-debugging-port` 由 Agent 负责。

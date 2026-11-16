@@ -3,16 +3,20 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { version } from "./version.js";
 import { errorResult, toDiagnosticError } from "./errors.js";
 import { SessionManager } from "./sessions/session-manager.js";
-import { registerCoreTools } from "./tools/core-tools.js";
-import { registerInspectionTools } from "./tools/inspection-tools.js";
+import { allTools } from "./tools/index.js";
 
 export function createMcpServer(manager = new SessionManager()): McpServer {
   const server = new McpServer({
     name: "electron-agent-debug",
     version,
   });
-  registerCoreTools(server, manager);
-  registerInspectionTools(server, manager);
+  for (const tool of allTools) {
+    server.registerTool(
+      tool.name,
+      { title: tool.title, description: tool.description, inputSchema: tool.inputSchema },
+      async (input) => tool.handler(manager, input),
+    );
+  }
   server.server.onclose = () => {
     void manager.close();
   };

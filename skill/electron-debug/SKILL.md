@@ -6,7 +6,7 @@ license: MIT
 
 # Electron Agent Debug
 
-MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运行时事实；启动应用由 Agent 用项目已有方式完成；Agent 决定验证什么、执行业务回归并自行判断结果。
+MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运行时事实（也可不注册 MCP，用批处理模式调用同一组工具，见「接入」）；启动应用由 Agent 用项目已有方式完成；Agent 决定验证什么、执行业务回归并自行判断结果。
 
 ## 工具
 
@@ -58,4 +58,9 @@ attach 成功、无 console error 或工具返回 `ok` 都不足以判定 `PASS`
 
 ## 接入
 
-随包运行文件见 `runtime/launch.cjs`，需要 Node.js 22+。先执行 `node <absolute-skill-directory>/runtime/launch.cjs --verify`，再把同一入口注册为本地 stdio MCP Server，并确认工具可见。校验失败或文件缺失时报告 `BLOCKED`，不要下载或在本机构建。详见 [MCP 接入说明](references/mcp-setup.md)，版本见 [VERSION.md](VERSION.md)。
+随包运行文件见 `runtime/launch.cjs`，需要 Node.js 22+。先执行 `node <absolute-skill-directory>/runtime/launch.cjs --verify`。校验失败或文件缺失时报告 `BLOCKED`，不要下载或在本机构建。之后二选一，两种方式提供同样的 8 个工具：
+
+- **注册 MCP**：把同一入口注册为本地 stdio MCP Server，并确认工具可见。适合需要多轮、跨调用保持连接的诊断。
+- **不注册 MCP**：执行 `node <absolute-skill-directory>/runtime/launch.cjs --run`，在 stdin 传入 JSON 数组 `[{"tool":"electron_attach","arguments":{...}},{"tool":"electron_logs"}]`，同一进程内按顺序执行，stdout 输出 `{ok, results}`。进程退出后连接和日志缓存随之消失，每次执行都要从 `electron_attach` 开始。
+
+详见 [MCP 接入说明](references/mcp-setup.md)，版本见 [VERSION.md](VERSION.md)。

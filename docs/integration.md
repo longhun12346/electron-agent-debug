@@ -10,7 +10,7 @@ MCP Server 要求 Node.js 22 或更高版本。安装完整 Skill 包，核对�
 node <absolute-skill-directory>/runtime/launch.cjs --verify
 ```
 
-校验通过后，把同一个 `runtime/launch.cjs` 入口配置为宿主的 stdio Server。随包 JavaScript bundle 已包含运行依赖，正常使用不需要下载源码、安装依赖或构建 MCP。来源证明、完整性边界和升级步骤见 [随包接入说明](../skill/electron-debug/references/mcp-setup.md)。
+校验通过后，把同一个 `runtime/launch.cjs` 入口配置为宿主的 stdio Server。随包 JavaScript bundle 已包含运行依赖，正常使用不需要下载源码、安装依赖或构建 MCP。不想修改宿主配置时，可改用 `node <absolute-skill-directory>/runtime/launch.cjs --run` 批处理模式，从 stdin 传入 JSON 工具调用数组。来源证明、完整性边界、批处理格式和升级步骤见 [随包接入说明](../skill/electron-debug/references/mcp-setup.md)。
 
 独立源码构建仅供贡献者开发，见 [开发说明](../CONTRIBUTING.md)；不是已安装 Skill 的接入或自动恢复路径。
 
