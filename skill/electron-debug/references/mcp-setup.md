@@ -2,7 +2,7 @@
 
 ## 前提
 
-Agent 使用 MCP 时，宿主需支持本地 MCP stdio Server；不注册 MCP 时用下文的批处理模式。两种方式都要求本机具备 Node.js 22 或更高版本，当前 Skill 已通过任务认可的安装渠道获取。应用运行、endpoint 和业务回归由 Agent 准备。
+Agent 使用 MCP 时，宿主需支持本地 MCP stdio Server；不注册 MCP 时用下文的批处理模式。两种方式都要求本机具备 Node.js 20 或更高版本，当前 Skill 已通过任务认可的安装渠道获取。应用运行、endpoint 和业务回归由 Agent 准备。
 
 ## 随包运行文件
 

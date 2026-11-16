@@ -14,7 +14,7 @@
 1. 通过 stdio 暴露给 Agent 的轻量 MCP Server。
 2. 一个项目级 Electron Debug Skill，规定编码后的诊断顺序、工具选择和证据要求。
 
-Skill 发布包包含已构建、带依赖的 MCP JavaScript 运行文件、完整性启动器、版本清单和许可证。正常使用只需要 Node.js 22+，无需下载额外源码、安装依赖或构建 MCP。宿主配置由 Agent 根据实际安装目录完成。
+Skill 发布包包含已构建、带依赖的 MCP JavaScript 运行文件、完整性启动器、版本清单和许可证。正常使用只需要 Node.js 20+，无需下载额外源码、安装依赖或构建 MCP。宿主配置由 Agent 根据实际安装目录完成。
 
 Skill 可以全局安装供多个 Electron 项目使用，也可以作为项目级规则随单个项目使用。全局目录、项目级目录和加载方式由 Agent 宿主决定；两种安装方式都不会自动注册 MCP。
 

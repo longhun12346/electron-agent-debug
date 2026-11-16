@@ -7,8 +7,8 @@ const path = require("node:path");
 const { createHash } = require("node:crypto");
 
 try {
-  if (Number(process.versions.node.split(".")[0]) < 22) {
-    throw new Error("Node.js 22 or newer is required");
+  if (Number(process.versions.node.split(".")[0]) < 20) {
+    throw new Error("Node.js 20 or newer is required");
   }
   const names = ["launch.cjs", "server.cjs", "THIRD_PARTY_LICENSES.txt"];
   const read = (name, maxBytes) => {

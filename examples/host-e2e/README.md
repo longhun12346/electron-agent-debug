@@ -1,6 +1,6 @@
 # Agent 宿主集成测试
 
-这是可选的真实宿主测试，要求已安装并认证的 Codex 或 Claude Code CLI、Node.js 22+、构建后的 MCP 和 `examples/fixture` 的 Electron 依赖。模型调用可能计费；普通测试与 CI 不运行这些命令。
+这是可选的真实宿主测试，要求已安装并认证的 Codex 或 Claude Code CLI、Node.js 20+、构建后的 MCP 和 `examples/fixture` 的 Electron 依赖。模型调用可能计费；普通测试与 CI 不运行这些命令。
 
 在仓库根目录执行：
 

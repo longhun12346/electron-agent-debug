@@ -22,7 +22,7 @@ const result = await build({
   bundle: true,
   platform: "node",
   format: "cjs",
-  target: "node22",
+  target: "node20",
   sourcemap: false,
   minifyWhitespace: true,
   legalComments: "inline",

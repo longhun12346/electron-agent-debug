@@ -2,7 +2,7 @@
 
 ## 环境
 
-- Node.js 22 或更高版本。
+- Node.js 20 或更高版本。
 - 包完整性测试使用系统 `tar` 命令；仅测试环境需要，MCP 运行不依赖它。
 - 根目录依赖用于 MCP Server、测试和 TypeScript 构建。
 - `examples/fixture` 是独立的 Electron 示例包，使用自己的 `package.json` 和 lockfile。

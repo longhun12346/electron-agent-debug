@@ -4,7 +4,7 @@
 
 ## 随包启动
 
-MCP Server 要求 Node.js 22 或更高版本。安装完整 Skill 包，核对来源及版本后执行：
+MCP Server 要求 Node.js 20 或更高版本。安装完整 Skill 包，核对来源及版本后执行：
 
 ```text
 node <absolute-skill-directory>/runtime/launch.cjs --verify

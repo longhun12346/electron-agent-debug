@@ -223,7 +223,7 @@ MCP 工具的 `ok` 只表示本次工具调用是否成功，不表示用户代�
 
 ## 8. 技术栈
 
-- Node.js 22+
+- Node.js 20+
 - TypeScript
 - MCP TypeScript SDK
 - `ws`

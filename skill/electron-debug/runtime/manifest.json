@@ -3,9 +3,9 @@
   "skillVersion": "1.2.0",
   "mcpVersion": "0.3.0",
   "entry": "server.cjs",
-  "sourceDigest": "4134cdefc54895a2eb550a2f5d1cc6c1cb6d87d5fa111f6cf822893ab3ae4cff",
+  "sourceDigest": "7a007b723798ed86db5ad7791b5ebc513524a5ebbd788f1c91e9db65528410a1",
   "files": {
-    "launch.cjs": "2b8a66e44c982a9d4bd2a3bb5ab64b3e24e356425fe41495b67906c034554a37",
+    "launch.cjs": "0e2dc0775d744228b5489ec1d3114bfa05269be92d0981cacafb74f776c1dcfc",
     "server.cjs": "8f09a81a98f2de282bb0f0978671010dd26bcb056456b9d147fe35b99e97d8ee",
     "THIRD_PARTY_LICENSES.txt": "3eba090b1b0a71712b84fd092b2f474eb6ab21014a1deafdddc8717f7c3e5ce2"
   }

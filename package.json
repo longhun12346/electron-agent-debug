@@ -14,7 +14,7 @@
   "homepage": "https://github.com/longhun12346/electron-agent-debug",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
