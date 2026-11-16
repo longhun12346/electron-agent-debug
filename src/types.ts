@@ -1,14 +1,15 @@
-export type ProcessScope = "main" | "renderer";
+export type ProcessScope = "main" | "renderer" | "utility";
 
-export type EvaluateScope = "main" | "renderer";
+export type EvaluateScope = "main" | "renderer" | "utility";
 
 export type PublicSessionStatus = "unconfigured" | "offline" | "online";
 
-export type EndpointSource = "attach_input" | "environment" | "session";
+export type EndpointSource = "attach_input" | "environment" | "session" | "discovered";
 
 export interface AttachInput {
   mainUrl?: string;
   rendererUrl?: string;
+  utility?: string | number;
   targetId?: string;
   url?: string;
   title?: string;
@@ -64,6 +65,7 @@ export interface SessionSnapshot {
 export interface AttachResult {
   main: SessionSnapshot;
   renderer: SessionSnapshot;
+  utility: SessionSnapshot;
   targets: TargetInfo[];
   selectedTarget?: TargetInfo;
   errors: DiagnosticError[];
@@ -74,6 +76,7 @@ export type Result<T> = { ok: true; data: T } | { ok: false; error: DiagnosticEr
 export interface StatusResult {
   main: SessionSnapshot;
   renderer: SessionSnapshot;
+  utility: SessionSnapshot;
   targets: TargetInfo[];
   selectedTarget?: TargetInfo;
 }

@@ -6,6 +6,7 @@ import { defineTool, toolResult } from "./definition.js";
 const attachSchema = z.object({
   mainUrl: z.string().optional(),
   rendererUrl: z.string().optional(),
+  utility: z.union([z.string().min(1), z.number().int().positive()]).optional(),
   targetId: z.string().optional(),
   url: z.string().optional(),
   title: z.string().optional(),
@@ -21,7 +22,7 @@ const targetsSchema = z.object({
 });
 
 const logsSchema = z.object({
-  process: z.enum(["main", "renderer", "all"]).optional(),
+  process: z.enum(["main", "renderer", "utility", "all"]).optional(),
   level: z.string().optional(),
   limit: z.number().int().min(1).max(10_000).optional(),
   since: z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
@@ -36,7 +37,8 @@ export const coreTools = [
     name: "electron_attach",
     title: "Attach to Electron diagnostics",
     description:
-      "连接 Agent 提供的本地主进程 Inspector 和/或 renderer CDP endpoint；不启动 Electron；应用由 Agent 用项目已有命令启动（加 --inspect 和 --remote-debugging-port）。",
+      "连接 Agent 提供的本地主进程 Inspector 和/或 renderer CDP endpoint；不启动 Electron；应用由 Agent 用项目已有命令启动（加 --inspect 和 --remote-debugging-port）。" +
+      "utility 传 utility process 的名字（fork 的 serviceName）或 pid：工具通过已连接的主进程找到它并打开调试口，作为独立的第三通道，与主进程、renderer 同时在线；需要主进程在线且允许执行代码。",
     inputSchema: attachSchema,
     handler: async (manager, input) => {
       const parsed = parseAttachInput(input);
@@ -47,7 +49,7 @@ export const coreTools = [
   defineTool({
     name: "electron_status",
     title: "Read Electron diagnostic status",
-    description: "读取两个通道的 Session、target 和事件数量，不执行应用代码。",
+    description: "读取三个通道（主进程、renderer、utility）的 Session、target 和事件数量，不执行应用代码。",
     inputSchema: z.object({}),
     handler: async (manager) => toolResult({ ok: true, data: manager.status() }),
   }),
@@ -65,7 +67,7 @@ export const coreTools = [
   defineTool({
     name: "electron_logs",
     title: "Read Electron diagnostic logs",
-    description: "读取当前 MCP Server 进程内有界缓存的统一时间线：主进程和 renderer 的事件，按 seq 排序。返回 lastSeq，下次用 afterSeq 只读取之后的事件。",
+    description: "读取当前 MCP Server 进程内有界缓存的统一时间线：主进程、renderer 和 utility 的事件，按 seq 排序。返回 lastSeq，下次用 afterSeq 只读取之后的事件。",
     inputSchema: logsSchema,
     handler: async (manager, input) => {
       try {

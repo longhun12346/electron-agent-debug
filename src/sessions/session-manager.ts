@@ -19,11 +19,13 @@ import type {
 } from "../types.js";
 import { DiagnosticSession } from "./diagnostic-session.js";
 import { Inspector } from "./inspector.js";
+import { locateUtilityInspector } from "../utility.js";
 
 export class SessionManager {
   readonly config: RuntimeConfig;
   readonly main: DiagnosticSession;
   readonly renderer: DiagnosticSession;
+  readonly utility: DiagnosticSession;
   readonly inspector: Inspector;
   private readonly sequence = new EventSequence();
   private mainEndpoint?: EndpointConfig;
@@ -53,10 +55,19 @@ export class SessionManager {
         this.rendererTargets = [];
       },
     });
+    this.utility = new DiagnosticSession({
+      process: "utility",
+      sequence: this.sequence,
+      requestTimeoutMs: config.requestTimeoutMs,
+      maxProtocolMessageBytes: config.maxProtocolMessageBytes,
+      maxLogEvents: config.maxLogEvents,
+      maxLogBytes: config.maxLogBytes,
+    });
     this.inspector = new Inspector({
       config,
       main: this.main,
       renderer: this.renderer,
+      utility: this.utility,
       listEvents: (input) => this.collectEvents(input),
       lastSeq: () => this.sequence.last,
     });
@@ -71,7 +82,7 @@ export class SessionManager {
   ): Promise<{ ok: true; data: AttachResult } | { ok: false; error: DiagnosticError }> {
     const errors: DiagnosticError[] = [];
     const resolved = this.resolveEndpoints(input, errors);
-    if (!resolved.main && !resolved.renderer) {
+    if (!resolved.main && !resolved.renderer && input.utility === undefined) {
       return errorResult(
         errors[0] ??
           new DiagnosticException(
@@ -96,6 +107,7 @@ export class SessionManager {
     if (resolved.main) {
       if (this.main.endpointConfig?.url !== resolved.main.url) {
         await this.main.close("Main endpoint changed");
+        await this.closeUtility("Main endpoint changed");
       }
       this.mainEndpoint = resolved.main;
       this.main.setEndpoint(resolved.main);
@@ -113,8 +125,13 @@ export class SessionManager {
       }
     } else if (!resolved.mainError) {
       await this.main.close("Main endpoint not configured");
+      await this.closeUtility("Main endpoint not configured");
       this.mainEndpoint = undefined;
       this.main.setEndpoint(undefined);
+    }
+
+    if (input.utility !== undefined) {
+      await this.attachUtility(input.utility, errors);
     }
 
     if (resolved.renderer) {
@@ -136,6 +153,7 @@ export class SessionManager {
       data: {
         main: this.main.snapshot(),
         renderer: this.renderer.snapshot(),
+        utility: this.utility.snapshot(),
         targets: this.rendererTargets,
         selectedTarget: this.renderer.snapshot().selectedTarget,
         errors,
@@ -203,6 +221,7 @@ export class SessionManager {
       await Promise.all([
         this.main.close("Session manager closed"),
         this.renderer.close("Session manager closed"),
+        this.utility.close("Session manager closed"),
       ]);
       this.mainEndpoint = undefined;
       this.rendererEndpoint = undefined;
@@ -210,7 +229,40 @@ export class SessionManager {
       this.selector = {};
       this.main.setEndpoint(undefined);
       this.renderer.setEndpoint(undefined);
+      this.utility.setEndpoint(undefined);
     });
+  }
+
+  private async closeUtility(reason: string): Promise<void> {
+    await this.utility.close(reason);
+    this.utility.setEndpoint(undefined);
+  }
+
+  private async attachUtility(query: string | number, errors: DiagnosticError[]): Promise<void> {
+    try {
+      const location = await locateUtilityInspector({
+        main: this.main,
+        allowEval: this.config.allowEval !== false,
+        discoveryTimeoutMs: this.config.discoveryTimeoutMs,
+        query,
+      });
+      const endpoint: EndpointConfig = { url: location.endpoint, source: "discovered" };
+      const target: TargetInfo = {
+        id: String(location.pid),
+        type: "utility",
+        title: location.name,
+        url: location.endpoint,
+        webSocketDebuggerUrl: location.websocketUrl,
+      };
+      this.utility.setEndpoint(endpoint);
+      await this.utility.connect(endpoint, location.websocketUrl, target);
+    } catch (error) {
+      const diagnostic = toDiagnosticError(error, "UTILITY_INSPECTOR_UNAVAILABLE");
+      await this.utility.close("Utility attach failed");
+      this.utility.setEndpoint(undefined);
+      this.utility.setError(diagnostic);
+      errors.push(diagnostic);
+    }
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -227,6 +279,7 @@ export class SessionManager {
     return {
       main: this.main.snapshot(),
       renderer: this.renderer.snapshot(),
+      utility: this.utility.snapshot(),
       targets: this.rendererTargets,
       selectedTarget: this.renderer.snapshot().selectedTarget,
     };
@@ -249,6 +302,9 @@ export class SessionManager {
       if (scope === "all" || scope === "renderer") {
         this.renderer.events.clear();
       }
+      if (scope === "all" || scope === "utility") {
+        this.utility.events.clear();
+      }
     }
     return { events, cleared: clear, lastSeq };
   }
@@ -258,6 +314,7 @@ export class SessionManager {
     return [
       ...(scope === "all" || scope === "main" ? this.main.events.list(input) : []),
       ...(scope === "all" || scope === "renderer" ? this.renderer.events.list(input) : []),
+      ...(scope === "all" || scope === "utility" ? this.utility.events.list(input) : []),
     ].sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0));
   }
 

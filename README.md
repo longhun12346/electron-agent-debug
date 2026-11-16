@@ -46,6 +46,8 @@ GitHub Release 的 Skill ZIP 附带构建来源证明，绑定发布工作流及
 
 MCP 只 attach，不启动应用：Agent 用项目已有命令启动 Electron 并加上 `--inspect`、`--remote-debugging-port`，再用 `electron_attach` 传入实际 endpoint。`electron_evaluate` 和表达式型 `electron_wait_for` 默认开启，宿主可在 MCP 配置的 env 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用。截图保存到 `ELECTRON_DEBUG_OUTPUT_DIR`（默认系统临时目录，保留最近 50 张）。
 
+需要调试 utility process 时，给 `electron_attach` 传 `utility`（fork 时的 `serviceName` 或 pid）：工具通过已连接的主进程找到该进程并打开调试口，作为独立的第三通道与主进程、renderer 同时在线。需要主进程通道在线且未禁用求值；默认调试口 9229 被占用时，在 fork 的 `execArgv` 加 `--inspect-port=<空闲端口>`。`process._debugProcess` 是未公开接口，仅在 Windows 上实测。
+
 ## 适用场景
 
 Agent 启动应用后，用 `electron_attach` 连接并提供实际的 Inspector/CDP endpoint。示意：

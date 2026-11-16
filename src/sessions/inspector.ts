@@ -19,6 +19,7 @@ export interface InspectorDependencies {
   config: RuntimeConfig;
   main: DiagnosticSession;
   renderer: DiagnosticSession;
+  utility: DiagnosticSession;
   listEvents(input: LogsInput): DiagnosticEvent[];
   lastSeq(): number;
 }
@@ -61,7 +62,11 @@ export class Inspector {
   constructor(private readonly deps: InspectorDependencies) {}
 
   async evaluate(input: EvaluateInput): Promise<Result<EvaluateResult & { scope: EvaluateScope; targetId?: string }>> {
-    const session = input.scope === "main" ? this.deps.main : this.deps.renderer;
+    const session = input.scope === "main"
+      ? this.deps.main
+      : input.scope === "utility"
+        ? this.deps.utility
+        : this.deps.renderer;
     if (!this.deps.config.allowEval) {
       return errorResult({
         code: "EVALUATION_NOT_ALLOWED",

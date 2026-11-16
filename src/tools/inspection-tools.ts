@@ -3,7 +3,7 @@ import { errorResult } from "../errors.js";
 import type { WaitCondition } from "../sessions/inspector.js";
 import { defineTool, toolResult } from "./definition.js";
 
-const scopeSchema = z.enum(["main", "renderer"]);
+const scopeSchema = z.enum(["main", "renderer", "utility"]);
 
 const evaluateSchema = z.object({
   scope: scopeSchema,
@@ -16,7 +16,7 @@ const evaluateSchema = z.object({
 const waitSchema = z.object({
   log: z.object({
     contains: z.string().min(1).max(500),
-    process: z.enum(["main", "renderer", "all"]).optional(),
+    process: z.enum(["main", "renderer", "utility", "all"]).optional(),
     level: z.string().optional(),
     afterSeq: z.number().int().min(0).optional(),
   }).optional(),
@@ -40,9 +40,9 @@ const snapshotSchema = z.object({
 export const inspectionTools = [
   defineTool({
     name: "electron_evaluate",
-    title: "Evaluate JavaScript in the main or renderer process",
+    title: "Evaluate JavaScript in the main, renderer or utility process",
     description:
-      "在主进程 Inspector 或当前选中的 renderer target 中执行一段 JavaScript（Runtime.evaluate，默认 await Promise，支持顶层 await，默认超时 3s）。" +
+      "在主进程 Inspector、当前选中的 renderer target 或已连接的 utility process 中执行一段 JavaScript（Runtime.evaluate，默认 await Promise，支持顶层 await，默认超时 3s）。" +
       "结果按值返回，超过 maxResultBytes 时截断，并对常见密钥字段做脱敏。主进程全局没有 require，请用 process.mainModule.require('electron')。" +
       "默认开启，宿主可在 MCP 配置的 env 中设置 ELECTRON_DEBUG_ALLOW_EVAL=0 禁用（此时返回 EVALUATION_NOT_ALLOWED）。表达式可修改应用状态，只用于验证。",
     inputSchema: evaluateSchema,

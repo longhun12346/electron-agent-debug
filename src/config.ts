@@ -5,6 +5,7 @@ import type { AttachInput, EndpointConfig, EndpointSource } from "./types.js";
 const attachInputSchema = z.object({
   mainUrl: z.string().optional(),
   rendererUrl: z.string().optional(),
+  utility: z.union([z.string().min(1), z.number().int().positive()]).optional(),
   targetId: z.string().optional(),
   url: z.string().optional(),
   title: z.string().optional(),

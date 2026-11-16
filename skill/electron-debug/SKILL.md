@@ -14,9 +14,9 @@ MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运
 
 | 类别 | 工具 | 作用 |
 | --- | --- | --- |
-| 连接 | `electron_attach` / `electron_targets` | 连接已运行的应用；多窗口时明确选择 target |
-| 观察 | `electron_status` / `electron_logs` / `electron_wait_for` | 状态、统一时间线（main / renderer，带 `seq`）、等待日志或表达式 |
-| 检查 | `electron_evaluate` / `electron_screenshot` / `electron_dom_snapshot` | 主进程或 renderer 求值、截图（保存为文件）、无障碍树文本 |
+| 连接 | `electron_attach` / `electron_targets` | 连接已运行的应用（主进程、renderer，可再加 utility process）；多窗口时明确选择 target |
+| 观察 | `electron_status` / `electron_logs` / `electron_wait_for` | 状态、统一时间线（main / renderer / utility，带 `seq`）、等待日志或表达式 |
+| 检查 | `electron_evaluate` / `electron_screenshot` / `electron_dom_snapshot` | 主进程、renderer 或 utility 求值、截图（保存为文件）、无障碍树文本 |
 
 文本输出有大小上限，并按常见模式脱敏（尽力而为；截图不脱敏）。只允许回环地址。
 
@@ -43,7 +43,7 @@ MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运
 | 点击、输入 | `electron_evaluate`(renderer) 调用 `element.click()` 或 `dispatchEvent`；表单输入需用原生 setter 赋值后再派发 `input` 事件 | 事件的 `isTrusted` 为 false，依赖真实输入的逻辑覆盖不到，改用项目已有的测试工具 |
 | 列出窗口 | `electron_evaluate`(main) 用 `process.mainModule.require('electron').BrowserWindow.getAllWindows()` | 只读窗口状态，不用于操作 |
 | 内存 | main 用 `process.memoryUsage()`；renderer 用 `performance.memory`（Chromium 非标准接口） | 只是当前读数，不能做泄漏分析 |
-| utility process 里的代码 | 先让它开调试口，再把 `electron_attach` 的 `mainUrl` 指向该端口，就能像主进程一样 `electron_evaluate`(main) 和读日志。开口有两种：① 启动时给 `utilityProcess.fork` 加 `execArgv: ['--inspect=<端口>']`；② 应用已在运行时，先 attach 主进程，用 `electron_evaluate`(main) 执行 `app.getAppMetrics()`，筛 `serviceName === 'node.mojom.NodeService'` 的项（`name` 即 fork 时的 `serviceName`）取 pid，再调 `process._debugProcess(pid)`，之后 attach 该端口，attach 失败说明没开成。端口默认 9229，被占用或有多个 utility 时，fork 加 `execArgv: ['--inspect-port=<各自端口>']`（只指定端口，不自动开启） | `process._debugProcess` 是未公开接口，Windows 上实测可用；端口被占用时调用不报错但不会开启，必须以 attach 结果为准。一个会话只有一个主进程通道：连 utility 时就看不到应用主进程，需要时分别 attach |
+| utility process 里的代码 | `electron_attach` 传 `utility`（fork 时的 `serviceName`，或 pid）。工具通过已连接的主进程用 `app.getAppMetrics()` 找到该进程，打开调试口并连接，成为独立的第三通道，与 main、renderer 同时在线，之后用 `electron_evaluate`(scope=`utility`) 和 `electron_logs`(process=`utility`) 观察。不需要自己查 pid 或调用 `process._debugProcess`。同名进程有多个时用 pid；一次只连一个 utility，再次 attach 其他 utility 会替换当前连接 | 需要主进程通道在线且未设置 `ELECTRON_DEBUG_ALLOW_EVAL=0`。调试口默认端口 9229，被占用时开口不报错也不会生效，attach 会返回 `UTILITY_INSPECTOR_UNAVAILABLE`；此时（或同时调试多个 utility 时）让 fork 带 `execArgv: ['--inspect-port=<各自空闲端口>']`（只指定端口，不自动开启）。开口用的 `process._debugProcess` 是未公开接口，查端口用 netstat（Windows）或 lsof（macOS/Linux），仅在 Windows 上实测，其他系统以 attach 结果为准 |
 | webview、worker、跨域 iframe 里的代码 | 不能直接连接。让它们用 `postMessage` 把值传回页面，再用 `electron_evaluate`(renderer) 读取或打印；同源 iframe 可通过 `iframe.contentDocument` 读取 | 这些目标里的日志和求值不在工具范围内 |
 | 原生对话框、菜单 | 提示用户人工操作 | 见使用建议第 5 条 |
 

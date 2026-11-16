@@ -1,5 +1,12 @@
 # 版本记录
 
+## 1.3.0
+
+- MCP 0.4.0：`electron_attach` 新增 `utility` 参数（utility process 的 `serviceName` 或 pid），作为独立的第三通道，不占用 `mainUrl`，可与主进程、renderer 同时在线。工具通过已连接的主进程用 `app.getAppMetrics()` 找到进程，必要时调用 `process._debugProcess(pid)` 打开调试口，再用 netstat（Windows）或 lsof（macOS/Linux）找到监听端口并连接。
+- `electron_evaluate` 的 `scope`、`electron_logs` 与 `electron_wait_for` 的 `process` 新增 `utility`；`electron_attach` 和 `electron_status` 的结果新增 `utility` 通道状态。工具仍为 8 个。
+- 新增错误码 `UTILITY_REQUIRES_MAIN`、`UTILITY_NOT_FOUND`（附候选列表）、`UTILITY_AMBIGUOUS`、`UTILITY_INSPECTOR_UNAVAILABLE`。需要主进程在线且未禁用求值；默认调试口 9229 被占用时开口无提示地失败，可在 fork 的 `execArgv` 加 `--inspect-port=<空闲端口>`。仅在 Windows 上实测，`process._debugProcess` 为未公开接口。
+- SKILL.md 的 utility 一行改为使用 `utility` 参数。
+
 ## 1.2.0
 
 - MCP 0.3.0：同一入口新增批处理模式 `launch.cjs --run`，从 stdin 读取 JSON 工具调用数组并在同一进程内顺序执行，不需要注册 MCP；工具集合与 MCP 完全一致。

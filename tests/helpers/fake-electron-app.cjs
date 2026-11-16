@@ -21,6 +21,7 @@ const axNodes = [
 ];
 
 let polls = 0;
+let utilityOpened = false;
 
 function answer(scope, socket, message) {
   const reply = (result) => socket.send(JSON.stringify({ id: message.id, result }));
@@ -36,6 +37,22 @@ function answer(scope, socket, message) {
   }
   if (message.method === "Runtime.evaluate") {
     const expression = message.params.expression;
+    if (scope === "main" && expression.includes("getAppMetrics")) {
+      return reply({ result: { type: "string", value: JSON.stringify([
+        { pid: 4242, name: "worker" }, { pid: 4243, name: "dup" }, { pid: 4244, name: "dup" },
+      ]) } });
+    }
+    if (scope === "main" && expression.includes("netstat")) {
+      const listening = options["utility-port"] && (options["utility-lazy"] !== "true" || utilityOpened);
+      return reply({ result: { type: "string", value: JSON.stringify(listening ? [Number(options["utility-port"])] : []) } });
+    }
+    if (scope === "main" && expression.includes("_debugProcess")) {
+      if (options["utility-no-open"] !== "true" && options["utility-port"] && !utilityOpened) {
+        utilityOpened = true;
+        if (options["utility-lazy"] === "true") serve("utility", options["utility-port"]);
+      }
+      return reply({ result: { type: "string", value: JSON.stringify({ available: true }) } });
+    }
     if (expression === "never") return;
     if (expression === "throw") {
       reply({
@@ -86,11 +103,11 @@ function serve(scope, port) {
     }
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify([
-      scope === "main"
-        ? { id: "main", type: "node", title: "Main", url: "",
-            webSocketDebuggerUrl: `ws://127.0.0.1:${port}/main` }
-        : { id: "page-1", type: "page", title: "Fixture", url: "app://fixture",
-            webSocketDebuggerUrl: `ws://127.0.0.1:${port}/page` },
+      scope === "renderer"
+        ? { id: "page-1", type: "page", title: "Fixture", url: "app://fixture",
+            webSocketDebuggerUrl: `ws://127.0.0.1:${port}/page` }
+        : { id: scope, type: "node", title: scope === "main" ? "Main" : "electron/js2c/utility_init", url: "",
+            webSocketDebuggerUrl: `ws://127.0.0.1:${port}/${scope}` },
     ]));
   });
   const sockets = new WebSocketServer({ server });
@@ -102,6 +119,7 @@ const mainPort = options.inspect;
 const rendererPort = options["remote-debugging-port"];
 if (mainPort) serve("main", mainPort);
 if (rendererPort) serve("renderer", rendererPort);
+if (options["utility-port"] && options["utility-lazy"] !== "true") serve("utility", options["utility-port"]);
 
 process.on("SIGTERM", () => process.exit(0));
 setInterval(() => undefined, 1_000);
