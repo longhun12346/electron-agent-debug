@@ -20,9 +20,9 @@ MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运
 
 ## 使用建议
 
-1. **自行启动应用并暴露两个端口**：用项目已有的启动命令，加上 `--inspect=<主进程端口>` 和 `--remote-debugging-port=<renderer 端口>`（端口自选空闲回环端口），再用 `electron_attach` 传入对应的 `http://127.0.0.1:<端口>`。不改项目脚本。
+1. **自行启动应用并暴露所需端口**：用项目已有的启动命令，按需加上 `--inspect=<主进程端口>`（主进程）和/或 `--remote-debugging-port=<renderer 端口>`（renderer）（端口自选空闲回环端口），再用 `electron_attach` 传入对应的 `http://127.0.0.1:<端口>`。两个通道可以只连一个：只排查主进程问题就只连主进程，只排查页面问题就只连 renderer；preload / IPC 才需要两个都连。对没连接的一侧调用工具会返回 `SESSION_DISCONNECTED`，不影响已连接的一侧。不改项目脚本。参数如何传到 Electron 取决于项目的启动方式，由 Agent 读项目配置自行判断，并以 `electron_attach` 返回的通道状态确认是否生效。参数含义见 Electron 官方文档：[调试主进程](https://www.electronjs.org/docs/latest/tutorial/debugging-main-process)、[命令行开关](https://www.electronjs.org/docs/latest/api/command-line-switches)。
 2. 用 `electron_wait_for` 等待明确的就绪信号（日志或表达式），不要用固定 sleep。attach 前应用可能还没打开端口，失败时稍后重试。
-3. 修改主进程、preload 后由 Agent 重启应用并重新 `electron_attach`；仅 renderer 改动用 reload（`electron_evaluate` 执行 `location.reload()`；eval 被禁用时改用项目已有的刷新方式）。
+3. 改动生效优先交给项目自带的热更新或自动重启，不要重复手动操作：renderer 改动等热更新完成；主进程、preload 改动若被开发工具自动重启，原连接随进程失效，需重新 `electron_attach`，并用 `electron_status` 确认重启后的进程仍带有 `--inspect` 和 `--remote-debugging-port`（是否沿用取决于项目的启动工具）。项目没有热更新时，才由 Agent 重启应用，或对 renderer 用 `location.reload()`（`electron_evaluate`；eval 被禁用时改用项目已有的刷新方式）。无论哪种方式，都先用 `electron_wait_for` 等到就绪信号再取证据。
 4. `electron_evaluate` 和表达式型 `electron_wait_for` 默认可用；宿主设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 后返回 `EVALUATION_NOT_ALLOWED`，此时仍可用 attach、targets、日志、状态、截图和 `electron_dom_snapshot`。表达式可修改应用状态，只用于验证。主进程求值的全局作用域可能没有 `require`（例如 ESM 或打包后的主进程），需要时用 `process.mainModule.require('electron')`。
 5. 会弹出原生对话框或菜单的步骤，提示用户人工操作，等用户确认后再继续；不要等待自动化完成。
 6. `electron_screenshot` 返回文件路径，用文件读取工具查看。窗口隐藏或最小化时截图会超时，先显示窗口。
