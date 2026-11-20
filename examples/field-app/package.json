@@ -1,0 +1,6 @@
+{
+  "name": "electron-agent-debug-field-app",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs"
+}

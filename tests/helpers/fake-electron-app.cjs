@@ -22,6 +22,7 @@ const axNodes = [
 
 let polls = 0;
 let utilityOpened = false;
+const runs = new Map();
 
 function answer(scope, socket, message) {
   const reply = (result) => socket.send(JSON.stringify({ id: message.id, result }));
@@ -37,6 +38,7 @@ function answer(scope, socket, message) {
   }
   if (message.method === "Runtime.evaluate") {
     const expression = message.params.expression;
+    runs.set(expression, (runs.get(expression) ?? 0) + 1);
     if (scope === "main" && expression.includes("getAppMetrics")) {
       return reply({ result: { type: "string", value: JSON.stringify([
         { pid: 4242, name: "worker" }, { pid: 4243, name: "dup" }, { pid: 4244, name: "dup" },
@@ -100,6 +102,54 @@ function answer(scope, socket, message) {
     if (expression === "{const again = 2; again\n}") return reply({ result: { type: "number", value: 2 } });
     if (expression === "plain-promise") {
       return reply({ result: { type: "object", value: message.params.replMode ? {} : { awaited: true } } });
+    }
+    // Real V8 words the same top-level-await mistake differently depending on what follows `await`; compile-time errors
+    // carry no stackTrace, errors thrown by running code always do.
+    if (expression === "await-import") {
+      if (!message.params.replMode) {
+        return reply({
+          result: { type: "object", subtype: "error" },
+          exceptionDetails: {
+            text: "Uncaught", lineNumber: 0, columnNumber: 0,
+            exception: { description: "SyntaxError: Unexpected token 'import'" },
+          },
+        });
+      }
+      return reply({ result: { type: "string", value: "imported" } });
+    }
+    if (expression === "runtime-syntax-error") {
+      return reply({
+        result: { type: "object", subtype: "error" },
+        exceptionDetails: {
+          text: "Uncaught", lineNumber: 0, columnNumber: 0,
+          stackTrace: { callFrames: [{ functionName: "", url: "", lineNumber: 0, columnNumber: 0 }] },
+          exception: { description: "SyntaxError: Expected property name or '}' in JSON at position 1" },
+        },
+      });
+    }
+    // `await (…)` is a ReferenceError at run time; with nothing before it nothing has run, so repl mode is tried.
+    if (expression === "await-call" || expression === "x = 1; await-call") {
+      if (expression === "await-call" && message.params.replMode) return reply({ result: { type: "number", value: 1 } });
+      return reply({
+        result: { type: "object", subtype: "error" },
+        exceptionDetails: {
+          text: "Uncaught", lineNumber: 0, columnNumber: expression === "await-call" ? 0 : 7,
+          stackTrace: { callFrames: [{ functionName: "", url: "", lineNumber: 0, columnNumber: 0 }] },
+          exception: { description: "ReferenceError: await is not defined" },
+        },
+      });
+    }
+    if (expression === "genuine-syntax-error") {
+      return reply({
+        result: { type: "object", subtype: "error" },
+        exceptionDetails: {
+          text: "Uncaught", lineNumber: 0, columnNumber: 6,
+          exception: { description: "SyntaxError: Unexpected token '='" },
+        },
+      });
+    }
+    if (expression.startsWith("runs:")) {
+      return reply({ result: { type: "number", value: runs.get(expression.slice(5)) ?? 0 } });
     }
     return reply({ result: { type: "string", value: `${scope}:${expression}` } });
   }

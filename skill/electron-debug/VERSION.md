@@ -1,5 +1,16 @@
 # 版本记录
 
+## 1.3.4
+
+- MCP 0.4.4：`electron_logs` 新增 `sinceAttach`。传 `true` 时每个通道只返回它最近一次连接之后的事件，不含 attach 时重放的应用历史输出；与 `afterSeq` 取较大者，`gap` 也按各通道的边界计算。注册 MCP 和批处理模式都适用，SKILL.md 不再要求在批处理里手工以 `Session connected` 事件为界。
+- 修复：应用已经打开 DevTools（开发构建常在启动时打开）时，全新的 `electron_attach` 会把 `devtools://` 窗口当作第二个 page，返回 `TARGET_SELECTION_REQUIRED` 且 renderer 通道离线。现在自动选择时忽略 `devtools://` 窗口，它仍在 target 列表里，也可以用 `targetId` 显式选择。真实 Electron 上已复现并验证。
+- 修复：renderer 页面崩溃后连接仍开着，`electron_status` 继续显示 online，请求要等超时才失败，日志里也没有任何记录。现在 renderer Session 启用 `Inspector` 域：崩溃后状态变为 offline 并带 `TARGET_CRASHED`，各个 renderer 工具立即返回该错误，日志写入 `Target crashed`；页面重新加载后同一连接自动恢复。新增错误码 `TARGET_CRASHED`。
+- 修复：`electron_evaluate` 的顶层 await 重试改为按“代码没有开始执行”判断，不再匹配 V8 的报错措辞。此前 `await import(…)` 这类编译报错措辞不同的写法不会重试；现在任何编译期 `SyntaxError` 都会换模式重试，`await (…)` 前面只有空白时也会重试。运行期抛出的 `SyntaxError`（如 `JSON.parse`）已经执行过，不会重试；`await` 前有其他语句时不重试，报错会提示怎么写。主进程的求值不支持动态 `import()`，SKILL.md 改为推荐 `process.mainModule.require` 和 `process.getBuiltinModule`。
+- 事件缓冲在写入时记下每条事件的大小，淘汰时不再重新序列化；对结果没有影响。
+- 工具集合不变，只多一个可选参数，已注册 MCP 的宿主无需改动配置。
+- 仓库侧：`examples/host-e2e` 扩成 ipc、renderer、main-window、inspect、utility、devtools-windows、click-save 七个任务场景，覆盖全部 8 个工具，并有不依赖模型的参考解法在 CI 中验证；新增 `examples/field-app`（ESM 主进程、两个窗口加 DevTools、嘈杂控制台、大页面、要按下才发生的保存、崩溃和硬退出）及其真实 Electron 冒烟，也加入 Electron 版本矩阵；平台描述存入 `docs/platform-description.md` 并由测试核对工具数量和 Node.js 版本；新增 Dependabot 配置。这些不进入 Skill 包。
+- SKILL.md 补充：应用该退出但进程还在（Node 等已连接的检查器断开）时，直接终止进程或先结束 MCP 会话。
+
 ## 1.3.3
 
 - MCP 0.4.3：`electron_logs` 的结果新增 `droppedThroughSeq` 和 `gap`。缓冲区满时最旧的事件会被丢弃，此前用 `afterSeq` 续读的调用方无法发现中间缺了事件；现在 `gap` 为 `true` 表示所请求的范围内可能有事件缺失。`clear` 会重置对应缓冲区的丢弃记录。

@@ -294,14 +294,13 @@ export class SessionManager {
     gap: boolean;
   } {
     const clear = input.clear === true;
-    const scope = input.process ?? "all";
-    const buffers = this.buffersFor(scope);
+    const buffers = this.buffersFor(input.process);
     const events = this.collectEvents(input).slice(-(input.limit ?? 100));
     const lastSeq = this.sequence.last;
     // Events at or below this seq may have been evicted from a full buffer; `gap` says whether that
     // can affect what the caller asked for (everything after afterSeq, or the whole history without it).
     const droppedThroughSeq = Math.max(0, ...buffers.map((buffer) => buffer.droppedThroughSeq));
-    const gap = droppedThroughSeq > (input.afterSeq ?? 0);
+    const gap = buffers.some((buffer) => buffer.droppedThroughSeq > (this.afterSeqFor(buffer, input) ?? 0));
 
     if (clear) {
       for (const buffer of buffers) {
@@ -319,9 +318,14 @@ export class SessionManager {
     ];
   }
 
+  // With sinceAttach each channel starts after its own latest connection, so replayed history is left out.
+  private afterSeqFor(buffer: EventBuffer, input: LogsInput): number | undefined {
+    return input.sinceAttach === true ? Math.max(input.afterSeq ?? 0, buffer.lastConnectedSeq) : input.afterSeq;
+  }
+
   private collectEvents(input: LogsInput): DiagnosticEvent[] {
     return this.buffersFor(input.process)
-      .flatMap((buffer) => buffer.list(input))
+      .flatMap((buffer) => buffer.list({ ...input, afterSeq: this.afterSeqFor(buffer, input) }))
       .sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0));
   }
 

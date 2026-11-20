@@ -74,14 +74,19 @@ export function selectTarget(targets: TargetInfo[], selector: TargetSelector): T
       details: { selector },
     });
   }
-  if (pages.length === 1) {
-    return pages[0];
+  // An app that opens DevTools lists that window as one more page (`devtools://…`). It is never the window under
+  // test, and dev builds often open it at startup, so it must not turn a single real window into an ambiguity. It
+  // stays in the target list and can still be chosen explicitly.
+  const candidates = pages.filter((target) => !target.url.startsWith("devtools://"));
+  const automatic = candidates.length > 0 ? candidates : pages;
+  if (automatic.length === 1) {
+    return automatic[0];
   }
-  if (pages.length > 1) {
+  if (automatic.length > 1) {
     throw new DiagnosticException(
       "TARGET_SELECTION_REQUIRED",
       "发现多个 page target，请提供 targetId、url 或 title",
-      { details: { count: pages.length } },
+      { details: { count: automatic.length } },
     );
   }
   throw new DiagnosticException("TARGET_NOT_FOUND", "没有可用的 page target", { retryable: true });

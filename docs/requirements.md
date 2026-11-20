@@ -169,7 +169,7 @@ endpoint 解析优先级为：
 - webSocketDebuggerUrl
 - favicon URL（如果存在）
 
-输入可以包含 `targetId`、`url`、`title` 或 `clearSelection`；这些条件只用于选择当前 page target，不改变发现到的 target 列表。`clearSelection=true` 用于清除之前保存的 target 选择条件和当前选择，再按当前 target 列表重新选择。只有发现单个带有可连接 WebSocket 的 page target 时才允许自动选择；没有可连接 target 时返回 `TARGET_NOT_FOUND`，存在多个可连接候选且 Agent 没有提供选择条件时，返回 `TARGET_SELECTION_REQUIRED`。
+输入可以包含 `targetId`、`url`、`title` 或 `clearSelection`；这些条件只用于选择当前 page target，不改变发现到的 target 列表。`clearSelection=true` 用于清除之前保存的 target 选择条件和当前选择，再按当前 target 列表重新选择。只有发现单个带有可连接 WebSocket 的 page target 时才允许自动选择；应用打开的 DevTools 窗口（URL 以 `devtools://` 开头）不参与这个计数，仍会出现在 target 列表中，也可以用 `targetId` 显式选择，只有它一个 page 时则选它。没有可连接 target 时返回 `TARGET_NOT_FOUND`，存在多个可连接候选且 Agent 没有提供选择条件时，返回 `TARGET_SELECTION_REQUIRED`（`details.count` 不含 DevTools）。
 
 #### `electron_logs`
 
@@ -188,6 +188,8 @@ endpoint 解析优先级为：
 `process` 可取 `main`、`renderer`、`utility` 或 `all`。三个通道的事件共享递增的 `seq` 并按其排序；结果返回 `lastSeq`，`afterSeq` 只返回其后的事件，用于续读。应用进程自己的 stdout、stderr 不进入时间线，由启动应用的 Agent 自行捕获。所有事件消息在写入缓存前脱敏。
 
 缓冲区满时最旧的事件会被丢弃。结果同时返回 `droppedThroughSeq`（所请求范围内被丢弃的最大 `seq`，没有丢弃时为 0）和 `gap`（`droppedThroughSeq` 大于 `afterSeq`，未传 `afterSeq` 时与 0 比较；为 `true` 表示所请求的范围内可能有事件缺失）。`clear` 会重置对应缓冲区的丢弃记录，Agent 主动清空的事件不算丢失。`electron_status` 也返回当前 `lastSeq`，回归前可直接取得基线，不必先读一次日志。
+
+attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连接，这些事件排在该通道的 `Session connected` 事件之前。`sinceAttach: true` 让每个通道只返回它最近一次连接之后的事件；它与 `afterSeq` 取较大者，按通道分别计算，`gap` 也以各通道的边界为准。连接事件即使被淘汰或被 `clear` 清掉，边界仍然保留。
 
 ### P0：运行时检查
 

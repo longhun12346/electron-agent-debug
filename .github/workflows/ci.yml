@@ -75,6 +75,14 @@ jobs:
           node --check examples/external-e2e/electron-vite-react-smoke.mjs
           node --check examples/host-e2e/smoke.mjs
           node --check examples/host-e2e/mcp-trace.mjs
+          node --check examples/host-e2e/scenarios.mjs
+          node --check examples/host-e2e/fixture-launch.mjs
+          node --check examples/host-e2e/reference.mjs
+          node --check examples/field-app/main.mjs
+          node --check examples/field-app/preload.cjs
+          node --check examples/field-app/renderer.js
+          node --check examples/field-app/field-launch.mjs
+          node --check examples/field-app/field-smoke.mjs
 
       - name: Install fixture dependencies
         run: npm ci --prefix examples/fixture
@@ -121,16 +129,18 @@ jobs:
           npm install --no-save --prefix examples/fixture electron@${{ matrix.electron }}
           node -e "console.log('Electron ' + require('./examples/fixture/node_modules/electron/package.json').version)"
 
-      - name: Run utility and inspection smokes on Linux
+      - name: Run utility, inspection and field smokes on Linux
         if: runner.os == 'Linux'
         run: |
           xvfb-run -a node examples/fixture/utility-smoke.mjs
           xvfb-run -a node examples/fixture/inspection-smoke.mjs
+          xvfb-run -a node examples/field-app/field-smoke.mjs
         env:
           FIXTURE_ELECTRON_NO_SANDBOX: "true"
 
-      - name: Run utility and inspection smokes on Windows
+      - name: Run utility, inspection and field smokes on Windows
         if: runner.os != 'Linux'
         run: |
           node examples/fixture/utility-smoke.mjs
           node examples/fixture/inspection-smoke.mjs
+          node examples/field-app/field-smoke.mjs

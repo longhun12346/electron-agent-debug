@@ -88,6 +88,7 @@ export interface LogsInput {
   limit?: number;
   since?: string;
   afterSeq?: number;
+  sinceAttach?: boolean;
   clear?: boolean;
 }
 

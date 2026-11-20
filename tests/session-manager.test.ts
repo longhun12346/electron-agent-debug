@@ -183,6 +183,122 @@ test("reports evicted events through droppedThroughSeq and gap, scoped to the re
   assert.equal(manager.logs({}).gap, false, "events the caller cleared are not reported as lost");
 });
 
+test("sinceAttach leaves out the history replayed before each channel's latest connection", () => {
+  const manager = new SessionManager(runtimeConfig());
+  const add = (process: "main" | "renderer", kind: "console" | "connection", message: string) =>
+    manager[process].events.add({ process, kind, message, observedAt: "2026-01-01T00:00:00.000Z", level: "log" });
+  const messages = (input: Parameters<SessionManager["logs"]>[0]) =>
+    manager.logs(input).events.map((event) => event.message);
+
+  add("main", "console", "replayed-main");
+  add("main", "connection", "Session connected");
+  add("main", "console", "fresh-main");
+  add("renderer", "console", "renderer-never-connected");
+
+  assert.deepEqual(messages({ sinceAttach: true }), ["fresh-main", "renderer-never-connected"]);
+  assert.deepEqual(messages({}), ["replayed-main", "Session connected", "fresh-main", "renderer-never-connected"]);
+
+  add("main", "connection", "Session connected");
+  add("main", "console", "after-reconnect");
+  assert.deepEqual(messages({ process: "main", sinceAttach: true }), ["after-reconnect"]);
+
+  const { lastSeq } = manager.logs({});
+  add("main", "console", "newest");
+  assert.deepEqual(messages({ process: "main", sinceAttach: true, afterSeq: lastSeq }), ["newest"]);
+  assert.deepEqual(messages({ process: "main", sinceAttach: true, afterSeq: 0 }), ["after-reconnect", "newest"],
+    "a smaller afterSeq cannot move the boundary back before the connection");
+});
+
+test("sinceAttach does not report a gap for events evicted before the connection", () => {
+  const manager = new SessionManager({ ...runtimeConfig(), maxLogEvents: 3 });
+  const add = (kind: "console" | "connection", message: string) =>
+    manager.main.events.add({ process: "main", kind, message, observedAt: "2026-01-01T00:00:00.000Z", level: "log" });
+  add("console", "old-1");
+  add("console", "old-2");
+  add("connection", "Session connected");
+  add("console", "fresh");
+
+  assert.equal(manager.logs({}).gap, true, "the full history lost events");
+  const since = manager.logs({ sinceAttach: true });
+  assert.equal(since.gap, false, "nothing was lost after the connection");
+  assert.deepEqual(since.events.map((event) => event.message), ["fresh"]);
+
+  add("console", "fresh-2");
+  add("console", "fresh-3");
+  assert.equal(manager.logs({ sinceAttach: true }).gap, false,
+    "the connection event itself was evicted, but nothing observed after it was");
+  add("console", "fresh-4");
+  assert.equal(manager.logs({ sinceAttach: true }).gap, true,
+    "now an event observed after the connection was evicted, which the caller must be told about");
+  assert.deepEqual(manager.logs({ sinceAttach: true }).events.map((event) => event.message),
+    ["fresh-2", "fresh-3", "fresh-4"]);
+});
+
+test("a crashed renderer is reported offline with TARGET_CRASHED until the page reloads", async () => {
+  const renderer = await startMockDebugger([{ id: "window-a", type: "page", title: "Window A", url: "app://a" }]);
+  const manager = new SessionManager(runtimeConfig());
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
+  try {
+    await manager.attach({ rendererUrl: renderer.endpoint });
+    assert.equal(manager.status().renderer.online, true);
+    const { lastSeq } = manager.logs({});
+
+    // Chromium keeps the connection open after a crash, so nothing else tells the caller the page is gone.
+    renderer.broadcast({ method: "Inspector.targetCrashed", params: {} });
+    await settle();
+    const crashed = manager.status().renderer;
+    assert.equal(crashed.online, false);
+    assert.equal(crashed.status, "offline");
+    assert.equal(crashed.error?.code, "TARGET_CRASHED");
+    assert.equal(crashed.error?.retryable, true);
+    await assert.rejects(
+      () => manager.renderer.request("Runtime.evaluate", { expression: "1" }, 5_000),
+      (error: unknown) => error instanceof Error && "diagnostic" in error &&
+        (error as { diagnostic: { code: string } }).diagnostic.code === "TARGET_CRASHED",
+    );
+    const crashEvent = manager.logs({ afterSeq: lastSeq }).events.find((event) => event.kind === "exception");
+    assert.match(crashEvent?.message ?? "", /^Target crashed/u);
+    assert.equal(crashEvent?.level, "error");
+    assert.equal(crashEvent?.process, "renderer");
+
+    // The same connection and target recover when the page is reloaded.
+    renderer.broadcast({ method: "Inspector.targetReloadedAfterCrash", params: {} });
+    await settle();
+    const recovered = manager.status().renderer;
+    assert.equal(recovered.online, true);
+    assert.equal(recovered.error, undefined);
+    await manager.renderer.request("Runtime.evaluate", { expression: "1" });
+    assert.ok(manager.logs({ afterSeq: lastSeq }).events.some((event) => event.message === "Target reloaded after crash"));
+  } finally {
+    await manager.close();
+    await renderer.close();
+  }
+});
+
+test("a new connection starts without the previous crash, and Inspector.enable is optional", async () => {
+  const renderer = await startMockDebugger(
+    [{ id: "window-a", type: "page", title: "Window A", url: "app://a" }],
+    { rejectMethod: "Inspector.enable" },
+  );
+  const manager = new SessionManager(runtimeConfig());
+  try {
+    await manager.attach({ rendererUrl: renderer.endpoint });
+    assert.equal(manager.status().renderer.online, true, "an unsupported Inspector domain must not block the session");
+    assert.ok(manager.logs({}).events.some((event) => event.kind === "protocol" && /Inspector\.enable/u.test(event.message)));
+
+    renderer.broadcast({ method: "Inspector.targetCrashed", params: {} });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(manager.status().renderer.online, false);
+
+    await manager.renderer.close("test reconnect");
+    await manager.attach({ rendererUrl: renderer.endpoint, clearSelection: true });
+    assert.equal(manager.status().renderer.online, true, "a fresh connection is not crashed");
+  } finally {
+    await manager.close();
+    await renderer.close();
+  }
+});
+
 test("status reports the current lastSeq so a baseline can be taken without reading logs", () => {
   const manager = new SessionManager(runtimeConfig());
   assert.equal(manager.status().lastSeq, 0);

@@ -110,6 +110,26 @@ try {
   assert.ok(["EVALUATION_FAILED", "PROTOCOL_ERROR"].includes(slow.code), JSON.stringify(slow));
   assert.equal((await evaluate("renderer", "1 + 1")).value, 2, "the session must survive a timed-out evaluation");
 
+  // V8 words a top-level await mistake differently depending on what follows `await`: `await (…)` is a ReferenceError at
+  // run time, not a compile error. With nothing before it nothing has run, so it must still work, in both inspectors.
+  for (const scope of ["renderer", "main"]) {
+    assert.equal((await evaluate(scope, "await (async () => 41)()")).value, 41, `${scope}: await (…) first`);
+    assert.equal((await evaluate(scope, "  \nawait (await Promise.resolve(6)) * 7")).value, 42, `${scope}: leading blanks`);
+  }
+  // After other statements earlier code may have run, so it is not retried; the error says what to write.
+  // A SyntaxError thrown by code that ran (JSON.parse) has run once and must not be retried either.
+  const runtimeSyntax = await failure("electron_evaluate", {
+    scope: "renderer", expression: "globalThis.smokeRuns = (globalThis.smokeRuns ?? 0) + 1; JSON.parse('{x')",
+  });
+  assert.equal(runtimeSyntax.code, "EVALUATION_FAILED");
+  assert.equal((await evaluate("renderer", "globalThis.smokeRuns")).value, 1, "code that ran must not be retried");
+  const awaitLater = await failure("electron_evaluate", {
+    scope: "renderer", expression: "globalThis.smokeAwait = 1; await (async () => 1)()",
+  });
+  assert.equal(awaitLater.code, "EVALUATION_FAILED");
+  assert.match(awaitLater.message, /await is not defined[\s\S]*async/u);
+  assert.equal((await evaluate("renderer", "globalThis.smokeAwait")).value, 1, "the earlier statement ran exactly once");
+
   // Uncaught exceptions and console.trace arrive as readable text with a stack, in the right channel.
   const marker = randomUUID();
   let { lastSeq } = await call("electron_logs", {});
@@ -138,6 +158,19 @@ try {
   const asserted = await eventAfter(lastSeq, "renderer", `assert-${marker}`);
   assert.match(asserted.message, /\n\s+at smokeAssert /u, asserted.message);
 
+  // sinceAttach drops what Chromium and Node replayed on attach: everything it returns is newer than the connection.
+  for (const scope of ["renderer", "main"]) {
+    const everything = await call("electron_logs", { process: scope, limit: 500 });
+    const connected = everything.events.filter((event) =>
+      event.kind === "connection" && event.message === "Session connected").at(-1);
+    assert.ok(connected, `${scope} should have recorded its connection`);
+    const since = await call("electron_logs", { process: scope, sinceAttach: true, limit: 500 });
+    assert.ok(since.events.length > 0, `${scope} should have events since attach`);
+    assert.ok(since.events.every((event) => event.seq > connected.seq), `${scope}: replayed history leaked through`);
+    assert.equal(since.events.length, everything.events.filter((event) => event.seq > connected.seq).length);
+    assert.equal(since.gap, false);
+  }
+
   // dom_snapshot and screenshot against the real page.
   const snapshot = await call("electron_dom_snapshot", {});
   assert.match(snapshot.text, /heading "fixture-ready"/u);
@@ -155,6 +188,48 @@ try {
   const jpeg = await call("electron_screenshot", { format: "jpeg", quality: 60 });
   assert.deepEqual([...(await readFile(jpeg.path)).subarray(0, 2)], [0xff, 0xd8]);
   assert.equal((await readdir(outputDir)).length, 2);
+
+  // Chromium keeps the connection of a crashed page open and the page answers nothing, so the session has to say so
+  // instead of letting every request time out. Reloading the page recovers the same connection.
+  ({ lastSeq } = await call("electron_logs", {}));
+  await evaluate("main", "(() => { process.mainModule.require('electron').BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer(); return true; })()");
+  const crashedStatus = await waitUntil(async () => (await call("electron_status")).renderer,
+    (renderer) => renderer.online === false && renderer.error?.code === "TARGET_CRASHED", "renderer crash status", 8_000);
+  assert.equal(crashedStatus.status, "offline");
+  const crashedStartedAt = Date.now();
+  const crashedEvaluate = await failure("electron_evaluate", { scope: "renderer", expression: "1 + 1" });
+  assert.equal(crashedEvaluate.code, "TARGET_CRASHED");
+  assert.ok(Date.now() - crashedStartedAt < 2_000, "a crashed page must fail fast, not after the request timeout");
+  const crashEvent = await eventAfter(lastSeq, "renderer", "Target crashed");
+  assert.equal(crashEvent.kind, "exception");
+  assert.equal((await evaluate("main", "1 + 1")).value, 2, "the main channel is unaffected by a renderer crash");
+  await evaluate("main", "(() => { process.mainModule.require('electron').BrowserWindow.getAllWindows()[0].webContents.reload(); return true; })()");
+  await waitUntil(async () => (await call("electron_status")).renderer,
+    (renderer) => renderer.online === true && renderer.error === undefined, "renderer recovery after reload", 10_000);
+  assert.equal((await evaluate("renderer", "1 + 1")).value, 2);
+
+  // Dev builds often open DevTools at startup, which lists it as a second page. A fresh attach (a new server with no
+  // remembered selection) must still pick the window under test, and DevTools must stay in the target list.
+  await evaluate("main", "(() => { const w = process.mainModule.require('electron').BrowserWindow.getAllWindows()[0]; w.webContents.openDevTools({ mode: 'detach' }); return true; })()");
+  await waitUntil(() => discovery(rendererPort),
+    (targets) => targets?.some((target) => target.url.startsWith("devtools://")), "DevTools target");
+  const fresh = new McpClient({});
+  try {
+    await fresh.request(requestId++, "initialize", {
+      protocolVersion: "2025-03-26", capabilities: {},
+      clientInfo: { name: "fixture-inspection-smoke-fresh", version: "1.0.0" },
+    });
+    fresh.notify("notifications/initialized", {});
+    const reattached = structuredData(await fresh.request(requestId++, "tools/call", {
+      name: "electron_attach",
+      arguments: { mainUrl: `http://127.0.0.1:${mainPort}`, rendererUrl: `http://127.0.0.1:${rendererPort}` },
+    }, 30_000), "fresh attach");
+    assert.equal(reattached.renderer.online, true, JSON.stringify(reattached.errors));
+    assert.match(reattached.selectedTarget.url, /^file:.*index\.html/u);
+    assert.ok(reattached.targets.some((target) => target.url.startsWith("devtools://")), "DevTools should stay listed");
+  } finally {
+    await fresh.close();
+  }
 
   console.log(JSON.stringify({
     platform: process.platform, exception: exception.message, snapshotNodes: snapshot.nodeCount, screenshotBytes: shot.bytes,

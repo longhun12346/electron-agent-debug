@@ -1,4 +1,4 @@
-import { EventBuffer, type EventSequence } from "../events/event-buffer.js";
+import { EventBuffer, sessionConnectedMessage, type EventSequence } from "../events/event-buffer.js";
 import { DiagnosticException, toDiagnosticError } from "../errors.js";
 import { JsonRpcConnection, type JsonRpcEvent } from "../protocol/json-rpc-connection.js";
 import type {
@@ -51,6 +51,9 @@ function formatConsoleArgument(value: unknown): string {
 }
 
 const maxStackFrames = 10;
+
+// Chromium keeps the debugging connection of a crashed page open, but the page answers nothing until it is reloaded.
+const targetCrashedMessage = "目标页面已崩溃，重新加载后才会恢复（Inspector.targetCrashed）";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
@@ -158,6 +161,7 @@ export class DiagnosticSession {
   private lastConnectedAt?: string;
   private lastDisconnectedAt?: string;
   private lastDisconnectReason?: string;
+  private crashedAt?: string;
   private error?: ReturnType<typeof toDiagnosticError>;
   readonly events: EventBuffer;
 
@@ -216,6 +220,7 @@ export class DiagnosticSession {
     await this.close("Session replaced");
     this.endpoint = endpoint;
     this.selectedTarget = target;
+    this.crashedAt = undefined;
 
     let connection!: JsonRpcConnection;
     connection = new JsonRpcConnection({
@@ -243,7 +248,7 @@ export class DiagnosticSession {
         observedAt: new Date().toISOString(),
         kind: "connection",
         level: "info",
-        message: "Session connected",
+        message: sessionConnectedMessage,
       });
     } catch (error) {
       await connection.close();
@@ -263,6 +268,7 @@ export class DiagnosticSession {
     this.connection = undefined;
     this.websocketUrl = undefined;
     this.selectedTarget = undefined;
+    this.crashedAt = undefined;
     if (!connection) {
       this.status = this.endpoint ? "offline" : "unconfigured";
       return;
@@ -279,14 +285,22 @@ export class DiagnosticSession {
         retryable: true,
       });
     }
+    if (this.crashedAt !== undefined) {
+      // Without this the request would only fail after its timeout.
+      throw new DiagnosticException("TARGET_CRASHED", targetCrashedMessage, {
+        retryable: true,
+        details: { crashedAt: this.crashedAt },
+      });
+    }
     return this.connection.request(method, params, timeoutMs);
   }
 
   snapshot(): SessionSnapshot {
+    const crashed = this.crashedAt !== undefined;
     return {
       configured: this.endpoint !== undefined,
-      online: this.status === "online" && this.isConnected,
-      status: this.status,
+      online: this.status === "online" && this.isConnected && !crashed,
+      status: crashed ? "offline" : this.status,
       endpoint: this.endpoint?.url,
       endpointSource: this.endpoint?.source,
       selectedTarget: this.selectedTarget,
@@ -294,13 +308,20 @@ export class DiagnosticSession {
       lastDisconnectedAt: this.lastDisconnectedAt,
       lastDisconnectReason: this.lastDisconnectReason,
       eventCount: this.events.size,
-      error: this.error,
+      error: crashed
+        ? {
+          code: "TARGET_CRASHED",
+          message: targetCrashedMessage,
+          retryable: true,
+          details: { crashedAt: this.crashedAt },
+        }
+        : this.error,
     };
   }
 
   private async enableCoreDomains(connection: JsonRpcConnection): Promise<void> {
     const domains = this.options.process === "renderer"
-      ? ["Runtime.enable", "Log.enable"]
+      ? ["Runtime.enable", "Log.enable", "Inspector.enable"]
       : ["Runtime.enable"];
     for (const method of domains) {
       try {
@@ -323,6 +344,30 @@ export class DiagnosticSession {
   }
 
   private handleEvent(event: JsonRpcEvent): void {
+    if (event.method === "Inspector.targetCrashed") {
+      this.crashedAt = new Date().toISOString();
+      this.events.add({
+        process: this.options.process,
+        targetId: this.selectedTarget?.id,
+        observedAt: this.crashedAt,
+        kind: "exception",
+        level: "error",
+        message: "Target crashed (Inspector.targetCrashed): the page does not respond until it is reloaded",
+      });
+      return;
+    }
+    if (event.method === "Inspector.targetReloadedAfterCrash") {
+      this.crashedAt = undefined;
+      this.events.add({
+        process: this.options.process,
+        targetId: this.selectedTarget?.id,
+        observedAt: new Date().toISOString(),
+        kind: "connection",
+        level: "info",
+        message: "Target reloaded after crash",
+      });
+      return;
+    }
     const normalized = eventFromProtocol(this.options.process, event);
     if (normalized) {
       normalized.targetId = this.selectedTarget?.id;
@@ -338,6 +383,7 @@ export class DiagnosticSession {
     this.connection = undefined;
     this.websocketUrl = undefined;
     this.selectedTarget = undefined;
+    this.crashedAt = undefined;
     this.status = this.endpoint ? "offline" : "unconfigured";
     this.lastDisconnectedAt = new Date().toISOString();
     this.lastDisconnectReason = reason;

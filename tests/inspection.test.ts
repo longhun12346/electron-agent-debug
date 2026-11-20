@@ -128,6 +128,45 @@ test("evaluate runs in both processes and shapes results", { timeout: 20_000 }, 
   });
 });
 
+test("evaluate retries any compile-time SyntaxError in repl mode but never re-runs code that already ran", { timeout: 20_000 }, async () => {
+  await withAttachedApp({}, async (manager) => {
+    const runsOf = async (expression: string) => {
+      const counted = await manager.inspector.evaluate({ scope: "main", expression: `runs:${expression}` });
+      assert.ok(counted.ok);
+      return counted.data.value;
+    };
+
+    // `await import(…)` fails to compile with a different message than `await x`; it must still reach repl mode.
+    const imported = await manager.inspector.evaluate({ scope: "main", expression: "await-import" });
+    assert.ok(imported.ok, JSON.stringify(imported));
+    assert.equal(imported.data.value, "imported");
+    assert.equal(await runsOf("await-import"), 2, "plain mode failed to compile, repl mode ran once");
+
+    // A SyntaxError thrown by running code (JSON.parse, new Function) has a stack and must not run twice.
+    const runtime = await manager.inspector.evaluate({ scope: "main", expression: "runtime-syntax-error" });
+    assert.equal(runtime.ok, false);
+    assert.equal(await runsOf("runtime-syntax-error"), 1);
+
+    // `await (…)` is a call of a variable named await and fails at run time. When nothing precedes it nothing has run,
+    // so it is retried; after other statements earlier code may have run, so it is not, and the error says what to write.
+    const awaitFirst = await manager.inspector.evaluate({ scope: "main", expression: "await-call" });
+    assert.ok(awaitFirst.ok, JSON.stringify(awaitFirst));
+    assert.equal(awaitFirst.data.value, 1);
+    assert.equal(await runsOf("await-call"), 2);
+    const awaitLater = await manager.inspector.evaluate({ scope: "main", expression: "x = 1; await-call" });
+    assert.ok(!awaitLater.ok);
+    assert.equal(awaitLater.error.code, "EVALUATION_FAILED");
+    assert.match(awaitLater.error.message, /await is not defined.*async/u);
+    assert.equal(await runsOf("x = 1; await-call"), 1);
+
+    // A genuine syntax error is reported as such after the one retry.
+    const genuine = await manager.inspector.evaluate({ scope: "main", expression: "genuine-syntax-error" });
+    assert.ok(!genuine.ok);
+    assert.match(genuine.error.message, /^SyntaxError: Unexpected token '='/u);
+    assert.equal(await runsOf("genuine-syntax-error"), 2);
+  });
+});
+
 test("evaluate and expression waits are refused when the host disables evaluation", { timeout: 20_000 }, async () => {
   await withAttachedApp({ allowEval: false }, async (manager) => {
     const result = await manager.inspector.evaluate({ scope: "renderer", expression: "1" });

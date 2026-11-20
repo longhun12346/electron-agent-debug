@@ -86,6 +86,26 @@ test("tracks the highest evicted or refused seq and resets it on clear", () => {
   assert.equal(buffer.droppedThroughSeq, 0);
 });
 
+test("lastConnectedSeq remembers the newest connection marker after it is evicted or cleared", () => {
+  const buffer = new EventBuffer(3, 100_000);
+  const connected = { ...event("Session connected"), kind: "connection" as const, level: "info" };
+  assert.equal(buffer.lastConnectedSeq, 0);
+  buffer.add(event("replayed"));
+  buffer.add(connected);
+  assert.equal(buffer.lastConnectedSeq, 2);
+  buffer.add(event("fresh"));
+  buffer.add(connected);
+  assert.equal(buffer.lastConnectedSeq, 4, "a reconnect moves the boundary");
+  buffer.add(event("one"));
+  buffer.add(event("two"));
+  buffer.add(event("three"));
+  assert.equal(buffer.list({ limit: 10 }).some((item) => item.message === "Session connected"), false);
+  assert.equal(buffer.lastConnectedSeq, 4, "the boundary outlives the evicted event");
+  buffer.clear();
+  buffer.add({ ...event("disconnected"), kind: "connection" as const, level: "error" });
+  assert.equal(buffer.lastConnectedSeq, 4, "only the connected marker moves it, not other connection events");
+});
+
 test("rejects an invalid since timestamp", () => {
   const buffer = new EventBuffer(10, 10_000);
   assert.throws(

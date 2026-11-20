@@ -45,7 +45,10 @@ npm run check:skill
 | Skill 包 | 创建并解压真实 tar 到隔离的项目/全局目录，禁止联网及加载包外模块，验证完整 MCP 初始化和工具调用；检查引用，检测篡改、缺文件和越界 manifest |
 | MCP 端到端 | `tests/mcp-lifecycle.test.ts` 启动测试替身应用，经 stdio 走完 attach、evaluate、logs，并验证设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 时被拒绝 |
 | 检查能力 | `tests/inspection.test.ts` 用 `tests/helpers/fake-electron-app.cjs` 测试 evaluate 的门控（`ELECTRON_DEBUG_ALLOW_EVAL=0` 时拒绝）、截断、脱敏、超时、Promise 与顶层 await；wait_for 的 log/expression 与 `WAIT_TIMEOUT`；截图写入私有目录；无障碍树渲染及节点上限 |
-| 统一时间线 | main/renderer 事件共享递增 `seq`，`afterSeq` 与 `lastSeq` 可续读 |
+| 统一时间线 | main/renderer/utility 事件共享递增 `seq`，`afterSeq` 与 `lastSeq` 可续读；缓冲区淘汰或拒收事件后 `droppedThroughSeq` 与 `gap` 如实报告，`clear` 重置；`sinceAttach` 按通道只返回最近一次连接之后的事件，连接事件被淘汰后边界仍然保留 |
+| 平台描述 | `tests/platform-description.test.ts` 核对 `docs/platform-description.md` 的工具数量、Node.js 版本和日志读取选项与代码一致 |
+| 真实形态 | `examples/field-app` 是更接近开发构建的应用（ESM 主进程、两个窗口加 DevTools、嘈杂的控制台、1500 行的页面、要按下才发生的保存、页面崩溃和硬退出），`field-smoke.mjs` 在真实 Electron 上逐项断言：DevTools 不参与自动选择、重放的噪声被 `sinceAttach` 排除并如实报告 `gap`、快照截断、评估出的点击会执行处理函数但不可信、崩溃后 `TARGET_CRASHED` 并在 reload 后恢复、硬退出的退出码。单元测试用假端口，只证明逻辑；新增一类真实问题时，先在这个应用里加上能复现它的形态 |
+| evaluate 重试 | 只在代码没有开始执行时换模式重试：编译期 `SyntaxError`（无 `stackTrace`）和 `await` 前只有空白的 `await (…)`；运行期抛出的 `SyntaxError` 不重试。假端口按真实 V8 的 `stackTrace` 有无区分，真实冒烟逐项复核 |
 
 这些测试通过只证明所覆盖的契约。外部 Electron 项目的业务操作、视觉结果和真实 Agent 宿主接入仍需分别验证，不能用测试数量或一次 CI 成功代替。
 
@@ -71,21 +74,35 @@ GitHub Actions 执行以下矩阵，每个组合均运行根目录测试、类�
 | 系统 | Node.js |
 | --- | --- |
 | Ubuntu | 20、22、24 |
-| Windows | 22、24 |
-| macOS | 22 |
+| Windows | 20、22、24 |
+| macOS | 20、22 |
 
-Linux smoke 使用 `xvfb` 提供虚拟显示。Electron 使用 fixture lockfile 中的版本；本矩阵不代表所有历史 Electron 版本或未来 Node.js 版本均已实测。
+Linux smoke 使用 `xvfb` 提供虚拟显示。这些组合使用 fixture lockfile 中的 Electron 版本。另有 `electron-versions` 任务，在 Ubuntu 和 Windows 上用 Electron 43、44 和最新稳定版各运行一次 utility 与 inspection smoke：utility 通道依赖未公开的 `process._debugProcess`，evaluate 的重试依赖 V8 的报错措辞，这两处最容易随 Electron 主版本变化。矩阵不代表所有历史 Electron 版本或未来 Node.js 版本均已实测。
+
+`npm test` 通过 `scripts/run-tests.mjs` 列出测试文件再交给 `tsx --test`，因为 Windows 的 shell 和 Node 20 都不会展开 `tests/*.test.ts`。`.github/dependabot.yml` 每周检查 GitHub Actions、根目录和 fixture 的依赖；根目录依赖会改变随包 bundle，所以这类 PR 需要先运行 `npm run build:skill` 并提交生成文件，`check:skill` 才会通过。
 
 ## 真实 Agent 宿主
 
 宿主 smoke 是显式运行的集成测试，需要本机已经安装并认证的 CLI、构建后的 MCP 和 fixture 依赖，可能消耗宿主模型额度；普通 `npm test` 和 CI 不调用模型。
 
 ```text
-node examples/host-e2e/smoke.mjs codex <absolute-codex-executable>
-node examples/host-e2e/smoke.mjs claude <absolute-claude-executable>
+node examples/host-e2e/smoke.mjs codex <absolute-codex-executable> [--scenario <name|all>]
+node examples/host-e2e/smoke.mjs claude <absolute-claude-executable> [--scenario <name|all>]
 ```
 
-脚本在临时目录配置本次 MCP，显式提供当前 Skill 内容，启动真实 IPC 故障 fixture，再让宿主调用 attach、status、targets、logs 诊断工具。以透明 stdio trace 中的实际请求、响应和双侧 IPC 证据断言结果，不接受模型口头声称成功。测试使用命令行临时 MCP 配置和工具授权，不修改用户保存的宿主配置。成功后删除临时产物，失败则保留本机 trace 供定位；不要提交宿主日志。
+场景定义在 `examples/host-e2e/scenarios.mjs`，默认运行 `ipc`，`--scenario all` 依次运行全部：
+
+| 场景 | 任务 | 断言（只看真实 MCP 流量） |
+| --- | --- | --- |
+| `ipc` | IPC 失败，两侧都要有证据 | 调用 attach、status、targets、logs；两个通道在线；日志含 main 和 renderer 各自的错误 |
+| `renderer` | 页面异常，读错误和页面内容 | 日志里有可读的 `Uncaught Error: …`；无障碍树里读到故障状态文本 |
+| `main-window` | 窗口没出现，判断责任在哪一侧 | main 在线、renderer 离线；读到主进程的窗口失败日志 |
+| `inspect` | 健康应用，逐项取证 | wait_for 条件成立；main 通道求值成功；无障碍树含结果文本；截图已保存；读过日志 |
+| `utility` | 连接 utility process 读值 | attach 带 `utility` 且 main 与 utility 同时在线；`scope: utility` 读到 `utility-ok` |
+
+每个场景还带一份脚本化的参考解法。`node examples/host-e2e/reference.mjs [场景名…]` 不调用模型，直接对真实 fixture 回放参考解法并套用同样的断言，已加入 `ci-smoke.mjs`，用来保证场景能用现有工具完成、断言接受正确的运行。新增场景时先写参考解法并让它通过，再让真实宿主跑。
+
+脚本在临时目录配置本次 MCP，显式提供当前 Skill 内容，启动真实 fixture，再让宿主执行场景任务。以透明 stdio trace 中的实际请求、响应断言结果，不接受模型口头声称成功。测试使用命令行临时 MCP 配置和工具授权，不修改用户保存的宿主配置。成功后删除临时产物，失败则保留本机 trace 供定位；不要提交宿主日志。
 
 本轮还在隔离副本中分别移除日志字节淘汰和将 IPC 的全量匹配弱化为任一匹配，确认新增测试均会失败。此操作用于验证断言敏感性，不修改工作区实现。
 
@@ -102,3 +119,11 @@ node examples/host-e2e/smoke.mjs claude <absolute-claude-executable>
 发布前更新 Skill 根目录 `VERSION.md`、重建运行文件并完成隔离包及真实 fixture 验证。GitHub Release tag 使用 `skill-v<Skill版本>`；发布事件触发 `.github/workflows/release.yml`，检查 tag 与 manifest 一致，在锁定依赖下重建验证，生成可重复 ZIP，并使用 GitHub OIDC 生成构建来源 attestation。工作流验证预期仓库和自身身份后上传 ZIP、SHA256SUMS 和 Sigstore bundle；不会静默覆盖已有附件。
 
 Release 打包使用 Python 标准库，不是 MCP 运行依赖。第三方安装渠道的 CLI 可能加入自己的元数据文件，其 ZIP 与 GitHub Release ZIP 是不同产物，必须分别核验；不能拿一个 ZIP 的来源证明认证另一个 ZIP，也不能把平台“上传成功”当作“安全扫描通过”。
+
+### 发布清单
+
+1. 改 `package.json` 和 `package-lock.json` 的版本（MCP），在 `skill/electron-debug/VERSION.md` 顶部写新的 Skill 版本和变更；新增参数、错误码或行为变化要同步 `SKILL.md`、`docs/requirements.md`、`docs/architecture.md`。
+2. 运行 `npm test`（含 `build:skill`）、`npm run lint`、`npm run check:skill`，并提交重新生成的 `runtime/` 文件。
+3. 同步 `docs/platform-description.md`：工具数量、支持的系统与 Node.js 版本、新增的能力或限制。`tests/platform-description.test.ts` 只核对其中可机械检查的事实，措辞仍要人工看。
+4. 推送后等待 CI 全部通过，包括 `electron-versions`。
+5. 用 skill-publisher 的 `oneskill update` 发布，简要描述和详细描述取自 `docs/platform-description.md`，发布范围保持平台上原有的值；广场发布后等安全扫描结果。

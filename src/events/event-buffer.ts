@@ -42,11 +42,15 @@ export class EventSequence {
   }
 }
 
+export const sessionConnectedMessage = "Session connected";
+
 export class EventBuffer {
   private readonly events: DiagnosticEvent[] = [];
+  // Serialized size of each retained event, kept beside it so eviction does not serialize it again.
+  private readonly sizes: number[] = [];
   private bytes = 0;
   private lastDroppedSeq = 0;
-
+  private connectedSeq = 0;
   constructor(
     private readonly maxEvents: number,
     private readonly maxBytes: number,
@@ -60,6 +64,9 @@ export class EventBuffer {
       message: redact(event.message.slice(0, 8_192)),
       ...(event.data === undefined ? {} : { data: redactData(event.data) }),
     };
+    if (normalized.kind === "connection" && normalized.message === sessionConnectedMessage) {
+      this.connectedSeq = normalized.seq ?? this.connectedSeq;
+    }
     const size = byteSize(normalized);
     if (size > this.maxBytes) {
       this.lastDroppedSeq = Math.max(this.lastDroppedSeq, normalized.seq ?? 0);
@@ -67,11 +74,13 @@ export class EventBuffer {
     }
 
     this.events.push(normalized);
+    this.sizes.push(size);
     this.bytes += size;
     while (this.events.length > this.maxEvents || this.bytes > this.maxBytes) {
       const removed = this.events.shift();
+      const removedSize = this.sizes.shift();
       if (removed) {
-        this.bytes -= byteSize(removed);
+        this.bytes -= removedSize ?? byteSize(removed);
         this.lastDroppedSeq = Math.max(this.lastDroppedSeq, removed.seq ?? 0);
       }
     }
@@ -81,6 +90,13 @@ export class EventBuffer {
   // events the caller cleared on purpose do not count.
   get droppedThroughSeq(): number {
     return this.lastDroppedSeq;
+  }
+
+  // Seq of the newest "Session connected" event this buffer has seen, or 0. Attaching replays the application's earlier
+  // console output before this event is written, so everything newer was observed by the current connection. It is
+  // remembered after the event itself is evicted or cleared, so the boundary stays exact.
+  get lastConnectedSeq(): number {
+    return this.connectedSeq;
   }
 
   list(input: LogsInput = {}): DiagnosticEvent[] {
@@ -101,6 +117,7 @@ export class EventBuffer {
 
   clear(): void {
     this.events.length = 0;
+    this.sizes.length = 0;
     this.bytes = 0;
     this.lastDroppedSeq = 0;
   }

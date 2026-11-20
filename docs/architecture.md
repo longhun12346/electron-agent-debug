@@ -80,7 +80,7 @@ SessionManager
 
 Renderer discovery 可以在尚未选定 target 时返回 target 列表；当前实现只有在选定一个可连接的 page target 后才建立 RendererSession。没有唯一 target 时，renderer Session 保持 `offline`，并返回 `TARGET_SELECTION_REQUIRED` 或 `TARGET_NOT_FOUND`。
 
-每个请求带有递增 request id。响应通过 request id 与 Promise 对应。事件消息写入有上限的内存缓存，不阻塞工具调用。缓冲区满时丢弃最旧的事件，`electron_logs` 用 `droppedThroughSeq` 和 `gap` 告知调用方所请求的范围内是否可能有事件缺失。
+每个请求带有递增 request id。响应通过 request id 与 Promise 对应。事件消息写入有上限的内存缓存，不阻塞工具调用。缓冲区满时丢弃最旧的事件，`electron_logs` 用 `droppedThroughSeq` 和 `gap` 告知调用方所请求的范围内是否可能有事件缺失；`sinceAttach` 让每个通道只返回它最近一次连接之后的事件，排除 attach 时重放的应用历史输出。
 
 SessionManager 还要记录面向诊断的状态：
 
@@ -123,7 +123,7 @@ GET ${ELECTRON_DEBUG_CDP_URL}/json/list
 1. 显式 target id。
 2. 完整 URL 匹配。
 3. 标题匹配。
-4. 只有单个可连接 page target 时自动选择；多个可连接候选时要求 Agent 提供选择条件。
+4. 只有单个可连接 page target 时自动选择；多个可连接候选时要求 Agent 提供选择条件。应用打开的 DevTools 窗口（`devtools://` 开头的 page）不参与自动选择的计数，但仍出现在 target 列表中，也可以被显式选择。
 
 ## 4. 协议能力
 
@@ -176,6 +176,7 @@ GET ${ELECTRON_DEBUG_CDP_URL}/json/list
 - `TARGET_SELECTION_REQUIRED`
 - `SESSION_DISCONNECTED`
 - `PROTOCOL_ERROR`
+- `TARGET_CRASHED`
 
 utility 通道增加以下错误码：
 
@@ -184,6 +185,10 @@ utility 通道增加以下错误码：
 - `UTILITY_INSPECTOR_UNAVAILABLE`
 
 协议请求超时使用 `PROTOCOL_ERROR`，并在 `details` 中带 `reason: "timeout"`、`method` 和 `timeoutMs`，供调用方按结构而不是按消息文本识别。
+
+renderer 页面崩溃时 Chromium 不会断开调试连接，页面只是不再响应。renderer Session 启用 `Inspector` 域，收到 `Inspector.targetCrashed` 后写入一条 `Target crashed` 异常事件，状态变为 `offline` 并带 `TARGET_CRASHED`（`retryable: true`），之后对该 Session 的请求立即返回 `TARGET_CRASHED`，不等待超时。收到 `Inspector.targetReloadedAfterCrash`（页面重新加载）后同一连接恢复，并写入 `Target reloaded after crash`。`Inspector.enable` 不被支持时只记录告警，Session 照常在线。
+
+evaluate 在代码没有开始执行时才换模式重试：编译期的 `SyntaxError`（没有 `stackTrace`，不依赖 V8 的措辞），以及 `await` 前只有空白的 `ReferenceError: await is not defined`（`await (…)`）。运行期抛出的 `SyntaxError`（`JSON.parse`、`new Function`）带有 `stackTrace`，已经执行过，不重试。
 
 检查能力增加以下错误码：
 

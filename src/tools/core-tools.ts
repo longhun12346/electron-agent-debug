@@ -29,6 +29,7 @@ const logsSchema = z.object({
     message: "since 必须是有效的日期时间字符串",
   }).optional(),
   afterSeq: z.number().int().min(0).optional(),
+  sinceAttach: z.boolean().optional(),
   clear: z.boolean().optional(),
 });
 
@@ -67,7 +68,7 @@ export const coreTools = [
   defineTool({
     name: "electron_logs",
     title: "Read Electron diagnostic logs",
-    description: "读取当前 MCP Server 进程内有界缓存的统一时间线：主进程、renderer 和 utility 的事件，按 seq 排序。返回 lastSeq，下次用 afterSeq 只读取之后的事件。缓冲区满时最旧的事件会被丢弃：droppedThroughSeq 是被丢弃的最大 seq，gap 为 true 表示所请求的范围内可能有事件缺失，应缩短取证间隔或调大 ELECTRON_DEBUG_MAX_LOG_EVENTS。",
+    description: "读取当前 MCP Server 进程内有界缓存的统一时间线：主进程、renderer 和 utility 的事件，按 seq 排序。返回 lastSeq，下次用 afterSeq 只读取之后的事件。sinceAttach 为 true 时，每个通道只返回它最近一次连接之后的事件，不含 attach 时重放的应用历史输出，可替代自己记录 lastSeq。缓冲区满时最旧的事件会被丢弃：droppedThroughSeq 是被丢弃的最大 seq，gap 为 true 表示所请求的范围内可能有事件缺失，应缩短取证间隔或调大 ELECTRON_DEBUG_MAX_LOG_EVENTS。",
     inputSchema: logsSchema,
     handler: async (manager, input) => {
       try {

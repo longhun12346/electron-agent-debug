@@ -85,6 +85,8 @@ async function runScript(name, label) {
 
 await runScript("utility-smoke.mjs", "utility process attach");
 await runScript("inspection-smoke.mjs", "evaluate, wait_for, screenshot, snapshot and stack rendering");
+await runScript("../host-e2e/reference.mjs", "host-e2e scenarios solved by their scripted reference runs");
+await runScript("../field-app/field-smoke.mjs", "field app: ESM main, two windows, DevTools, noise, large page, crash and exit");
 
 console.log("Running fixture smoke: reload, window recreation and Electron restart");
 const lifecycle = spawn(process.execPath, [path.join(fixtureRoot, "lifecycle-smoke.mjs")], {

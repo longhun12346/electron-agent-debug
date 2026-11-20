@@ -31,26 +31,53 @@ interface EvaluateResponse {
     text?: string;
     lineNumber?: number;
     columnNumber?: number;
+    stackTrace?: unknown;
     exception?: { description?: string; value?: unknown };
   };
 }
 
 const requestGraceMs = 1_000;
 // Chromium ignores awaitPromise for plain promises when replMode is on, but only replMode accepts top-level await
-// and `let`/`const` redeclaration. Run without it first and retry in replMode on those early syntax errors (nothing ran).
-const topLevelAwaitError = /await is only valid/i;
+// and `let`/`const` redeclaration. Run without it first and retry in replMode when the code did not even compile.
+//
+// A compile-time SyntaxError is told apart from one thrown by running code (JSON.parse, new Function) by its missing
+// stack trace, not by its wording: V8 words the same mistake differently ("await is only valid…" for `await x`,
+// "Unexpected token 'import'" for `await import(…)`), and a wording match silently misses the next variant. Nothing
+// has run when the code fails to compile, so trying again in another mode cannot repeat a side effect.
 const redeclarationError = /has already been declared/i;
-const replOnlyError = new RegExp(`${topLevelAwaitError.source}|${redeclarationError.source}`, "i");
 // replMode can only redeclare bindings that were themselves created in replMode. A `let`/`const` left behind by an
 // earlier plain evaluation stays in the way, so as a last resort run the code in a block: the block's completion
 // value is still the result, and its declarations shadow the old ones instead of colliding (they do not persist).
+
+// `await (…)`, ``await `t` `` and `await -1` parse in plain mode as an operation on a variable named await. That fails
+// at run time with a ReferenceError the moment the identifier is evaluated, so when only whitespace precedes it nothing
+// else has run and a retry is as safe as for a compile error. Anywhere else earlier statements may have run: those are
+// not retried, and the error says what to write instead.
+const awaitAsCallHint =
+  "（顶层 await 后面直接跟括号、负号等会被当成对名为 await 的变量的操作；把操作数放进变量再 await，或写成 (async () => { … })()）";
 
 function exceptionMessage(details: NonNullable<EvaluateResponse["exceptionDetails"]>): string {
   const exception = details.exception;
   const text = exception?.description ??
     (exception?.value === undefined ? undefined : String(exception.value)) ??
     details.text ?? "表达式执行失败";
-  return redact(text).slice(0, 2_000);
+  const message = redact(text).slice(0, 2_000);
+  return /^ReferenceError: await is not defined/u.test(message) ? `${message}${awaitAsCallHint}` : message;
+}
+
+function blankBefore(expression: string, line: number, column: number): boolean {
+  const lines = expression.split("\n");
+  return [...lines.slice(0, line), (lines[line] ?? "").slice(0, column)].join("\n").trim() === "";
+}
+
+function ranNothing(details: NonNullable<EvaluateResponse["exceptionDetails"]>, expression: string): boolean {
+  const description = details.exception?.description ?? "";
+  if (details.stackTrace === undefined && /^SyntaxError\b/u.test(description)) {
+    return true;
+  }
+  return /^ReferenceError: await is not defined/u.test(description) &&
+    typeof details.lineNumber === "number" && typeof details.columnNumber === "number" &&
+    blankBefore(expression, details.lineNumber, details.columnNumber);
 }
 
 // Cut to at most maxBytes of UTF-8 without splitting a multi-byte character.
@@ -81,14 +108,16 @@ export async function evaluateExpression(
     }, options.timeoutMs + requestGraceMs) as EvaluateResponse;
     const failsWith = (pattern: RegExp) =>
       response.exceptionDetails !== undefined && pattern.test(exceptionMessage(response.exceptionDetails));
+    const failsToCompile = (expression: string) =>
+      response.exceptionDetails !== undefined && ranNothing(response.exceptionDetails, expression);
     response = await run(options.expression, false);
-    if (failsWith(replOnlyError)) {
+    if (failsToCompile(options.expression) || failsWith(redeclarationError)) {
       response = await run(options.expression, true);
     }
     if (failsWith(redeclarationError)) {
       const block = `{${options.expression}\n}`;
       response = await run(block, false);
-      if (failsWith(topLevelAwaitError)) {
+      if (failsToCompile(block)) {
         response = await run(block, true);
       }
     }

@@ -39,6 +39,32 @@ test("ignores non-page targets for automatic selection", () => {
   assert.equal(codeOf(() => selectTarget([worker], {})), "TARGET_NOT_FOUND");
 });
 
+const devtools = (id: string): TargetInfo => ({
+  ...page(id, "DevTools"),
+  url: "devtools://devtools/bundled/devtools_app.html?remoteBase=https://example.invalid",
+});
+
+test("a DevTools window next to one real window does not make the selection ambiguous", () => {
+  assert.equal(selectTarget([devtools("tools"), page("app", "App")], {})?.id, "app");
+  assert.equal(selectTarget([page("app", "App"), devtools("tools")], {})?.id, "app");
+});
+
+test("real windows stay ambiguous when DevTools is also open, and the count excludes DevTools", () => {
+  try {
+    selectTarget([devtools("tools"), page("one", "One"), page("two", "Two")], {});
+    assert.fail("expected a selection error");
+  } catch (error) {
+    assert.ok(error instanceof DiagnosticException);
+    assert.equal(error.diagnostic.code, "TARGET_SELECTION_REQUIRED");
+    assert.equal(error.diagnostic.details?.count, 2);
+  }
+});
+
+test("DevTools can still be chosen explicitly and is selected when it is the only page", () => {
+  assert.equal(selectTarget([devtools("tools"), page("app", "App")], { targetId: "tools" })?.id, "tools");
+  assert.equal(selectTarget([devtools("tools")], {})?.id, "tools");
+});
+
 test("ignores page targets without a debugger WebSocket", () => {
   const unavailable: TargetInfo = {
     id: "unavailable",
