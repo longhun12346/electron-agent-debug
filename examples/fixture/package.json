@@ -10,6 +10,6 @@
     "start:ipc-fault": "set FIXTURE_FAULT=ipc&& electron ."
   },
   "devDependencies": {
-    "electron": "^45.3.2"
+    "electron": "^45.3.3"
   }
 }
