@@ -413,7 +413,7 @@ Skill 必须明确以下判断规则：
 - 统一时间线：main、renderer、utility 事件共享递增 `seq`，日志支持 `afterSeq` 续读和 `lastSeq`。
 - Skill 收敛为薄页面：何时使用、按修改类型列出的证据矩阵、工具组合方式。
 
-仍未实现：断点、暂停、单步、调用栈、IPC trace、source map、原生对话框和菜单替身。与 MCP 共享核心的命令行入口以批处理模式（`launch.cjs --run`）提供；跨调用保持连接的常驻 CLI 未实现。
+仍未实现：断点、暂停、单步、调用栈、IPC trace、source map、原生对话框和菜单替身。与 MCP 共享核心的命令行入口以批处理模式（`launch.cjs --run`）提供，`launch.cjs --tools [工具名 ...]` 打印工具描述和 JSON Schema 作为批处理调用方的 `tools/list`；跨调用保持连接的常驻 CLI 未实现。
 
 ## 11. 成功标准
 

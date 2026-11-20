@@ -53,12 +53,23 @@ gh attestation verify <absolute-release-zip> --repo longhun12346/electron-agent-
 node <absolute-skill-directory>/runtime/launch.cjs --run
 ```
 
-stdin 传入 JSON 数组，每项为 `{"tool": "<工具名>", "arguments": {...}, "continueOnError": false}`，`arguments` 和 `continueOnError` 可省略。工具名和参数与 MCP 完全相同。各步骤在同一个进程、同一个连接内按顺序执行，例如：
+stdin 传入 JSON 数组，每项为 `{"tool": "<工具名>", "arguments": {...}, "continueOnError": false}`，`arguments` 和 `continueOnError` 可省略。工具名和参数与 MCP 完全相同。没有 MCP 就没有 `tools/list`，不要猜参数的形状，先用 `--tools` 查：
+
+```text
+node <absolute-skill-directory>/runtime/launch.cjs --tools                                   # 全部 8 个工具
+node <absolute-skill-directory>/runtime/launch.cjs --tools electron_wait_for                 # 只看一个
+node <absolute-skill-directory>/runtime/launch.cjs --tools electron_attach electron_logs     # 一次看几个，按给的顺序输出
+```
+
+stdout 输出一行 JSON：`{"ok": true, "tools": [{"name", "description", "inputSchema"}, ...]}`，`inputSchema` 是 JSON Schema，嵌套对象的字段在里面（例如 `electron_wait_for` 的 `expression` 是带 `scope` 和 `expression` 的对象，不是字符串）。工具名不存在时输出 `{"ok": false, "error": {...}}`（消息列出所有不存在的名字和可用的名字，不返回部分结果），退出码为 1。该命令不连接应用，也不读取 stdin。
+
+各步骤在同一个进程、同一个连接内按顺序执行，例如：
 
 ```json
 [
   {"tool": "electron_attach", "arguments": {"mainUrl": "http://127.0.0.1:9229", "rendererUrl": "http://127.0.0.1:9222"}},
   {"tool": "electron_wait_for", "arguments": {"log": {"contains": "ready"}, "timeoutMs": 15000}},
+  {"tool": "electron_wait_for", "arguments": {"expression": {"scope": "renderer", "expression": "document.readyState === 'complete'"}}},
   {"tool": "electron_evaluate", "arguments": {"scope": "renderer", "expression": "document.title"}}
 ]
 ```

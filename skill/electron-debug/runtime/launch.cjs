@@ -40,10 +40,11 @@ try {
       ok: true, skillVersion: manifest.skillVersion, mcpVersion: manifest.mcpVersion,
       sourceDigest: manifest.sourceDigest,
     })}\n`);
-  } else if (process.argv.length === 2 || (process.argv.length === 3 && process.argv[2] === "--run")) {
+  } else if (process.argv.length === 2 || (process.argv.length === 3 && process.argv[2] === "--run") ||
+      process.argv[2] === "--tools") {
     require("./server.cjs");
   } else {
-    throw new Error("Usage: node launch.cjs [--verify | --run]");
+    throw new Error("Usage: node launch.cjs [--verify | --run | --tools [tool-name ...]]");
   }
 } catch (error) {
   process.stderr.write(`${JSON.stringify({

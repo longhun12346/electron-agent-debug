@@ -23,6 +23,17 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const skill = await readFile(path.join(root, "skill/electron-debug/SKILL.md"), "utf8");
 const version = (await promisify(execFile)(executable, ["--version"], { timeout: 10_000 })).stdout.trim();
 
+// On Windows the MCP relay or Electron can still hold a handle on the trace directory for a moment after the host
+// exits, which makes the first rmdir fail with EBUSY. Retry, and never let leftover temp files turn a passing scenario
+// into a failing run: say where they are instead.
+async function removeTemporary(directory) {
+  try {
+    await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  } catch (error) {
+    console.warn(`Scenario passed, but the temporary directory could not be removed (${error.code ?? error.message}): ${directory}`);
+  }
+}
+
 async function runScenario(name) {
   const scenario = scenarios[name];
   const temporary = await mkdtemp(path.join(tmpdir(), "electron host smoke "));
@@ -90,7 +101,7 @@ async function runScenario(name) {
     if (hostProcess) await stopChild(hostProcess);
     if (fixture) await fixture.stop();
     // Successful traces are disposable. Keep a failed trace only if present.
-    if (succeeded) await rm(temporary, { recursive: true, force: true });
+    if (succeeded) await removeTemporary(temporary);
   }
 }
 

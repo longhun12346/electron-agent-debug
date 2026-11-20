@@ -83,6 +83,7 @@ jobs:
           node --check examples/field-app/renderer.js
           node --check examples/field-app/field-launch.mjs
           node --check examples/field-app/field-smoke.mjs
+          node --check examples/trigger-eval/run.mjs
 
       - name: Install fixture dependencies
         run: npm ci --prefix examples/fixture

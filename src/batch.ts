@@ -24,6 +24,52 @@ export interface BatchResult {
   results: BatchStepResult[];
 }
 
+export interface ToolListing {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+// Without an MCP client there is no tools/list, so a batch caller can only guess the shape of the arguments. This is
+// the same information: every tool's description and its input as JSON Schema.
+function withoutSafeIntegerBounds(schema: unknown): unknown {
+  if (Array.isArray(schema)) {
+    return schema.map(withoutSafeIntegerBounds);
+  }
+  if (typeof schema !== "object" || schema === null) {
+    return schema;
+  }
+  return Object.fromEntries(Object.entries(schema)
+    // zod adds the safe-integer range to every integer; it says nothing a caller needs.
+    .filter(([key, value]) => !(["minimum", "maximum"].includes(key) && Math.abs(Number(value)) === Number.MAX_SAFE_INTEGER))
+    .map(([key, value]) => [key, withoutSafeIntegerBounds(value)]));
+}
+
+export function describeTools(
+  names?: string[],
+): { ok: true; tools: ToolListing[] } | { ok: false; error: ReturnType<typeof errorResult>["error"] } {
+  // Asking for several tools in one call is allowed; the answer follows the order asked for, without repeats.
+  const requested = names !== undefined && names.length > 0 ? [...new Set(names)] : undefined;
+  const unknown = (requested ?? []).filter((name) => !allTools.some((tool) => tool.name === name));
+  if (unknown.length > 0) {
+    return errorResult({
+      code: "INVALID_ARGUMENT",
+      message: `未知工具：${unknown.join(", ")}；可用：${allTools.map((tool) => tool.name).join(", ")}`,
+      retryable: false,
+    });
+  }
+  const selected = requested === undefined
+    ? allTools
+    : requested.map((name) => allTools.find((tool) => tool.name === name)!);
+  return {
+    ok: true,
+    tools: selected.map((tool) => {
+      const { $schema: _draft, ...inputSchema } = z.toJSONSchema(tool.inputSchema, { io: "input" });
+      return { name: tool.name, description: tool.description, inputSchema: withoutSafeIntegerBounds(inputSchema) as Record<string, unknown> };
+    }),
+  };
+}
+
 export async function runBatch(input: unknown, manager: SessionManager): Promise<BatchResult> {
   const parsed = stepsSchema.safeParse(input);
   if (!parsed.success) {

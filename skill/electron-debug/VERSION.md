@@ -9,6 +9,8 @@
 - 事件缓冲在写入时记下每条事件的大小，淘汰时不再重新序列化；对结果没有影响。
 - 工具集合不变，只多一个可选参数，已注册 MCP 的宿主无需改动配置。
 - 仓库侧：`examples/host-e2e` 扩成 ipc、renderer、main-window、inspect、utility、devtools-windows、click-save 七个任务场景，覆盖全部 8 个工具，并有不依赖模型的参考解法在 CI 中验证；新增 `examples/field-app`（ESM 主进程、两个窗口加 DevTools、嘈杂控制台、大页面、要按下才发生的保存、崩溃和硬退出）及其真实 Electron 冒烟，也加入 Electron 版本矩阵；平台描述存入 `docs/platform-description.md` 并由测试核对工具数量和 Node.js 版本；新增 Dependabot 配置。这些不进入 Skill 包。
+- 新增 `launch.cjs --tools [工具名 ...]`：打印工具的描述和 JSON Schema（一行 JSON，不连接应用、不读 stdin），给不注册 MCP、没有 `tools/list` 的批处理调用方查参数形状。可以一次传多个名字，按给的顺序输出、去重；有不存在的名字时报全部不存在的名字，不返回部分结果。依据真实宿主实验：宿主给 `electron_wait_for` 的 `expression` 传了字符串，白白浪费一次调用；一次传两个名字则得到用法错误。工具集合和参数不变；`launch.cjs` 的用法变为 `[--verify | --run | --tools [tool-name ...]]`。
+- SKILL.md 新增「启动参数」：按启动方式给出怎么传 `--inspect` 和 `--remote-debugging-port`（`electron .`、electron-vite、Electron Forge、vite-plugin-electron），并写明 `ELECTRON_EXTRA_LAUNCH_ARGS` 无效。依据同一次实验：宿主猜了这个环境变量，用了约 9 步才改成先构建再运行。
 - SKILL.md 补充：应用该退出但进程还在（Node 等已连接的检查器断开）时，直接终止进程或先结束 MCP 会话。
 
 ## 1.3.3

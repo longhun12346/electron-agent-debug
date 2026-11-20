@@ -22,7 +22,7 @@ MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运
 
 ## 使用建议
 
-1. **自行启动应用并暴露所需端口**：用项目已有的启动命令，按需加上 `--inspect=<主进程端口>`（主进程）和/或 `--remote-debugging-port=<renderer 端口>`（renderer）（端口自选空闲回环端口），再用 `electron_attach` 传入对应的 `http://127.0.0.1:<端口>`。两个通道可以只连一个：只排查主进程问题就只连主进程，只排查页面问题就只连 renderer；preload / IPC 才需要两个都连。对没连接的一侧调用工具会返回 `SESSION_DISCONNECTED`，不影响已连接的一侧。不改项目脚本。参数如何传到 Electron 取决于项目的启动方式，由 Agent 读项目配置自行判断，并以 `electron_attach` 返回的通道状态确认是否生效。参数含义见 Electron 官方文档：[调试主进程](https://www.electronjs.org/docs/latest/tutorial/debugging-main-process)、[命令行开关](https://www.electronjs.org/docs/latest/api/command-line-switches)。
+1. **自行启动应用并暴露所需端口**：用项目已有的启动命令，按需加上 `--inspect=<主进程端口>`（主进程）和/或 `--remote-debugging-port=<renderer 端口>`（renderer）（端口自选空闲回环端口），再用 `electron_attach` 传入对应的 `http://127.0.0.1:<端口>`。两个通道可以只连一个：只排查主进程问题就只连主进程，只排查页面问题就只连 renderer；preload / IPC 才需要两个都连。对没连接的一侧调用工具会返回 `SESSION_DISCONNECTED`，不影响已连接的一侧。不改项目脚本。参数怎么传进 Electron 取决于启动方式，见下面的「启动参数」，并以 `electron_attach` 返回的通道状态确认是否生效。参数含义见 Electron 官方文档：[调试主进程](https://www.electronjs.org/docs/latest/tutorial/debugging-main-process)、[命令行开关](https://www.electronjs.org/docs/latest/api/command-line-switches)。
 2. 用 `electron_wait_for` 等待明确的就绪信号（日志或表达式），不要用固定 sleep。attach 前应用可能还没打开端口，失败时稍后重试。信号只应在目标状态下为真：任务轮询取终态（如 `state === 'completed'`）而不是字段存在，页面就绪取业务元素出现而不是只比较路由。`elapsedMs` 为 0 说明条件在等待前已经为真，先怀疑条件太宽；可在触发操作前用 `electron_evaluate` 跑一次同一条件，确认此时为假。
 3. 改动生效优先交给项目自带的热更新或自动重启，不要重复手动操作（各项目工具行为不同，本 Skill 未统一验证，以 `electron_status` 和日志实际观察为准）：renderer 改动等热更新完成；主进程、preload 改动若被开发工具自动重启，原连接随进程失效，需重新 `electron_attach`，并用 `electron_status` 确认重启后的进程仍带有 `--inspect` 和 `--remote-debugging-port`（是否沿用取决于项目的启动工具）。项目没有热更新时，才由 Agent 重启应用，或对 renderer 用 `location.reload()`（`electron_evaluate`；eval 被禁用时改用项目已有的刷新方式）。无论哪种方式，都先用 `electron_wait_for` 等到就绪信号再取证据。
 4. `electron_evaluate` 和表达式型 `electron_wait_for` 默认可用；宿主设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 后返回 `EVALUATION_NOT_ALLOWED`，此时仍可用 attach、targets、日志、状态、截图和 `electron_dom_snapshot`。表达式可修改应用状态，只用于验证。顶层的 `let`、`const` 可以在多次调用中重复声明，但与已有声明重名时本次改在块内执行，声明不保留到下一次调用；需要跨调用保留的值挂到 `globalThis`。主进程求值的全局作用域没有 `require`（ESM 主进程也一样），用 `process.mainModule.require('electron')` 或 `process.getBuiltinModule('fs')`；主进程的求值不支持动态 `import()`。顶层 `await` 可以直接写；`await (…)` 只在它前面没有其他语句时才会被自动按顶层 await 重试，前面有语句时报错里会提示把操作数放进变量再 await，或包进 `(async () => { … })()`。
@@ -31,6 +31,17 @@ MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运
 7. attach 后缓冲区里可能已带有应用启动以来的历史事件（上限默认 500 条），并被重新编号；每个新进程都会重放一遍，`seq` 在不同进程间不可比。只想看本次连接之后的事件时，给 `electron_logs` 传 `sinceAttach: true`：每个通道只返回它最近一次连接之后的事件，不含重放的历史，注册 MCP 和批处理模式都适用。要从某个操作之后开始看，注册 MCP 时先用 `electron_status` 或 `electron_logs` 记下 `lastSeq`，之后用 `afterSeq`；批处理模式每次都是新进程，`seq` 不能跨次使用，同一次执行内用 `sinceAttach`。`electron_logs` 返回的 `gap` 为 `true` 说明缓冲区满过、所请求的范围内可能有事件被丢弃，缩短两次取证的间隔，或在 MCP 配置里调大 `ELECTRON_DEBUG_MAX_LOG_EVENTS`。
 8. 截图不脱敏；`electron_dom_snapshot` 只按常见密钥模式脱敏。两者都可能带出聊天标题、账号等个人内容。汇报只引用必要片段，不整段贴出。
 9. 本工具集不提供网络观察、断点、真实输入和性能分析，替代做法见下节。
+
+## 启动参数
+
+`<I>` 是主进程调试端口，`<R>` 是 renderer 调试端口，都自选空闲端口。命令行参数传不进去时（最后一行），不要靠猜环境变量：`ELECTRON_EXTRA_LAUNCH_ARGS` 对 Electron 没有作用（实测）。
+
+| 项目的启动方式 | 怎么传 |
+| --- | --- |
+| `electron .`，或构建后直接运行 | `electron . --inspect=<I> --remote-debugging-port=<R>` |
+| electron-vite（脚本是 `electron-vite dev`） | `electron-vite dev --inspect <I> --remoteDebuggingPort <R>`；脚本被包了一层时设环境变量 `V8_INSPECTOR_PORT=<I>`、`REMOTE_DEBUGGING_PORT=<R>` 再照常运行（electron-vite 6 源码） |
+| Electron Forge | `electron-forge start --inspect-electron -- --remote-debugging-port=<R>`（官方文档的写法，未实测；主进程端口以 `electron_attach` 的结果为准） |
+| vite-plugin-electron（脚本是 `vite`） | 插件固定用 `electron . --no-sandbox` 启动，命令行参数和 `ELECTRON_EXTRA_LAUNCH_ARGS` 都传不进去。先构建（如 `vite build`），再按第一行用 `electron .` 运行；这样跑的是构建产物，不带开发服务器的热更新 |
 
 ## 未提供的能力与替代做法
 
@@ -82,6 +93,6 @@ attach 成功、无 console error 或工具返回 `ok` 都不足以判定 `PASS`
 随包运行文件见 `runtime/launch.cjs`，需要 Node.js 20+。先执行 `node <absolute-skill-directory>/runtime/launch.cjs --verify`。校验失败或文件缺失时报告 `BLOCKED`，不要下载或在本机构建。之后二选一，两种方式提供同样的 8 个工具：
 
 - **注册 MCP**：把同一入口注册为本地 stdio MCP Server，并确认工具可见。适合需要多轮、跨调用保持连接的诊断。
-- **不注册 MCP**：执行 `node <absolute-skill-directory>/runtime/launch.cjs --run`，在 stdin 传入 JSON 数组 `[{"tool":"electron_attach","arguments":{...}},{"tool":"electron_logs"}]`，同一进程内按顺序执行，stdout 输出 `{ok, results}`。进程退出后连接和日志缓存随之消失，每次执行都要从 `electron_attach` 开始。
+- **不注册 MCP**：执行 `node <absolute-skill-directory>/runtime/launch.cjs --run`，在 stdin 传入 JSON 数组 `[{"tool":"electron_attach","arguments":{...}},{"tool":"electron_logs"}]`，同一进程内按顺序执行，stdout 输出 `{ok, results}`。进程退出后连接和日志缓存随之消失，每次执行都要从 `electron_attach` 开始。参数的形状（嵌套对象、枚举值）用 `launch.cjs --tools [工具名 ...]` 查（可以一次传几个名字，不传则列全部），输出每个工具的描述和 JSON Schema，不要猜，例如 `electron_wait_for` 的 `expression` 是 `{scope, expression}` 对象而不是字符串。
 
 详见 [MCP 接入说明](references/mcp-setup.md)，版本见 [VERSION.md](VERSION.md)。
