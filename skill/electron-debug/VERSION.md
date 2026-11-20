@@ -1,5 +1,12 @@
 # 版本记录
 
+## 1.3.1
+
+- MCP 0.4.1：utility 通道已在 Windows、macOS 和 Linux 的真实 Electron 上通过 CI 验证（Electron 版本以 fixture lockfile 为准）。查端口的 netstat 或 lsof 无法运行时，`UTILITY_INSPECTOR_UNAVAILABLE` 的消息和 `details.portLookupError` 会给出原因，不再与“调试口未打开”混为一谈。
+- `electron_evaluate` 结果超过 `maxResultBytes` 时按 UTF-8 字节截断，且不拆开多字节字符；此前按字符数截断，中文等内容可能超出上限。
+- 协议请求超时的错误在 `details` 中带 `reason: "timeout"`、`method` 和 `timeoutMs`。
+- 工具集合和参数不变，已注册 MCP 的宿主无需改动配置。
+
 ## 1.3.0
 
 - MCP 0.4.0：`electron_attach` 新增 `utility` 参数（utility process 的 `serviceName` 或 pid），作为独立的第三通道，不占用 `mainUrl`，可与主进程、renderer 同时在线。工具通过已连接的主进程用 `app.getAppMetrics()` 找到进程，必要时调用 `process._debugProcess(pid)` 打开调试口，再用 netstat（Windows）或 lsof（macOS/Linux）找到监听端口并连接。
