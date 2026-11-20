@@ -79,6 +79,7 @@ export interface StatusResult {
   utility: SessionSnapshot;
   targets: TargetInfo[];
   selectedTarget?: TargetInfo;
+  lastSeq: number;
 }
 
 export interface LogsInput {

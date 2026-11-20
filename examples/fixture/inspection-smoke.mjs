@@ -80,6 +80,12 @@ try {
   assert.equal((await evaluate("renderer", "await Promise.resolve(41) + 1")).value, 42);
   assert.equal((await evaluate("renderer", "const smokeValue = 1; smokeValue")).value, 1);
   assert.equal((await evaluate("renderer", "const smokeValue = 2; smokeValue")).value, 2);
+  // Redeclaration together with top-level await reaches the last retry step: the block run again in replMode.
+  assert.equal((await evaluate("renderer", "const smokeValue = await Promise.resolve(3); smokeValue")).value, 3);
+  // The main process goes through the Node inspector, whose messages the retry also has to recognise.
+  assert.equal((await evaluate("main", "const smokeMain = 1; smokeMain")).value, 1);
+  assert.equal((await evaluate("main", "const smokeMain = 2; smokeMain")).value, 2);
+  assert.equal((await evaluate("main", "const smokeMain = await Promise.resolve(3); smokeMain")).value, 3);
   assert.equal((await evaluate("renderer", "await window.fixtureApi.getValue()")).value, "fixture-ok");
   assert.equal((await evaluate("main", "process.type")).value, "browser");
   assert.equal((await evaluate(

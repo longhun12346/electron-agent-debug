@@ -80,7 +80,7 @@ SessionManager
 
 Renderer discovery 可以在尚未选定 target 时返回 target 列表；当前实现只有在选定一个可连接的 page target 后才建立 RendererSession。没有唯一 target 时，renderer Session 保持 `offline`，并返回 `TARGET_SELECTION_REQUIRED` 或 `TARGET_NOT_FOUND`。
 
-每个请求带有递增 request id。响应通过 request id 与 Promise 对应。事件消息写入有上限的内存缓存，不阻塞工具调用。
+每个请求带有递增 request id。响应通过 request id 与 Promise 对应。事件消息写入有上限的内存缓存，不阻塞工具调用。缓冲区满时丢弃最旧的事件，`electron_logs` 用 `droppedThroughSeq` 和 `gap` 告知调用方所请求的范围内是否可能有事件缺失。
 
 SessionManager 还要记录面向诊断的状态：
 
@@ -226,7 +226,7 @@ MCP 工具的 `ok` 只表示本次工具调用是否成功，不表示用户代�
 - HTTP discovery 返回的 WebSocket 地址也必须重新校验。
 - 表达式执行（`electron_evaluate`、expression 型 `wait_for`）默认开启（只连接回环地址）；宿主可在 MCP 配置的 `env` 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用，此时返回 `EVALUATION_NOT_ALLOWED`。执行有超时（默认 3 秒，上限 30 秒）和结果大小限制（默认 64 KiB，上限 1 MiB）。
 - 截图写入 `ELECTRON_DEBUG_OUTPUT_DIR`（默认系统临时目录下的 `electron-agent-debug`），目录权限 0700、文件权限 0600，文件名由工具生成，只保留最近 50 张；不返回图像内容。
-- 日志事件（`message` 和 `data`）、异常和 evaluate 结果都经过脱敏（token、secret、password、api key、authorization、cookie 等键值和 Bearer 令牌），并有大小上限。
+- 日志事件（`message` 和 `data`）、异常和 evaluate 结果都经过脱敏（token、secret、password、api key、authorization、cookie 等键值和 Bearer 令牌；以及不带键名但形态明确的 JWT、GitHub / Slack / npm / AWS / Google 前缀令牌、`sk-` 密钥、PEM 私钥块和 URL 中的密码），并有大小上限。
 - 异常事件渲染为 `Uncaught <描述>` 加调用栈的文本；`console.trace`、`console.assert` 附带调用栈（最多 10 帧）。事件的 `data` 只保留定位所需的少量字段，不透传协议原始对象。
 - MCP 不托管应用进程：应用的 stdout、stderr 和退出码由启动它的 Agent 自行捕获，不进入时间线。
 - stdout 只用于 MCP 协议，诊断日志写 stderr。

@@ -45,6 +45,7 @@ export class EventSequence {
 export class EventBuffer {
   private readonly events: DiagnosticEvent[] = [];
   private bytes = 0;
+  private lastDroppedSeq = 0;
 
   constructor(
     private readonly maxEvents: number,
@@ -61,6 +62,7 @@ export class EventBuffer {
     };
     const size = byteSize(normalized);
     if (size > this.maxBytes) {
+      this.lastDroppedSeq = Math.max(this.lastDroppedSeq, normalized.seq ?? 0);
       return;
     }
 
@@ -70,8 +72,15 @@ export class EventBuffer {
       const removed = this.events.shift();
       if (removed) {
         this.bytes -= byteSize(removed);
+        this.lastDroppedSeq = Math.max(this.lastDroppedSeq, removed.seq ?? 0);
       }
     }
+  }
+
+  // Highest seq this buffer evicted or refused since it was last cleared. Events at or below it may be missing;
+  // events the caller cleared on purpose do not count.
+  get droppedThroughSeq(): number {
+    return this.lastDroppedSeq;
   }
 
   list(input: LogsInput = {}): DiagnosticEvent[] {
@@ -93,6 +102,7 @@ export class EventBuffer {
   clear(): void {
     this.events.length = 0;
     this.bytes = 0;
+    this.lastDroppedSeq = 0;
   }
 
   get size(): number {

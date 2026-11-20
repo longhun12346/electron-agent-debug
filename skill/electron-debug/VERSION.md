@@ -1,5 +1,15 @@
 # 版本记录
 
+## 1.3.3
+
+- MCP 0.4.3：`electron_logs` 的结果新增 `droppedThroughSeq` 和 `gap`。缓冲区满时最旧的事件会被丢弃，此前用 `afterSeq` 续读的调用方无法发现中间缺了事件；现在 `gap` 为 `true` 表示所请求的范围内可能有事件缺失。`clear` 会重置对应缓冲区的丢弃记录。
+- `electron_status` 的结果新增 `lastSeq`，回归前可直接取得基线，不必先读一次日志。
+- 工具集合和参数不变，原有字段不变，已注册 MCP 的宿主无需改动配置。
+- 脱敏新增按形态识别、不依赖键名的秘密：JWT、GitHub / Slack / npm / AWS / Google 前缀令牌、含数字的 `sk-` 密钥、PEM 私钥块（含被截断的）和 URL 中的密码。普通的 kebab-case 名称、UUID 和哈希不受影响。
+- evaluate 的真实 Electron 冒烟补充了“重复声明加顶层 await”的组合，以及主进程（Node inspector）上的同类调用，覆盖重试链的最后一步。
+- CI 新增 Electron 版本矩阵（43、44 和最新稳定版，Linux 与 Windows），对 utility 和 evaluate 冒烟分别运行；检查矩阵补上 Windows 和 macOS 上的 Node 20。
+- 文档对齐当前实现：移除 `electron_logs` 的 `app` 范围和“由工具启动应用”的过期表述，补充 evaluate 的执行顺序说明。
+
 ## 1.3.2
 
 - MCP 0.4.2：未捕获异常的日志事件改为可读文本（`Uncaught Error: …` 加调用栈），不再是整段协议 JSON；`data` 收敛为 `url`、`line`、`column`（从 1 起算）。`console.trace` 和 `console.assert` 的事件附带调用栈，最多 10 帧。

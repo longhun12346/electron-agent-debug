@@ -49,7 +49,7 @@ export const coreTools = [
   defineTool({
     name: "electron_status",
     title: "Read Electron diagnostic status",
-    description: "读取三个通道（主进程、renderer、utility）的 Session、target 和事件数量，不执行应用代码。",
+    description: "读取三个通道（主进程、renderer、utility）的 Session、target 和事件数量，并返回当前 lastSeq（回归前记下它，之后用 afterSeq 读取新事件）。不执行应用代码。",
     inputSchema: z.object({}),
     handler: async (manager) => toolResult({ ok: true, data: manager.status() }),
   }),
@@ -67,7 +67,7 @@ export const coreTools = [
   defineTool({
     name: "electron_logs",
     title: "Read Electron diagnostic logs",
-    description: "读取当前 MCP Server 进程内有界缓存的统一时间线：主进程、renderer 和 utility 的事件，按 seq 排序。返回 lastSeq，下次用 afterSeq 只读取之后的事件。",
+    description: "读取当前 MCP Server 进程内有界缓存的统一时间线：主进程、renderer 和 utility 的事件，按 seq 排序。返回 lastSeq，下次用 afterSeq 只读取之后的事件。缓冲区满时最旧的事件会被丢弃：droppedThroughSeq 是被丢弃的最大 seq，gap 为 true 表示所请求的范围内可能有事件缺失，应缩短取证间隔或调大 ELECTRON_DEBUG_MAX_LOG_EVENTS。",
     inputSchema: logsSchema,
     handler: async (manager, input) => {
       try {

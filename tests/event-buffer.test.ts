@@ -73,6 +73,19 @@ test("redacts secrets in event data as well as in the message", () => {
   });
 });
 
+test("tracks the highest evicted or refused seq and resets it on clear", () => {
+  const buffer = new EventBuffer(2, 1_000);
+  buffer.add(event("one"));
+  buffer.add(event("two"));
+  assert.equal(buffer.droppedThroughSeq, 0);
+  buffer.add(event("three"));
+  assert.equal(buffer.droppedThroughSeq, 1);
+  buffer.add({ ...event("oversized"), data: { detail: "x".repeat(2_000) } });
+  assert.equal(buffer.droppedThroughSeq, 4, "an event refused for size leaves a gap at its own seq");
+  buffer.clear();
+  assert.equal(buffer.droppedThroughSeq, 0);
+});
+
 test("rejects an invalid since timestamp", () => {
   const buffer = new EventBuffer(10, 10_000);
   assert.throws(

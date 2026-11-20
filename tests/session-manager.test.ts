@@ -161,6 +161,38 @@ for (const scope of ["main", "renderer", "all", undefined] as const) {
   });
 }
 
+test("reports evicted events through droppedThroughSeq and gap, scoped to the requested process", () => {
+  const manager = new SessionManager({ ...runtimeConfig(), maxLogEvents: 2 });
+  const add = (process: "main" | "renderer", message: string) =>
+    manager[process].events.add({ process, message, observedAt: "2026-01-01T00:00:00.000Z", level: "log", kind: "console" });
+  add("main", "m1");
+  add("main", "m2");
+  add("main", "m3");
+  add("renderer", "r4");
+
+  const all = manager.logs({});
+  assert.equal(all.lastSeq, 4);
+  assert.equal(all.droppedThroughSeq, 1, "m1 (seq 1) was evicted");
+  assert.equal(all.gap, true);
+  assert.equal(manager.logs({ afterSeq: 1 }).gap, false, "nothing after seq 1 was lost");
+  assert.equal(manager.logs({ afterSeq: 0 }).gap, true);
+  assert.equal(manager.logs({ process: "renderer" }).droppedThroughSeq, 0, "renderer buffer never overflowed");
+  assert.equal(manager.logs({ process: "renderer" }).gap, false);
+
+  manager.logs({ process: "main", clear: true });
+  assert.equal(manager.logs({}).gap, false, "events the caller cleared are not reported as lost");
+});
+
+test("status reports the current lastSeq so a baseline can be taken without reading logs", () => {
+  const manager = new SessionManager(runtimeConfig());
+  assert.equal(manager.status().lastSeq, 0);
+  manager.main.events.add({
+    process: "main", message: "one", observedAt: "2026-01-01T00:00:00.000Z", level: "log", kind: "console",
+  });
+  assert.equal(manager.status().lastSeq, 1);
+  assert.equal(manager.status().lastSeq, manager.logs({}).lastSeq);
+});
+
 for (const failingProcess of ["main", "renderer"] as const) {
   test(`does not report ${failingProcess} online after disconnect during domain setup`, async () => {
     const main = await startMockDebugger(

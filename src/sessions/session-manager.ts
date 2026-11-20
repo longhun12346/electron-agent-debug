@@ -4,7 +4,7 @@ import {
   type RuntimeConfig,
 } from "../config.js";
 import { discoverMain, discoverRenderer, pageTargets } from "../discovery.js";
-import { EventSequence } from "../events/event-buffer.js";
+import { EventBuffer, EventSequence } from "../events/event-buffer.js";
 import { DiagnosticException, errorResult, toDiagnosticError } from "../errors.js";
 import { selectTarget, type TargetSelector } from "../targets/selector.js";
 import type {
@@ -282,6 +282,7 @@ export class SessionManager {
       utility: this.utility.snapshot(),
       targets: this.rendererTargets,
       selectedTarget: this.renderer.snapshot().selectedTarget,
+      lastSeq: this.sequence.last,
     };
   }
 
@@ -289,33 +290,39 @@ export class SessionManager {
     events: DiagnosticEvent[];
     cleared: boolean;
     lastSeq: number;
+    droppedThroughSeq: number;
+    gap: boolean;
   } {
     const clear = input.clear === true;
+    const scope = input.process ?? "all";
+    const buffers = this.buffersFor(scope);
     const events = this.collectEvents(input).slice(-(input.limit ?? 100));
     const lastSeq = this.sequence.last;
+    // Events at or below this seq may have been evicted from a full buffer; `gap` says whether that
+    // can affect what the caller asked for (everything after afterSeq, or the whole history without it).
+    const droppedThroughSeq = Math.max(0, ...buffers.map((buffer) => buffer.droppedThroughSeq));
+    const gap = droppedThroughSeq > (input.afterSeq ?? 0);
 
     if (clear) {
-      const scope = input.process ?? "all";
-      if (scope === "all" || scope === "main") {
-        this.main.events.clear();
-      }
-      if (scope === "all" || scope === "renderer") {
-        this.renderer.events.clear();
-      }
-      if (scope === "all" || scope === "utility") {
-        this.utility.events.clear();
+      for (const buffer of buffers) {
+        buffer.clear();
       }
     }
-    return { events, cleared: clear, lastSeq };
+    return { events, cleared: clear, lastSeq, droppedThroughSeq, gap };
+  }
+
+  private buffersFor(scope: LogsInput["process"] = "all"): EventBuffer[] {
+    return [
+      ...(scope === "all" || scope === "main" ? [this.main.events] : []),
+      ...(scope === "all" || scope === "renderer" ? [this.renderer.events] : []),
+      ...(scope === "all" || scope === "utility" ? [this.utility.events] : []),
+    ];
   }
 
   private collectEvents(input: LogsInput): DiagnosticEvent[] {
-    const scope = input.process ?? "all";
-    return [
-      ...(scope === "all" || scope === "main" ? this.main.events.list(input) : []),
-      ...(scope === "all" || scope === "renderer" ? this.renderer.events.list(input) : []),
-      ...(scope === "all" || scope === "utility" ? this.utility.events.list(input) : []),
-    ].sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0));
+    return this.buffersFor(input.process)
+      .flatMap((buffer) => buffer.list(input))
+      .sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0));
   }
 
   private resolveEndpoints(input: AttachInput, errors: DiagnosticError[]): {

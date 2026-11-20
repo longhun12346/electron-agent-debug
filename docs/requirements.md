@@ -156,6 +156,7 @@ endpoint 解析优先级为：
 - 最近一次断开原因
 - 最近的 console/exception 数量
 - 当前 endpoint 配置来源：`attach_input`、`environment` 或 `session`
+- 当前 `lastSeq`，用作之后用 `afterSeq` 读取新事件的基线
 
 #### `electron_targets`
 
@@ -184,13 +185,15 @@ endpoint 解析优先级为：
 
 `since` 必须是可解析的日期时间字符串；格式无效时返回参数错误，不返回空日志作为替代。
 
-`process` 可取 `main`、`renderer`、`app` 或 `all`。main、renderer 和 app（应用 stdout/stderr）事件共享递增的 `seq` 并按其排序；结果返回 `lastSeq`，`afterSeq` 只返回其后的事件，用于续读。`clear` 也可清空 `app` 缓冲。所有事件消息在写入缓存前脱敏。
+`process` 可取 `main`、`renderer`、`utility` 或 `all`。三个通道的事件共享递增的 `seq` 并按其排序；结果返回 `lastSeq`，`afterSeq` 只返回其后的事件，用于续读。应用进程自己的 stdout、stderr 不进入时间线，由启动应用的 Agent 自行捕获。所有事件消息在写入缓存前脱敏。
+
+缓冲区满时最旧的事件会被丢弃。结果同时返回 `droppedThroughSeq`（所请求范围内被丢弃的最大 `seq`，没有丢弃时为 0）和 `gap`（`droppedThroughSeq` 大于 `afterSeq`，未传 `afterSeq` 时与 0 比较；为 `true` 表示所请求的范围内可能有事件缺失）。`clear` 会重置对应缓冲区的丢弃记录，Agent 主动清空的事件不算丢失。`electron_status` 也返回当前 `lastSeq`，回归前可直接取得基线，不必先读一次日志。
 
 ### P0：运行时检查
 
 #### `electron_evaluate`
 
-在主进程 Inspector 或当前选中的 renderer target 执行 JavaScript（`Runtime.evaluate`，`replMode`，默认等待 Promise）。
+在主进程 Inspector、当前选中的 renderer target 或已连接的 utility process 执行 JavaScript（`Runtime.evaluate`，默认等待 Promise）。先按普通模式执行；遇到顶层 `await` 或与旧声明重名的语法错误时（代码尚未运行）改用 `replMode` 重试，仍重名则放进代码块内执行，该次声明不保留。
 
 ```json
 {

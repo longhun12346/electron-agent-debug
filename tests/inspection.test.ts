@@ -246,3 +246,42 @@ test("redact masks common secrets and leaves ordinary text alone", () => {
   assert.equal(redact(nested("hunter2")), nested("[REDACTED]"));
   assert.equal(redact("window created in 120ms"), "window created in 120ms");
 });
+
+test("redact masks secrets recognised by shape when no key name is present", () => {
+  const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+  assert.equal(redact(`session ${jwt} ok`), "session [REDACTED] ok");
+  for (const secret of [
+    `ghp_${"a1B2".repeat(9)}`,
+    `github_pat_${"a1B2_".repeat(8)}`,
+    "sk-ant-api03-abcdefghij0123456789ABCDEF",
+    "xoxb-123456789012-abcdefghij",
+    `npm_${"a1B2".repeat(9)}`,
+    "AKIAIOSFODNN7EXAMPLE",
+    `AIza${"a1B2".repeat(9)}xyz`,
+  ]) {
+    assert.equal(redact(`key is ${secret}.`), "key is [REDACTED].", secret);
+  }
+  assert.equal(redact("connect postgres://admin:s3cr3t-pw@db.local:5432/app"), "connect postgres://admin:[REDACTED]@db.local:5432/app");
+  assert.equal(redact("http://localhost:3000/path"), "http://localhost:3000/path");
+});
+
+test("redact masks private key blocks, including escaped and truncated ones", () => {
+  const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu\n-----END RSA PRIVATE KEY-----";
+  assert.equal(redact(`before\n${pem}\nafter`), "before\n[REDACTED]\nafter");
+  assert.equal(redact(JSON.stringify({ key: pem, name: "x" })), JSON.stringify({ key: "[REDACTED]", name: "x" }));
+  const cut = JSON.stringify({ key: pem.slice(0, 90), name: "x" });
+  assert.equal(redact(cut), JSON.stringify({ key: "[REDACTED]", name: "x" }));
+});
+
+test("redact leaves identifiers, hashes and ordinary kebab-case names alone", () => {
+  for (const text of [
+    "sk-fade-in-out-animation-class",
+    "task-management-service-name-long",
+    "0b4e7a2f-3c1d-4e8a-9f60-1a2b3c4d5e6f",
+    "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "eyJ is a prefix but not a token",
+    "ghp_short",
+  ]) {
+    assert.equal(redact(text), text);
+  }
+});

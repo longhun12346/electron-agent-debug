@@ -108,7 +108,7 @@
 2. **轻量 renderer MCP**：少量 CDP 工具，主要解决截图、DOM、console 和 evaluate。
 3. **Skill/daemon 或诊断证据工具**：强调工作流、连接状态和可复核产物。
 
-当前项目处在第二类和第三类的交界处，但需要增加主进程通道。这是一个比完整 Electron 调试器更窄、比 renderer-only MCP 更完整的定位。核心只覆盖 attach、status、targets 和 logs；截图与 evaluate 不进入核心承诺。
+当前项目处在第二类和第三类的交界处，但需要增加主进程通道。这是一个比完整 Electron 调试器更窄、比 renderer-only MCP 更完整的定位。当前工具集为 8 个：attach、status、targets、logs 加上 evaluate、wait_for、screenshot、dom_snapshot。
 
 ## 4. 复用策略
 
@@ -134,7 +134,7 @@
 采用“自建薄适配层 + 借鉴社区设计”的方案：
 
 - 核心诊断工具 4 个，加上运行时检查（evaluate、wait_for、screenshot、dom_snapshot），共 8 个；evaluate 类能力默认开启，可用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用。
-- 可以由工具启动并管理一个应用，也可以只 attach 已运行的本地 Electron。
+- 只 attach Agent 已启动的本地 Electron，不启动、停止或重启应用。
 - 主进程和 renderer 各使用一个 Session。
 - reconnect、target 重新发现和缓存作为内部能力。
 - 先实现三类 fixture 和 Agent 使用验证。
