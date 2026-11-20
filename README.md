@@ -36,6 +36,16 @@ npx skills add longhun12346/electron-agent-debug --skill electron-debug --global
 
 GitHub Release 的 Skill ZIP 附带构建来源证明，绑定发布工作流及源码提交；第三方安装渠道的安装包以该渠道的发布和扫描结果为准。本地完整性校验不独立证明发布者身份。配置、升级和来源验证边界见 [MCP 接入说明](skill/electron-debug/references/mcp-setup.md)。
 
+### 让宿主稳定用上这个 Skill
+
+宿主只凭 `description` 决定是否调用 Skill，同一句话有时触发、有时不触发（宿主自带的 `run` 等 Skill 也在竞争）。在 Electron 项目的 `CLAUDE.md` 或 `AGENTS.md` 里加一句，它每次都会进入上下文，比依赖描述匹配稳定：
+
+```markdown
+改动 Electron 主进程、preload、IPC，或遇到白屏、崩溃、运行时报错时，用 electron-debug Skill 连接正在运行的应用来验证，不要只读代码推断。
+```
+
+也可以直接输入 `/electron-debug` 显式调用。触发率的测量方法见 [examples/trigger-eval](examples/trigger-eval/README.md)。
+
 ## MCP 工具
 
 | 类别 | 工具 |

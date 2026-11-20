@@ -1,0 +1,22 @@
+[
+  { "id": "p1", "split": "train", "expect": true, "text": "我刚改了 preload 里暴露给页面的 IPC 接口，帮我验证一下应用还能不能正常工作。" },
+  { "id": "p2", "split": "train", "expect": true, "text": "应用启动后窗口一片白，帮我看看是哪里出了问题。" },
+  { "id": "p3", "split": "train", "expect": true, "text": "我改了主进程创建 BrowserWindow 的逻辑，帮我确认窗口能正常显示。" },
+  { "id": "p4", "split": "validation", "expect": true, "text": "点击保存按钮之后什么都没发生，渲染进程和主进程那边分别有没有报错？" },
+  { "id": "p5", "split": "train", "expect": true, "text": "我们的 Electron 应用启动几秒后自己退出了，帮我找原因。" },
+  { "id": "p6", "split": "train", "expect": true, "text": "I just changed what the preload script exposes through contextBridge. Can you check the app still works end to end?" },
+  { "id": "p7", "split": "validation", "expect": true, "text": "The Electron window opens blank after my last change. Figure out why." },
+  { "id": "p8", "split": "validation", "expect": true, "text": "Verify that my new IPC handler in the main process actually gets called when the renderer invokes it." },
+  { "id": "p9", "split": "validation", "expect": true, "text": "我的 utilityProcess 里的任务没有执行，帮我连上去看看它的日志和状态。" },
+  { "id": "p10", "split": "train", "expect": true, "text": "改完代码以后帮我确认页面上有没有运行时报错，顺便截个图给我看。" },
+  { "id": "n1", "split": "train", "expect": false, "text": "帮我把这个 Electron 项目的 electron-builder 配置改成同时打 Windows 和 macOS 的安装包。" },
+  { "id": "n2", "split": "train", "expect": false, "text": "把 src/utils 里这几个函数的类型标注补全，然后跑一下 tsc 看有没有报错。" },
+  { "id": "n3", "split": "train", "expect": false, "text": "Rename the fetchUser function across the codebase and update all of its callers." },
+  { "id": "n4", "split": "validation", "expect": false, "text": "给 README 加一段如何在本地安装依赖和启动项目的说明。" },
+  { "id": "n5", "split": "train", "expect": false, "text": "Upgrade the electron dependency to the latest major version and fix whatever stops it from compiling." },
+  { "id": "n6", "split": "validation", "expect": false, "text": "这个 React 组件的样式有点乱，帮我用 Tailwind 重写一下。" },
+  { "id": "n7", "split": "train", "expect": false, "text": "Write unit tests for the update helper using vitest." },
+  { "id": "n8", "split": "validation", "expect": false, "text": "给我讲讲 contextBridge 和 ipcRenderer 到底有什么区别。" },
+  { "id": "n9", "split": "validation", "expect": false, "text": "已经打包发布出去的 exe 安装包在用户电脑上打不开，帮我分析一下原因。" },
+  { "id": "n10", "split": "train", "expect": false, "text": "Add ESLint and Prettier configuration to this project." }
+]
