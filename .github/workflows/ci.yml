@@ -70,6 +70,7 @@ jobs:
           node --check examples/fixture/smoke-assertions.mjs
           node --check examples/fixture/package-smoke.mjs
           node --check scripts/build-skill.mjs
+          node --check scripts/run-tests.mjs
           node --check scripts/skill-launcher.cjs
           node --check examples/external-e2e/electron-vite-react-smoke.mjs
           node --check examples/host-e2e/smoke.mjs
