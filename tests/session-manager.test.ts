@@ -239,6 +239,91 @@ test("invalid log timestamp cannot clear existing evidence", () => {
   assert.equal(manager.main.events.size, 1);
 });
 
+test("renders exceptions and traces as readable text with compact, redacted data", async () => {
+  const renderer = await startMockDebugger([
+    { id: "window-a", type: "page", title: "Window A", url: "app://a" },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+  const frame = (functionName: string, lineNumber: number) =>
+    ({ functionName, scriptId: "7", url: "app://a/app.js", lineNumber, columnNumber: 4 });
+  try {
+    await manager.attach({ rendererUrl: renderer.endpoint });
+    const { lastSeq } = manager.logs({});
+    for (const message of [
+      {
+        method: "Runtime.exceptionThrown",
+        params: { exceptionDetails: {
+          exceptionId: 1, text: "Uncaught", lineNumber: 9, columnNumber: 10, scriptId: "7", url: "app://a/app.js",
+          stackTrace: { callFrames: [frame("save", 9)] },
+          exception: {
+            type: "object", subtype: "error", className: "Error", objectId: "1",
+            description: "Error: save failed password=hunter2hunter2\n    at save (app://a/app.js:10:11)",
+            preview: { description: "Error: save failed password=hunter2hunter2" },
+          },
+        } },
+      },
+      {
+        // A thrown non-Error value has no stack in its description; the frames come from stackTrace.
+        method: "Runtime.exceptionThrown",
+        params: { exceptionDetails: {
+          text: "Uncaught (in promise)", lineNumber: 2, columnNumber: 0, url: "app://a/app.js",
+          stackTrace: { callFrames: [frame("load", 2), frame("", 30)] },
+          exception: { type: "string", value: "plain rejection" },
+        } },
+      },
+      { method: "Runtime.exceptionThrown", params: { exceptionDetails: { text: "Script error." } } },
+      {
+        method: "Runtime.consoleAPICalled",
+        params: {
+          type: "trace", args: [{ type: "string", value: "checkpoint" }],
+          stackTrace: { callFrames: Array.from({ length: 14 }, (_, index) => frame(`step${index}`, index)) },
+        },
+      },
+      {
+        method: "Runtime.consoleAPICalled",
+        params: {
+          type: "log", args: [{ type: "string", value: "plain" }],
+          stackTrace: { callFrames: [frame("noisy", 1)] },
+        },
+      },
+      {
+        method: "Log.entryAdded",
+        params: { entry: {
+          source: "network", level: "error", text: "Failed to load token=abcdef123456", timestamp: 1,
+          url: "https://example.test/api", lineNumber: 0, networkRequestId: "55.1",
+          stackTrace: { callFrames: [frame("fetchData", 5)] },
+        } },
+      },
+    ]) {
+      renderer.broadcast(message);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const events = manager.logs({ afterSeq: lastSeq }).events;
+    assert.equal(JSON.stringify(events).includes("hunter2hunter2"), false);
+    assert.equal(JSON.stringify(events).includes("abcdef123456"), false);
+    assert.deepEqual(events.map((event) => [event.kind, event.level, event.message, event.data]), [
+      ["exception", "error",
+        "Uncaught Error: save failed password=[REDACTED]\n    at save (app://a/app.js:10:11)",
+        { url: "app://a/app.js", line: 10, column: 11 }],
+      ["exception", "error",
+        "Uncaught (in promise) plain rejection\n    at load (app://a/app.js:3:5)\n    at <anonymous> (app://a/app.js:31:5)",
+        { url: "app://a/app.js", line: 3, column: 1 }],
+      ["exception", "error", "Script error.", undefined],
+      ["console", "trace",
+        ["checkpoint", ...Array.from({ length: 10 }, (_, index) => `    at step${index} (app://a/app.js:${index + 1}:5)`),
+          "    … 4 more frames"].join("\n"),
+        { type: "trace" }],
+      ["console", "log", "plain", { type: "log" }],
+      ["console", "error", "Failed to load token=[REDACTED]",
+        { source: "network", url: "https://example.test/api" }],
+    ]);
+  } finally {
+    await manager.close();
+    await renderer.close();
+  }
+});
+
 test("attaches both sessions, selects a page, and collects events", async () => {
   const main = await startMockDebugger([{ id: "main", type: "node", title: "main", url: "" }]);
   const renderer = await startMockDebugger([

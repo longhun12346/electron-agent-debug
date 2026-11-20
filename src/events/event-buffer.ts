@@ -10,6 +10,25 @@ function byteSize(value: unknown): number {
   }
 }
 
+// Unserializable data is returned untouched so the size check below rejects the event.
+function redactData(data: unknown): unknown {
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(data);
+  } catch {
+    return data;
+  }
+  if (serialized === undefined) {
+    return undefined;
+  }
+  const safe = redact(serialized);
+  try {
+    return JSON.parse(safe) as unknown;
+  } catch {
+    return safe;
+  }
+}
+
 export class EventSequence {
   private value = 0;
 
@@ -38,6 +57,7 @@ export class EventBuffer {
       ...event,
       seq: this.sequence.next(),
       message: redact(event.message.slice(0, 8_192)),
+      ...(event.data === undefined ? {} : { data: redactData(event.data) }),
     };
     const size = byteSize(normalized);
     if (size > this.maxBytes) {

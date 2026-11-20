@@ -50,6 +50,34 @@ function formatConsoleArgument(value: unknown): string {
   return stringifyValue(value);
 }
 
+const maxStackFrames = 10;
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+// The protocol counts lines and columns from 0; stacks and editors count from 1.
+function position(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value + 1 : 1;
+}
+
+function formatFrames(stackTrace: unknown): string[] {
+  const frames = asRecord(stackTrace).callFrames;
+  if (!Array.isArray(frames)) {
+    return [];
+  }
+  const lines = frames.slice(0, maxStackFrames).map((value) => {
+    const frame = asRecord(value);
+    const name = typeof frame.functionName === "string" && frame.functionName !== "" ? frame.functionName : "<anonymous>";
+    const url = typeof frame.url === "string" && frame.url !== "" ? frame.url : "<unknown>";
+    return `    at ${name} (${url}:${position(frame.lineNumber)}:${position(frame.columnNumber)})`;
+  });
+  if (frames.length > maxStackFrames) {
+    lines.push(`    … ${frames.length - maxStackFrames} more frames`);
+  }
+  return lines;
+}
+
 function eventFromProtocol(process: ProcessScope, event: JsonRpcEvent): DiagnosticEvent | undefined {
   const params = typeof event.params === "object" && event.params !== null
     ? (event.params as Record<string, unknown>)
@@ -58,40 +86,52 @@ function eventFromProtocol(process: ProcessScope, event: JsonRpcEvent): Diagnost
 
   if (event.method === "Runtime.consoleAPICalled") {
     const args = Array.isArray(params.args) ? params.args : [];
+    // Only calls that exist to show a stack carry one; every other console call would repeat its call site.
+    const frames = params.type === "trace" || params.type === "assert" ? formatFrames(params.stackTrace) : [];
     return {
       process,
       observedAt: now,
       kind: "console",
       level: typeof params.type === "string" ? params.type : "log",
-      message: args.map(formatConsoleArgument).join(" "),
+      message: [args.map(formatConsoleArgument).join(" "), ...frames].join("\n"),
       data: { type: params.type },
     };
   }
 
   if (event.method === "Runtime.exceptionThrown") {
-    const details = params.exceptionDetails;
+    const details = asRecord(params.exceptionDetails);
+    const exception = asRecord(details.exception);
+    const thrown = typeof exception.description === "string"
+      ? exception.description
+      : "value" in exception ? formatConsoleArgument(exception) : undefined;
+    const summary = [details.text, thrown].filter((part) => typeof part === "string" && part !== "").join(" ");
+    // An Error's description already ends with its stack; other thrown values only have the protocol frames.
+    const frames = thrown !== undefined && /\n\s+at /u.test(thrown) ? [] : formatFrames(details.stackTrace);
     return {
       process,
       observedAt: now,
       kind: "exception",
       level: "error",
-      message: stringifyValue(details),
-      data: details,
+      message: [summary || "Uncaught exception", ...frames].join("\n"),
+      data: typeof details.url === "string" && details.url !== ""
+        ? { url: details.url, line: position(details.lineNumber), column: position(details.columnNumber) }
+        : undefined,
     };
   }
 
   if (event.method === "Log.entryAdded") {
-    const entry = params.entry;
-    const record = typeof entry === "object" && entry !== null
-      ? (entry as Record<string, unknown>)
-      : {};
+    const record = asRecord(params.entry);
+    const data: Record<string, unknown> = {};
+    for (const key of ["source", "url"]) {
+      if (typeof record[key] === "string" && record[key] !== "") data[key] = record[key];
+    }
     return {
       process,
       observedAt: now,
       kind: "console",
       level: typeof record.level === "string" ? record.level : "log",
       message: typeof record.text === "string" ? record.text : stringifyValue(record),
-      data: record,
+      data,
     };
   }
 

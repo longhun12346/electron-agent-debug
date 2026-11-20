@@ -60,6 +60,19 @@ test("truncates long console messages and rejects unserializable data", () => {
   assert.equal(buffer.list()[0]?.message.length, 8_192);
 });
 
+test("redacts secrets in event data as well as in the message", () => {
+  const buffer = new EventBuffer(10, 100_000);
+  buffer.add({
+    ...event("password=hunter2hunter2"),
+    data: { text: "token=abcdef123456 ok", nested: [{ authorization: "Bearer abc.def-ghi_jkl123" }], line: 3 },
+  });
+  const stored = buffer.list()[0]!;
+  assert.equal(JSON.stringify(stored).includes("hunter2hunter2"), false);
+  assert.deepEqual(stored.data, {
+    text: "token=[REDACTED] ok", nested: [{ authorization: "[REDACTED]" }], line: 3,
+  });
+});
+
 test("rejects an invalid since timestamp", () => {
   const buffer = new EventBuffer(10, 10_000);
   assert.throws(

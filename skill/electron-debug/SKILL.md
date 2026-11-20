@@ -25,11 +25,11 @@ MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运
 1. **自行启动应用并暴露所需端口**：用项目已有的启动命令，按需加上 `--inspect=<主进程端口>`（主进程）和/或 `--remote-debugging-port=<renderer 端口>`（renderer）（端口自选空闲回环端口），再用 `electron_attach` 传入对应的 `http://127.0.0.1:<端口>`。两个通道可以只连一个：只排查主进程问题就只连主进程，只排查页面问题就只连 renderer；preload / IPC 才需要两个都连。对没连接的一侧调用工具会返回 `SESSION_DISCONNECTED`，不影响已连接的一侧。不改项目脚本。参数如何传到 Electron 取决于项目的启动方式，由 Agent 读项目配置自行判断，并以 `electron_attach` 返回的通道状态确认是否生效。参数含义见 Electron 官方文档：[调试主进程](https://www.electronjs.org/docs/latest/tutorial/debugging-main-process)、[命令行开关](https://www.electronjs.org/docs/latest/api/command-line-switches)。
 2. 用 `electron_wait_for` 等待明确的就绪信号（日志或表达式），不要用固定 sleep。attach 前应用可能还没打开端口，失败时稍后重试。信号只应在目标状态下为真：任务轮询取终态（如 `state === 'completed'`）而不是字段存在，页面就绪取业务元素出现而不是只比较路由。`elapsedMs` 为 0 说明条件在等待前已经为真，先怀疑条件太宽；可在触发操作前用 `electron_evaluate` 跑一次同一条件，确认此时为假。
 3. 改动生效优先交给项目自带的热更新或自动重启，不要重复手动操作（各项目工具行为不同，本 Skill 未统一验证，以 `electron_status` 和日志实际观察为准）：renderer 改动等热更新完成；主进程、preload 改动若被开发工具自动重启，原连接随进程失效，需重新 `electron_attach`，并用 `electron_status` 确认重启后的进程仍带有 `--inspect` 和 `--remote-debugging-port`（是否沿用取决于项目的启动工具）。项目没有热更新时，才由 Agent 重启应用，或对 renderer 用 `location.reload()`（`electron_evaluate`；eval 被禁用时改用项目已有的刷新方式）。无论哪种方式，都先用 `electron_wait_for` 等到就绪信号再取证据。
-4. `electron_evaluate` 和表达式型 `electron_wait_for` 默认可用；宿主设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 后返回 `EVALUATION_NOT_ALLOWED`，此时仍可用 attach、targets、日志、状态、截图和 `electron_dom_snapshot`。表达式可修改应用状态，只用于验证。主进程求值的全局作用域可能没有 `require`（例如 ESM 主进程），需要时用 `process.mainModule.require('electron')`。
+4. `electron_evaluate` 和表达式型 `electron_wait_for` 默认可用；宿主设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 后返回 `EVALUATION_NOT_ALLOWED`，此时仍可用 attach、targets、日志、状态、截图和 `electron_dom_snapshot`。表达式可修改应用状态，只用于验证。顶层的 `let`、`const` 可以在多次调用中重复声明，但与已有声明重名时本次改在块内执行，声明不保留到下一次调用；需要跨调用保留的值挂到 `globalThis`。主进程求值的全局作用域可能没有 `require`（例如 ESM 主进程），需要时用 `process.mainModule.require('electron')`。
 5. 会弹出原生对话框或菜单的步骤，提示用户人工操作，等用户确认后再继续；不要等待自动化完成。
 6. `electron_screenshot` 返回文件路径，用文件读取工具查看。窗口隐藏或最小化时截图会超时，先显示窗口。
 7. attach 后缓冲区里可能已带有应用启动以来的历史事件（上限默认 500 条），并被重新编号；每个新进程都会重放一遍，`seq` 在不同进程间不可比。注册 MCP 时，回归前记下 `lastSeq`，之后用 `afterSeq` 只看新事件。批处理模式每次都是新进程，`seq` 不能跨次使用：同一次执行内，以对应通道（`process` 字段）最后一条 `Session connected` 事件为界，它之前是重放的历史，之后才是本次观察到的事件。
-8. 截图和 `electron_dom_snapshot` 不脱敏，可能带出聊天标题、账号等个人内容。汇报只引用必要片段，不整段贴出。
+8. 截图不脱敏；`electron_dom_snapshot` 只按常见密钥模式脱敏。两者都可能带出聊天标题、账号等个人内容。汇报只引用必要片段，不整段贴出。
 9. 本工具集不提供网络观察、断点、真实输入和性能分析，替代做法见下节。
 
 ## 未提供的能力与替代做法
@@ -37,7 +37,7 @@ MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运
 | 需要 | 替代做法 | 限制 |
 | --- | --- | --- |
 | 看 renderer 发出的请求 | `electron_evaluate` 读 `performance.getEntriesByType('resource')`，含 `name`、`duration`，较新的 Chromium 还有 `responseStatus` | 只有 URL、状态、耗时，没有请求头和响应体；主进程发出的请求不在其中。需要这些字段时在项目代码里加日志 |
-| 调用栈 | 在可疑位置加 `console.log(new Error().stack)`，热更新或重启后触发，再用 `electron_logs` 读取 | 输出是普通字符串才会进入日志；`console.trace()` 的栈信息不会保留（日志里只有消息文本），不要用 |
+| 调用栈 | 未捕获异常的事件自带栈，直接读 `electron_logs`。要看某处是怎么被调用到的，在该位置加 `console.trace('标记')`，热更新或重启后触发，再读日志 | 栈最多保留 10 帧；`console.log`、`console.error` 等不带栈。不能改代码的位置（依赖库、打包产物）无替代 |
 | 局部变量、中间值 | 在代码里 `console.log` 打印后读取日志；或直接用 `electron_evaluate` 读全局可达的状态 | 函数内部的局部变量只能靠打印 |
 | 断点、单步 | 不提供。`debugger;` 在本工具连接下不会暂停，也不要自行启用调试器，暂停会冻住应用 | 代码改不了（依赖库、打包产物）时无替代 |
 | 点击、输入 | `electron_evaluate`(renderer) 调用 `element.click()` 或 `dispatchEvent`；表单输入需用原生 setter 赋值后再派发 `input` 事件 | 事件的 `isTrusted` 为 false，依赖真实输入的逻辑覆盖不到，改用项目已有的测试工具 |

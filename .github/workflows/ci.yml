@@ -61,6 +61,7 @@ jobs:
           node --check examples/fixture/lifecycle-smoke.mjs
           node --check examples/fixture/utility.cjs
           node --check examples/fixture/utility-smoke.mjs
+          node --check examples/fixture/inspection-smoke.mjs
           node --check examples/fixture/test-support.mjs
           node --check examples/fixture/smoke-assertions.mjs
           node --check examples/fixture/package-smoke.mjs

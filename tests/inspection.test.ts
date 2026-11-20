@@ -119,6 +119,10 @@ test("evaluate runs in both processes and shapes results", { timeout: 20_000 }, 
     assert.ok(topLevel.ok);
     assert.deepEqual(topLevel.data.value, { awaited: true });
 
+    const redeclared = await manager.inspector.evaluate({ scope: "main", expression: "const again = 2; again" });
+    assert.ok(redeclared.ok, JSON.stringify(redeclared));
+    assert.equal(redeclared.data.value, 2);
+
     const hung = await manager.inspector.evaluate({ scope: "main", expression: "never", timeoutMs: 100 });
     assert.equal(hung.ok, false);
   });

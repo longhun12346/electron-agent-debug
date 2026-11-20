@@ -60,9 +60,9 @@ node examples/fixture/package-smoke.mjs
 
 Linux 无显示环境时使用 `FIXTURE_ELECTRON_NO_SANDBOX=true xvfb-run -a node examples/fixture/package-smoke.mjs`。该命令把完整 Skill 复制到系统临时目录，真实 Electron 的全部 smoke 都使用隔离安装包中的 MCP，避免仅测试源码构建而漏掉发布打包问题。
 
-完整 smoke 包括默认、主进程失败、renderer 失败、IPC 失败、缺少 endpoint、连接运行中的 utility process，以及真实 renderer reload、BrowserWindow 重建、Electron 正常退出后以新端口重启。生命周期测试始终使用同一个 MCP 进程，检查旧 target 清理、新 target 选择和新一轮双通道证据；清空日志后还会检查旧运行标记未混入新结果。
+完整 smoke 包括默认、主进程失败、renderer 失败、IPC 失败、缺少 endpoint、连接运行中的 utility process、检查类工具（evaluate、wait_for、截图、无障碍树及异常和调用栈渲染），以及真实 renderer reload、BrowserWindow 重建、Electron 正常退出后以新端口重启。生命周期测试始终使用同一个 MCP 进程，检查旧 target 清理、新 target 选择和新一轮双通道证据；清空日志后还会检查旧运行标记未混入新结果。
 
-fixture 的父子进程 IPC 仅供测试驱动 reload、重建和退出，未添加到 MCP。生产 Server 另外提供 evaluate、wait_for、截图、DOM 快照工具；这些由 `tests/` 中的替身应用覆盖，真实 Electron 的截图要求窗口可见（隐藏或最小化的窗口会让 `Page.captureScreenshot` 超时）。
+fixture 的父子进程 IPC 仅供测试驱动 reload、重建和退出，未添加到 MCP。生产 Server 另外提供 evaluate、wait_for、截图、DOM 快照工具；边界情况由 `tests/` 中的替身应用覆盖，`inspection-smoke.mjs` 在真实 Electron 上验证主要路径。替身对 Chromium 行为的模拟必须以真实 smoke 观察到的行为为准。真实 Electron 的截图要求窗口可见（隐藏或最小化的窗口会让 `Page.captureScreenshot` 超时）。
 
 ## CI
 

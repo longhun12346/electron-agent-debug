@@ -1,5 +1,13 @@
 # 版本记录
 
+## 1.3.2
+
+- MCP 0.4.2：未捕获异常的日志事件改为可读文本（`Uncaught Error: …` 加调用栈），不再是整段协议 JSON；`data` 收敛为 `url`、`line`、`column`（从 1 起算）。`console.trace` 和 `console.assert` 的事件附带调用栈，最多 10 帧。
+- 日志事件的 `data` 现在与 `message` 一样脱敏；此前异常和浏览器日志的 `data` 原样返回，可能带出密钥。浏览器日志的 `data` 收敛为 `source` 和 `url`。
+- `electron_evaluate` 修复重复声明：先前一次调用留下的顶层 `let`/`const` 会让后续同名声明报 `has already been declared`，现在改在块内执行并返回结果（该次声明不保留）。
+- evaluate、wait_for、截图、无障碍树以及上述异常和调用栈的渲染，新增真实 Electron 的 CI 冒烟（Windows、macOS、Linux）。
+- SKILL.md 的「调用栈」替代做法改为直接读异常事件或使用 `console.trace`。读取异常事件 `data` 原始字段的调用方需要改读 `message`。
+
 ## 1.3.1
 
 - MCP 0.4.1：utility 通道已在 Windows、macOS 和 Linux 的真实 Electron 上通过 CI 验证（Electron 版本以 fixture lockfile 为准）。查端口的 netstat 或 lsof 无法运行时，`UTILITY_INSPECTOR_UNAVAILABLE` 的消息和 `details.portLookupError` 会给出原因，不再与“调试口未打开”混为一谈。

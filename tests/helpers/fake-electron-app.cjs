@@ -86,6 +86,18 @@ function answer(scope, socket, message) {
       }
       return reply({ result: { type: "object", value: { awaited: true } } });
     }
+    // Real V8: a let/const declared by an earlier non-repl evaluation cannot be redeclared in either mode,
+    // but a block shadows it.
+    if (expression === "const again = 2; again") {
+      return reply({
+        result: { type: "object", subtype: "error" },
+        exceptionDetails: {
+          text: "Uncaught", lineNumber: 0, columnNumber: 0,
+          exception: { description: "SyntaxError: Identifier 'again' has already been declared" },
+        },
+      });
+    }
+    if (expression === "{const again = 2; again\n}") return reply({ result: { type: "number", value: 2 } });
     if (expression === "plain-promise") {
       return reply({ result: { type: "object", value: message.params.replMode ? {} : { awaited: true } } });
     }

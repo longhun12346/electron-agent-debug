@@ -38,7 +38,12 @@ interface EvaluateResponse {
 const requestGraceMs = 1_000;
 // Chromium ignores awaitPromise for plain promises when replMode is on, but only replMode accepts top-level await
 // and `let`/`const` redeclaration. Run without it first and retry in replMode on those early syntax errors (nothing ran).
-const replOnlyError = /await is only valid|has already been declared/i;
+const topLevelAwaitError = /await is only valid/i;
+const redeclarationError = /has already been declared/i;
+const replOnlyError = new RegExp(`${topLevelAwaitError.source}|${redeclarationError.source}`, "i");
+// replMode can only redeclare bindings that were themselves created in replMode. A `let`/`const` left behind by an
+// earlier plain evaluation stays in the way, so as a last resort run the code in a block: the block's completion
+// value is still the result, and its declarations shadow the old ones instead of colliding (they do not persist).
 
 function exceptionMessage(details: NonNullable<EvaluateResponse["exceptionDetails"]>): string {
   const exception = details.exception;
@@ -67,16 +72,25 @@ export async function evaluateExpression(
 ): Promise<EvaluateResult> {
   let response: EvaluateResponse;
   try {
-    const run = async (replMode: boolean) => await session.request("Runtime.evaluate", {
-      expression: options.expression,
+    const run = async (expression: string, replMode: boolean) => await session.request("Runtime.evaluate", {
+      expression,
       awaitPromise: options.awaitPromise,
       returnByValue: true,
       replMode,
       timeout: options.timeoutMs,
     }, options.timeoutMs + requestGraceMs) as EvaluateResponse;
-    response = await run(false);
-    if (response.exceptionDetails && replOnlyError.test(exceptionMessage(response.exceptionDetails))) {
-      response = await run(true);
+    const failsWith = (pattern: RegExp) =>
+      response.exceptionDetails !== undefined && pattern.test(exceptionMessage(response.exceptionDetails));
+    response = await run(options.expression, false);
+    if (failsWith(replOnlyError)) {
+      response = await run(options.expression, true);
+    }
+    if (failsWith(redeclarationError)) {
+      const block = `{${options.expression}\n}`;
+      response = await run(block, false);
+      if (failsWith(topLevelAwaitError)) {
+        response = await run(block, true);
+      }
     }
   } catch (error) {
     if (error instanceof DiagnosticException && error.diagnostic.code === "PROTOCOL_ERROR" &&

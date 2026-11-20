@@ -42,7 +42,7 @@ export const inspectionTools = [
     name: "electron_evaluate",
     title: "Evaluate JavaScript in the main, renderer or utility process",
     description:
-      "在主进程 Inspector、当前选中的 renderer target 或已连接的 utility process 中执行一段 JavaScript（Runtime.evaluate，默认 await Promise，支持顶层 await，默认超时 3s）。" +
+      "在主进程 Inspector、当前选中的 renderer target 或已连接的 utility process 中执行一段 JavaScript（Runtime.evaluate，默认 await Promise，支持顶层 await，默认超时 3s；顶层 let/const 与之前调用的声明重名时改在块内执行，声明不保留）。" +
       "结果按值返回，超过 maxResultBytes 时截断，并对常见密钥字段做脱敏。主进程全局没有 require，请用 process.mainModule.require('electron')。" +
       "默认开启，宿主可在 MCP 配置的 env 中设置 ELECTRON_DEBUG_ALLOW_EVAL=0 禁用（此时返回 EVALUATION_NOT_ALLOWED）。表达式可修改应用状态，只用于验证。",
     inputSchema: evaluateSchema,
