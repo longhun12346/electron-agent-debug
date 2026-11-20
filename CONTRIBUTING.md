@@ -3,7 +3,7 @@
 ## 环境
 
 - Node.js 20 或更高版本。
-- 包完整性测试使用系统 `tar` 命令；仅测试环境需要，MCP 运行不依赖它。
+- 包完整性测试使用系统 `tar` 命令（bsdtar 和 GNU tar 均可，包括 Windows 上 Git Bash 自带的 GNU tar）；仅测试环境需要，MCP 运行不依赖它。
 - 根目录依赖用于 MCP Server、测试和 TypeScript 构建。
 - `examples/fixture` 是独立的 Electron 示例包，使用自己的 `package.json` 和 lockfile。
 - 根目录使用 npm 管理构建、测试和开发依赖；公开交付以 GitHub 仓库、Skill 文件和源码为准。
@@ -60,7 +60,7 @@ node examples/fixture/package-smoke.mjs
 
 Linux 无显示环境时使用 `FIXTURE_ELECTRON_NO_SANDBOX=true xvfb-run -a node examples/fixture/package-smoke.mjs`。该命令把完整 Skill 复制到系统临时目录，真实 Electron 的全部 smoke 都使用隔离安装包中的 MCP，避免仅测试源码构建而漏掉发布打包问题。
 
-完整 smoke 包括默认、主进程失败、renderer 失败、IPC 失败、缺少 endpoint，以及真实 renderer reload、BrowserWindow 重建、Electron 正常退出后以新端口重启。生命周期测试始终使用同一个 MCP 进程，检查旧 target 清理、新 target 选择和新一轮双通道证据；清空日志后还会检查旧运行标记未混入新结果。
+完整 smoke 包括默认、主进程失败、renderer 失败、IPC 失败、缺少 endpoint、连接运行中的 utility process，以及真实 renderer reload、BrowserWindow 重建、Electron 正常退出后以新端口重启。生命周期测试始终使用同一个 MCP 进程，检查旧 target 清理、新 target 选择和新一轮双通道证据；清空日志后还会检查旧运行标记未混入新结果。
 
 fixture 的父子进程 IPC 仅供测试驱动 reload、重建和退出，未添加到 MCP。生产 Server 另外提供 evaluate、wait_for、截图、DOM 快照工具；这些由 `tests/` 中的替身应用覆盖，真实 Electron 的截图要求窗口可见（隐藏或最小化的窗口会让 `Page.captureScreenshot` 超时）。
 
@@ -70,7 +70,7 @@ GitHub Actions 执行以下矩阵，每个组合均运行根目录测试、类�
 
 | 系统 | Node.js |
 | --- | --- |
-| Ubuntu | 22、24 |
+| Ubuntu | 20、22、24 |
 | Windows | 22、24 |
 | macOS | 22 |
 

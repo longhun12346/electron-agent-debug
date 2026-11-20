@@ -172,10 +172,13 @@ export class Inspector {
       };
     } catch (error) {
       const diagnostic = toDiagnosticError(error, "SCREENSHOT_FAILED");
-      if (diagnostic.message.includes("超时")) {
-        diagnostic.message += "；窗口被隐藏或最小化时 Chromium 不会响应截图，请先显示窗口";
+      if (diagnostic.details?.reason !== "timeout") {
+        return errorResult(diagnostic);
       }
-      return errorResult(diagnostic);
+      return errorResult({
+        ...diagnostic,
+        message: `${diagnostic.message}；窗口被隐藏或最小化时 Chromium 不会响应截图，请先显示窗口`,
+      });
     }
   }
 

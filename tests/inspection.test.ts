@@ -8,6 +8,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { renderAxTree } from "../src/ax-tree.js";
 import type { RuntimeConfig } from "../src/config.js";
+import { DiagnosticException } from "../src/errors.js";
 import { redact } from "../src/redact.js";
 import { SessionManager } from "../src/sessions/session-manager.js";
 
@@ -93,6 +94,15 @@ test("evaluate runs in both processes and shapes results", { timeout: 20_000 }, 
     assert.equal(big.data.value, undefined);
     assert.equal(big.data.text?.length, 256);
 
+    // The limit is in UTF-8 bytes: `"` + 85 three-byte characters is exactly 256 bytes, with no split character.
+    const wide = await manager.inspector.evaluate({ scope: "main", expression: "wide", maxResultBytes: 256 });
+    assert.ok(wide.ok);
+    assert.equal(wide.data.truncated, true);
+    assert.equal(wide.data.text, `"${"中".repeat(85)}`);
+    const tight = await manager.inspector.evaluate({ scope: "main", expression: "wide", maxResultBytes: 257 });
+    assert.ok(tight.ok);
+    assert.equal(tight.data.text, `"${"中".repeat(85)}`);
+
     const secret = await manager.inspector.evaluate({ scope: "main", expression: "secret" });
     assert.ok(secret.ok);
     assert.deepEqual(secret.data.value, { token: "[REDACTED]", ok: true });
@@ -175,6 +185,29 @@ test("screenshot and snapshot fail with structured errors when the renderer is o
     assert.equal(shot.ok ? "" : shot.error.code, "SESSION_DISCONNECTED");
     const snapshot = await manager.inspector.domSnapshot({});
     assert.equal(snapshot.ok ? "" : snapshot.error.code, "SESSION_DISCONNECTED");
+  } finally {
+    await manager.close();
+  }
+});
+
+test("screenshot explains a timed-out capture by error reason, not by message wording", async () => {
+  const manager = new SessionManager(config());
+  try {
+    const fail = (error: DiagnosticException) => {
+      manager.renderer.request = async () => { throw error; };
+    };
+    const timedOut = new DiagnosticException("PROTOCOL_ERROR", "request timed out", {
+      retryable: true, details: { reason: "timeout" },
+    });
+    fail(timedOut);
+    const shot = await manager.inspector.screenshot({});
+    assert.equal(shot.ok ? "" : shot.error.code, "PROTOCOL_ERROR");
+    assert.match(shot.ok ? "" : shot.error.message, /隐藏或最小化/u);
+    assert.equal(timedOut.diagnostic.message, "request timed out");
+
+    fail(new DiagnosticException("PROTOCOL_ERROR", "页面返回了错误：超时设置无效"));
+    const other = await manager.inspector.screenshot({});
+    assert.doesNotMatch(other.ok ? "" : other.error.message, /隐藏或最小化/u);
   } finally {
     await manager.close();
   }

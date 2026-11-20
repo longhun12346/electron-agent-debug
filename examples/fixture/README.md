@@ -38,6 +38,12 @@ node mcp-smoke.mjs
 node ci-smoke.mjs
 ```
 
+`ci-smoke.mjs` 还会运行 `utility-smoke.mjs`：以 `FIXTURE_UTILITY=true` 启动 fixture，主进程 fork 一个名为 `fixture-utility` 的 utility process（只带 `--inspect-port`，调试口初始关闭），再经 MCP 用 `electron_attach` 的 `utility` 参数连接，验证三通道同时在线、utility 内求值和日志归属，以及名字不存在和禁用求值两种失败。它也可以单独运行：
+
+```powershell
+node utility-smoke.mjs
+```
+
 这个脚本负责动态分配端口，并把端口通过环境变量传给 smoke 流程；它不会把任何端口写入项目配置。
 
 ## 故障场景

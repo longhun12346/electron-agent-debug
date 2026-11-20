@@ -48,6 +48,19 @@ function exceptionMessage(details: NonNullable<EvaluateResponse["exceptionDetail
   return redact(text).slice(0, 2_000);
 }
 
+// Cut to at most maxBytes of UTF-8 without splitting a multi-byte character.
+function truncateUtf8(text: string, maxBytes: number): string {
+  const buffer = Buffer.from(text, "utf8");
+  if (buffer.length <= maxBytes) {
+    return text;
+  }
+  let end = maxBytes;
+  while (end > 0 && (buffer[end]! & 0xc0) === 0x80) {
+    end -= 1;
+  }
+  return buffer.subarray(0, end).toString("utf8");
+}
+
 export async function evaluateExpression(
   session: DiagnosticSession,
   options: EvaluateOptions,
@@ -102,7 +115,7 @@ export async function evaluateExpression(
   const bytes = Buffer.byteLength(serialized, "utf8");
   const safe = redact(serialized);
   if (bytes > options.maxResultBytes) {
-    return { type, text: safe.slice(0, options.maxResultBytes), truncated: true, bytes };
+    return { type, text: truncateUtf8(safe, options.maxResultBytes), truncated: true, bytes };
   }
   try {
     return { type, value: JSON.parse(safe) as unknown, truncated: false, bytes };

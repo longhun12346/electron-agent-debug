@@ -107,6 +107,17 @@ test("reports an unavailable inspector when the port never opens", async () => {
   });
 });
 
+test("reports why listening ports could not be read", async () => {
+  await withApp((port) => [`--utility-port=${port}`, "--utility-lazy", "--utility-no-open", "--utility-lookup-error"], {},
+    async (manager) => {
+      const result = await manager.attach({ utility: "worker" });
+      assert.ok(result.ok);
+      assert.equal(result.data.errors[0]?.code, "UTILITY_INSPECTOR_UNAVAILABLE");
+      assert.equal(result.data.errors[0]?.details?.portLookupError, "spawnSync lsof ENOENT");
+      assert.match(result.data.errors[0]?.message ?? "", /spawnSync lsof ENOENT/u);
+    });
+});
+
 test("lists candidates when the utility name is unknown", async () => {
   await withApp((port) => [`--utility-port=${port}`], {}, async (manager) => {
     const result = await manager.attach({ utility: "missing" });

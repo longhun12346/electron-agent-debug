@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, utilityProcess } = require("electron");
 const path = require("node:path");
 
 const fault = process.env.FIXTURE_FAULT || "";
@@ -72,6 +72,15 @@ process.on("message", async ({ id, command }) => {
 });
 
 app.whenReady().then(() => {
+  if (process.env.FIXTURE_UTILITY === "true") {
+    // --inspect-port only chooses the port; the inspector stays closed until something opens it.
+    const port = process.env.FIXTURE_UTILITY_PORT;
+    utilityProcess.fork(path.join(__dirname, "utility.cjs"), [], {
+      serviceName: "fixture-utility",
+      execArgv: port ? [`--inspect-port=${port}`] : [],
+      stdio: "inherit",
+    });
+  }
   try {
     createWindow();
   } catch (error) {

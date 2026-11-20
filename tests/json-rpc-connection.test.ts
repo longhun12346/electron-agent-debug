@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { createServer as createTcpServer, type Socket } from "node:net";
 import test, { type TestContext } from "node:test";
 import { WebSocketServer } from "ws";
+import { toDiagnosticError } from "../src/errors.js";
 import { JsonRpcConnection } from "../src/protocol/json-rpc-connection.js";
 
 const execFileAsync = promisify(execFile);
@@ -174,7 +175,12 @@ test("times out an unanswered request without blocking later requests", async (t
     }
   }));
   await connection.connect(url);
-  await assert.rejects(connection.request("unanswered"), /超时/u);
+  await assert.rejects(connection.request("unanswered"), (error: unknown) => {
+    const diagnostic = toDiagnosticError(error);
+    assert.match(diagnostic.message, /超时/u);
+    assert.deepEqual(diagnostic.details, { reason: "timeout", method: "unanswered", timeoutMs: 200 });
+    return true;
+  });
   assert.deepEqual(await connection.request("next"), {});
 });
 

@@ -100,13 +100,13 @@ export class McpClient {
     this.waiters.clear();
   }
 
-  request(id, method, params) {
+  request(id, method, params, timeoutMs = 5_000) {
     if (this.failure) return Promise.reject(this.failure);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.waiters.delete(id);
         reject(new Error(`MCP request timeout: ${method}`));
-      }, 5_000);
+      }, timeoutMs);
       this.waiters.set(id, { resolve, reject, timer });
       this.notify(method, params, id);
     });

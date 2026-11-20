@@ -72,6 +72,19 @@ await new Promise((resolve, reject) => {
   });
 });
 
+async function runScript(name, label) {
+  console.log(`Running fixture smoke: ${label}`);
+  const child = spawn(process.execPath, [path.join(fixtureRoot, name)], { stdio: "inherit", env: process.env });
+  await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => code === 0
+      ? resolve()
+      : reject(new Error(`fixture ${label} smoke failed: ${code ?? signal}`)));
+  });
+}
+
+await runScript("utility-smoke.mjs", "utility process attach");
+
 console.log("Running fixture smoke: reload, window recreation and Electron restart");
 const lifecycle = spawn(process.execPath, [path.join(fixtureRoot, "lifecycle-smoke.mjs")], {
   stdio: "inherit", env: process.env,

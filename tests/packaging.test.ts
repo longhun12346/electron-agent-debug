@@ -62,15 +62,17 @@ test("keeps the repository package layout compatible with skills.sh", async () =
 test("archived Skill works in isolated project and global installation layouts", async (t) => {
   const temporary = await mkdtemp(path.join(tmpdir(), "electron skill package "));
   t.after(() => rm(temporary, { recursive: true, force: true }));
-  const archive = path.join(temporary, "skill.tar");
+  // Name the archive relative to cwd: GNU tar reads a drive-letter path such as C:\... as host:file.
+  const archive = "skill.tar";
+  const tar = (args: string[]) => execFileAsync("tar", args, { cwd: temporary });
   const source = path.join(root, "skill", "electron-debug");
-  await execFileAsync("tar", ["-cf", archive, "-C", path.dirname(source), "electron-debug"]);
+  await tar(["-cf", archive, "-C", path.dirname(source), "electron-debug"]);
   const sourceFiles = await filesAt(source);
   assert.ok(sourceFiles.includes(path.join("references", "mcp-setup.md")));
   for (const layout of ["project/.agents/skills", "isolated-global/skills"]) {
     const destination = path.join(temporary, layout);
     await mkdir(destination, { recursive: true });
-    await execFileAsync("tar", ["-xf", archive, "-C", destination]);
+    await tar(["-xf", archive, "-C", destination]);
     const installed = path.join(destination, "electron-debug");
     assert.deepEqual(await filesAt(installed), sourceFiles);
     for (const file of sourceFiles) {

@@ -107,6 +107,7 @@ export class JsonRpcConnection {
         reject(
           new DiagnosticException("PROTOCOL_ERROR", `协议请求超时：${method}`, {
             retryable: true,
+            details: { reason: "timeout", method, timeoutMs },
           }),
         );
       }, timeoutMs);

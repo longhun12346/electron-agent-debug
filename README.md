@@ -4,7 +4,7 @@
 
 项目提供两类内容：
 
-1. 通过 MCP 提供观察和检查已运行 Electron 应用的能力：主进程 Node Inspector 与渲染进程 CDP 双通道、统一日志时间线、求值、截图、无障碍树快照和原生对话框替身。
+1. 通过 MCP 提供观察和检查已运行 Electron 应用的能力：主进程 Node Inspector 与渲染进程 CDP 双通道、统一日志时间线、求值、截图和无障碍树快照，并可按需连接 utility process。
 2. 通过 Skill 给出使用建议和证据矩阵。Skill 只是指导，能力由 MCP 提供。
 
 项目不替 Agent 判断业务是否正确；业务回归和最终结论由 Agent 完成。
@@ -62,7 +62,7 @@ Agent 可以使用本项目完成：
 - preload、contextBridge 和 IPC 联调。
 - 页面白屏、前端异常、target URL 和运行时日志验证。
 - 通过截图和无障碍树确认页面实际内容。
-- 用原生对话框替身驱动依赖系统对话框的流程。
+- 依赖原生对话框的流程由用户人工操作，Agent 再用日志或求值核对结果。
 - 修复后的重启、reload、连接恢复和状态检查。
 - 为 Agent 判断 `PASS`、`FAIL` 或 `BLOCKED` 提供结构化运行时证据。
 
@@ -73,7 +73,7 @@ Agent 可以使用本项目完成：
 - 输出有大小上限，并对常见密钥字段脱敏。
 - 不含任何项目专属逻辑。
 - 不提供通用桌面自动化、网络录制、性能分析、heap snapshot 或源码级断点调试。
-- 原生菜单不被替身覆盖；窗口隐藏或最小化时无法截图。
+- 不提供原生对话框或菜单的自动化替身；窗口隐藏或最小化时无法截图。
 
 ## Agent 使用诊断流程
 
@@ -109,4 +109,4 @@ npm run lint
 
 ## 开发状态
 
-当前阶段：核心 MCP Server、双 Session、求值/截图/无障碍树、统一时间线、契约与集成测试（含模拟 Electron 应用）、Agent 调试 Skill 和外部 Electron 项目 opt-in E2E harness 已实现。同一入口还提供不注册 MCP 的批处理模式（`launch.cjs --run`）。
+当前阶段：核心 MCP Server、主进程与 renderer 双 Session（可加 utility 第三通道）、求值/截图/无障碍树、统一时间线、契约与集成测试（含模拟 Electron 应用）、Agent 调试 Skill 和外部 Electron 项目 opt-in E2E harness 已实现。同一入口还提供不注册 MCP 的批处理模式（`launch.cjs --run`）。

@@ -39,22 +39,27 @@ function portsScript(pid: number): string {
     const i = value.lastIndexOf(':');
     if (/^(127\\.0\\.0\\.1|\\[?::1\\]?)$/.test(value.slice(0, i))) ports.add(Number(value.slice(i + 1)));
   };
+  // A lookup tool that exits non-zero still ran (lsof does so when nothing matches); one that never ran is reported.
+  let failure;
+  const run = (file, args) => {
+    try {
+      return cp.execFileSync(file, args, { encoding: 'utf8', windowsHide: true, timeout: 3000 });
+    } catch (error) {
+      if (typeof error.status !== 'number') failure = String(error.message).split('\\n')[0].slice(0, 300);
+      return error.stdout ? String(error.stdout) : '';
+    }
+  };
   if (process.platform === 'win32') {
-    const out = cp.execFileSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8', windowsHide: true, timeout: 3000 });
+    const out = run('netstat', ['-ano', '-p', 'tcp']);
     for (const line of out.split(/\\r?\\n/)) {
       const p = line.trim().split(/\\s+/);
       if (p.length >= 5 && p[3] === 'LISTENING' && Number(p[4]) === pid) add(p[1]);
     }
   } else {
-    let out = '';
-    try {
-      out = cp.execFileSync('lsof', ['-nP', '-a', '-p', String(pid), '-iTCP', '-sTCP:LISTEN', '-Fn'], { encoding: 'utf8', timeout: 3000 });
-    } catch (error) {
-      out = error.stdout ? String(error.stdout) : '';
-    }
+    const out = run('lsof', ['-nP', '-a', '-p', String(pid), '-iTCP', '-sTCP:LISTEN', '-Fn']);
     for (const line of out.split('\\n')) if (line[0] === 'n') add(line.slice(1));
   }
-  return JSON.stringify([...ports]);
+  return JSON.stringify({ ports: [...ports], error: failure });
 })()`;
 }
 
@@ -75,21 +80,29 @@ function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+interface InspectorSearch {
+  inspector?: { endpoint: string; websocketUrl: string };
+  portLookupError?: string;
+}
+
 async function findInspector(
   options: UtilityLocateOptions,
   processInfo: UtilityProcess,
-): Promise<{ endpoint: string; websocketUrl: string } | undefined> {
-  const ports = await evaluateJson<number[]>(options.main, portsScript(processInfo.pid));
+): Promise<InspectorSearch> {
+  const { ports, error } = await evaluateJson<{ ports: number[]; error?: string }>(
+    options.main,
+    portsScript(processInfo.pid),
+  );
   for (const port of ports) {
     const endpoint = `http://127.0.0.1:${port}`;
     try {
       const found = await discoverMain(endpoint, { timeoutMs: options.discoveryTimeoutMs });
-      if (found.websocketUrl) return { endpoint, websocketUrl: found.websocketUrl };
+      if (found.websocketUrl) return { inspector: { endpoint, websocketUrl: found.websocketUrl } };
     } catch {
       // Not an inspector port; try the next listening port.
     }
   }
-  return undefined;
+  return { portLookupError: error };
 }
 
 export async function locateUtilityInspector(options: UtilityLocateOptions): Promise<UtilityLocation> {
@@ -120,8 +133,8 @@ export async function locateUtilityInspector(options: UtilityLocateOptions): Pro
   }
   const target = matches[0]!;
 
-  let inspector = await findInspector(options, target);
-  if (!inspector) {
+  let search = await findInspector(options, target);
+  if (!search.inspector) {
     const opened = await evaluateJson<{ available: boolean }>(
       options.main,
       `JSON.stringify({ available: typeof process._debugProcess === 'function' && (process._debugProcess(${target.pid}), true) })`,
@@ -129,18 +142,25 @@ export async function locateUtilityInspector(options: UtilityLocateOptions): Pro
     if (!opened.available) {
       throw new DiagnosticException("UTILITY_INSPECTOR_UNAVAILABLE", "当前运行时没有 process._debugProcess，无法打开 utility 调试口");
     }
-    for (let attempt = 0; attempt < 15 && !inspector; attempt += 1) {
+    for (let attempt = 0; attempt < 15 && !search.inspector; attempt += 1) {
       await sleep(200);
-      inspector = await findInspector(options, target);
+      search = await findInspector(options, target);
     }
   }
-  if (!inspector) {
+  if (!search.inspector && search.portLookupError) {
     throw new DiagnosticException(
       "UTILITY_INSPECTOR_UNAVAILABLE",
-      "没有在 utility process 上发现调试口：默认端口 9229 可能已被占用（打开失败时不会报错），或系统缺少 netstat/lsof。" +
+      `无法读取 utility process 的监听端口：${search.portLookupError}。查端口需要 netstat（Windows）或 lsof（macOS/Linux）`,
+      { details: { pid: target.pid, name: target.name, portLookupError: search.portLookupError } },
+    );
+  }
+  if (!search.inspector) {
+    throw new DiagnosticException(
+      "UTILITY_INSPECTOR_UNAVAILABLE",
+      "没有在 utility process 上发现调试口：默认端口 9229 可能已被占用（打开失败时不会报错）。" +
         "可在 fork 的 execArgv 中加 --inspect-port=<空闲端口> 后重试",
       { retryable: true, details: { pid: target.pid, name: target.name } },
     );
   }
-  return { pid: target.pid, name: target.name, ...inspector };
+  return { pid: target.pid, name: target.name, ...search.inspector };
 }

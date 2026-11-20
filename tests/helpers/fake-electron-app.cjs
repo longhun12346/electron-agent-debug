@@ -44,7 +44,10 @@ function answer(scope, socket, message) {
     }
     if (scope === "main" && expression.includes("netstat")) {
       const listening = options["utility-port"] && (options["utility-lazy"] !== "true" || utilityOpened);
-      return reply({ result: { type: "string", value: JSON.stringify(listening ? [Number(options["utility-port"])] : []) } });
+      return reply({ result: { type: "string", value: JSON.stringify({
+        ports: listening ? [Number(options["utility-port"])] : [],
+        ...(options["utility-lookup-error"] === "true" ? { error: "spawnSync lsof ENOENT" } : {}),
+      }) } });
     }
     if (scope === "main" && expression.includes("_debugProcess")) {
       if (options["utility-no-open"] !== "true" && options["utility-port"] && !utilityOpened) {
@@ -65,6 +68,7 @@ function answer(scope, socket, message) {
       return;
     }
     if (expression === "big") return reply({ result: { type: "string", value: "x".repeat(5000) } });
+    if (expression === "wide") return reply({ result: { type: "string", value: "中".repeat(2000) } });
     if (expression === "secret") return reply({ result: { type: "object", value: { token: "abc12345678", ok: true } } });
     if (expression === "nan") return reply({ result: { type: "number", unserializableValue: "NaN" } });
     if (expression === "poll") return reply({ result: { type: "boolean", value: ++polls >= 3 } });

@@ -29,12 +29,12 @@ Electron 应用的主进程和渲染进程使用不同的调试入口：
 
 ### 2.1 产品目标
 
-让本地编码 Agent 能够在需要诊断 Electron 应用时，通过本工具启动应用，或连接 Agent 已准备的运行中应用，并获得以下能力：
+让本地编码 Agent 能够在需要诊断 Electron 应用时，连接 Agent 已启动的运行中应用，并获得以下能力：
 
 1. 识别主进程 Inspector 和渲染进程 CDP 是否可用。
 2. 选择正确的渲染窗口。
 3. 根据修改范围判断主进程、preload/IPC 或渲染进程。
-4. 读取两个进程和应用进程的日志、异常、退出码与退出原因；对本工具启动的应用执行表达式、等待条件、截图、读取无障碍树和替换原生对话框。当前版本不提供源码级调试。
+4. 读取已连接进程的日志和异常；执行表达式、等待条件、截图和读取无障碍树。应用进程的 stdout、退出码与退出原因由启动它的 Agent 自行捕获。当前版本不提供源码级调试，也不提供原生对话框替身。
 5. 使用项目已有命令，根据修改范围重启 Electron（并重新 attach）或 reload 当前窗口。
 6. 重新读取日志和状态，为 Agent 自己的分析和报告提供证据；业务级视觉判断仍由项目已有测试或 Agent 自行完成。
 
@@ -45,7 +45,7 @@ Electron 应用的主进程和渲染进程使用不同的调试入口：
 - 只允许连接回环地址：`127.0.0.1`、`::1` 或 `localhost`。
 - 不设置任何固定端口。Agent 按诊断范围提供实际 endpoint；至少提供一个 endpoint 才能执行 attach。
 - 当前对外工具共 8 个：attach、status、targets、logs（Phase 1 基线），以及 evaluate、wait_for、screenshot、dom_snapshot。会弹出原生对话框的流程由 Agent 提示用户人工操作，不提供自动化替身。
-- 表达式执行必须有超时和结果大小限制，且默认只用于由本工具启动的应用。
+- 表达式执行必须有超时和结果大小限制，默认开启，宿主可用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用。
 - 渲染进程 reload 或窗口销毁后，Agent 再次调用 `electron_attach` 或 `electron_targets` 时能够重新发现 target。
 - 连接断开后，`electron_attach` 或 `electron_targets` 会进行有限恢复；`electron_status` 和 `electron_logs` 只返回当前已缓存的状态和事件。
 
@@ -405,10 +405,10 @@ Skill 必须明确以下判断规则：
 设计取向：Skill 只提供指导和建议，提供能力才是最重要的。工具直接拥有运行时检查能力，输出保持结构化、有界、脱敏、仅限回环，且不含任何项目专属逻辑。
 
 - 运行时检查：`electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`。
-- 统一时间线：main、renderer、app 事件共享递增 `seq`，日志支持 `afterSeq` 续读和 `lastSeq`。
+- 统一时间线：main、renderer、utility 事件共享递增 `seq`，日志支持 `afterSeq` 续读和 `lastSeq`。
 - Skill 收敛为薄页面：何时使用、按修改类型列出的证据矩阵、工具组合方式。
 
-仍未实现：断点、暂停、单步、调用栈、IPC trace、source map、原生对话框和菜单替身，以及与 MCP 共享核心的 CLI 入口（需要常驻进程，暂缓）。
+仍未实现：断点、暂停、单步、调用栈、IPC trace、source map、原生对话框和菜单替身。与 MCP 共享核心的命令行入口以批处理模式（`launch.cjs --run`）提供；跨调用保持连接的常驻 CLI 未实现。
 
 ## 11. 成功标准
 

@@ -41,7 +41,9 @@ electron-agent-debug MCP Server
     │     └── WebSocket → Agent-provided main endpoint
     ├── Renderer CDP Session
     │     └── WebSocket → Agent-provided renderer endpoint
-    ├── Event Buffer（main / renderer 共享递增 seq 的统一时间线）
+    ├── Utility Session（可选）
+    │     └── WebSocket → 经主进程定位的 utility process 调试口
+    ├── Event Buffer（main / renderer / utility 共享递增 seq 的统一时间线）
     ├── Inspector (evaluate / wait_for / screenshot / dom_snapshot)
     ├── Diagnostic State
     └── Tool Router
@@ -57,7 +59,7 @@ MCP Server 启动后不主动连接应用。第一次调用 `electron_attach` �
 
 attach、targets 刷新和 close 经同一个操作队列串行执行；Inspector 的 evaluate、wait_for、截图和快照不排队，避免长时间等待阻塞连接操作。
 
-主进程和渲染进程使用两个相互独立、可部分建立的 Session：
+主进程和渲染进程使用两个相互独立、可部分建立的 Session（utility 通道见下）：
 
 ```text
 SessionManager
@@ -73,6 +75,8 @@ SessionManager
     ├── enabled domains
     └── event buffer
 ```
+
+`electron_attach` 带 `utility` 参数时另建第三个 UtilitySession，结构与 MainSession 相同。它没有 Agent 提供的 endpoint：`SessionManager` 通过已连接的主进程求值调用 `app.getAppMetrics()` 找到进程，用 netstat（Windows）或 lsof（macOS/Linux）查它监听的回环端口，没有调试口时调用 `process._debugProcess(pid)` 打开。因此它要求主进程通道在线且未禁用求值；主进程 endpoint 变化或被移除时一并关闭。一次只保留一个 utility 连接。
 
 Renderer discovery 可以在尚未选定 target 时返回 target 列表；当前实现只有在选定一个可连接的 page target 后才建立 RendererSession。没有唯一 target 时，renderer Session 保持 `offline`，并返回 `TARGET_SELECTION_REQUIRED` 或 `TARGET_NOT_FOUND`。
 
@@ -173,6 +177,14 @@ GET ${ELECTRON_DEBUG_CDP_URL}/json/list
 - `SESSION_DISCONNECTED`
 - `PROTOCOL_ERROR`
 
+utility 通道增加以下错误码：
+
+- `UTILITY_REQUIRES_MAIN`
+- `UTILITY_NOT_FOUND`、`UTILITY_AMBIGUOUS`
+- `UTILITY_INSPECTOR_UNAVAILABLE`
+
+协议请求超时使用 `PROTOCOL_ERROR`，并在 `details` 中带 `reason: "timeout"`、`method` 和 `timeoutMs`，供调用方按结构而不是按消息文本识别。
+
 检查能力增加以下错误码：
 
 - `INVALID_ARGUMENT`
@@ -180,7 +192,7 @@ GET ${ELECTRON_DEBUG_CDP_URL}/json/list
 - `WAIT_TIMEOUT`
 - `SCREENSHOT_FAILED`、`SNAPSHOT_FAILED`
 
-`OUTPUT_TOO_LARGE` 当前只用于拒绝过大的 discovery 响应；日志事件使用 Session 自己的缓存上限，evaluate 结果超过 `maxResultBytes` 时在成功结果中标记 `truncated`。
+`OUTPUT_TOO_LARGE` 当前只用于拒绝过大的 discovery 响应；日志事件使用 Session 自己的缓存上限，evaluate 结果超过 `maxResultBytes` 时在成功结果中标记 `truncated`，文本按 UTF-8 字节截断且不拆开多字节字符。
 
 ## 6. Skill 与 MCP 的边界
 
@@ -215,7 +227,7 @@ MCP 工具的 `ok` 只表示本次工具调用是否成功，不表示用户代�
 - 表达式执行（`electron_evaluate`、expression 型 `wait_for`）默认开启（只连接回环地址）；宿主可在 MCP 配置的 `env` 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用，此时返回 `EVALUATION_NOT_ALLOWED`。执行有超时（默认 3 秒，上限 30 秒）和结果大小限制（默认 64 KiB，上限 1 MiB）。
 - 截图写入 `ELECTRON_DEBUG_OUTPUT_DIR`（默认系统临时目录下的 `electron-agent-debug`），目录权限 0700、文件权限 0600，文件名由工具生成，只保留最近 50 张；不返回图像内容。
 - 日志、异常和 evaluate 结果都经过脱敏（token、secret、password、api key、authorization、cookie 等键值和 Bearer 令牌），并有大小上限。
-- 托管应用的 stdout 和 stderr 逐行进入 `app` 通道；停止时 Windows 使用 `taskkill /T /F`，POSIX 使用进程组信号，覆盖子进程树。
+- MCP 不托管应用进程：应用的 stdout、stderr 和退出码由启动它的 Agent 自行捕获，不进入时间线。
 - stdout 只用于 MCP 协议，诊断日志写 stderr。
 - discovery、WebSocket 建连和单次协议请求都必须有有限超时；一次工具调用不得等待无限期网络操作。
 - WebSocket 单条协议消息必须有大小上限，不能只依赖事件缓存限制。
