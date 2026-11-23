@@ -103,7 +103,7 @@ test("archived Skill works in isolated project and global installation layouts",
       const tools = await client.request(2, "tools/list", {});
       assert.deepEqual(tools.result?.tools?.map((tool) => tool.name), [
         "electron_attach", "electron_status", "electron_targets", "electron_logs",
-        "electron_evaluate", "electron_wait_for", "electron_screenshot", "electron_dom_snapshot",
+        "electron_evaluate", "electron_wait_for", "electron_screenshot", "electron_dom_snapshot", "electron_click", "electron_type",
       ]);
       for (const [id, name] of [[3, "electron_attach"], [4, "electron_targets"]] as const) {
         const response = await client.request(id, "tools/call", { name, arguments: {} });

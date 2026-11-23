@@ -66,6 +66,8 @@ jobs:
           node --check examples/fixture/utility.cjs
           node --check examples/fixture/utility-smoke.mjs
           node --check examples/fixture/inspection-smoke.mjs
+          node --check examples/fixture/interaction-smoke.mjs
+          node --check examples/fixture/interaction.js
           node --check examples/fixture/test-support.mjs
           node --check examples/fixture/smoke-assertions.mjs
           node --check examples/fixture/package-smoke.mjs
@@ -135,6 +137,7 @@ jobs:
         run: |
           xvfb-run -a node examples/fixture/utility-smoke.mjs
           xvfb-run -a node examples/fixture/inspection-smoke.mjs
+          xvfb-run -a node examples/fixture/interaction-smoke.mjs
           xvfb-run -a node examples/field-app/field-smoke.mjs
         env:
           FIXTURE_ELECTRON_NO_SANDBOX: "true"
@@ -144,4 +147,5 @@ jobs:
         run: |
           node examples/fixture/utility-smoke.mjs
           node examples/fixture/inspection-smoke.mjs
+          node examples/fixture/interaction-smoke.mjs
           node examples/field-app/field-smoke.mjs

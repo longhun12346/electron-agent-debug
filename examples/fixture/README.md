@@ -1,6 +1,6 @@
 # Electron 诊断 fixture
 
-这个 fixture 用于验证 MCP 诊断适配层的 attach 链路。这里的脚本自行启动、停止 fixture 并分配端口，再通过 `electron_attach` 连接；evaluate、wait_for、截图和无障碍树的边界由 `tests/` 中的测试替身覆盖，`inspection-smoke.mjs` 再用本 fixture 在真实 Electron 上验证它们以及异常、调用栈的渲染。
+这个 fixture 用于验证 MCP 诊断适配层的 attach 链路。这里的脚本自行启动、停止 fixture 并分配端口，再通过 `electron_attach` 连接；evaluate、wait_for、截图和无障碍树的边界由 `tests/` 中的测试替身覆盖，`inspection-smoke.mjs` 再用本 fixture 在真实 Electron 上验证它们以及异常、调用栈的渲染；`interaction-smoke.mjs` 加载 `interaction.html`，在 2x 缩放下验证按 ref 点击和输入（可信事件、滚动、遮挡、禁用、受控输入框、中文、提交和过期 ref）。
 
 ## 安装
 

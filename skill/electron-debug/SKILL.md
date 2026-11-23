@@ -16,7 +16,8 @@ MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运
 | --- | --- | --- |
 | 连接 | `electron_attach` / `electron_targets` | 连接已运行的应用（主进程、renderer，可再加 utility process）；多窗口时明确选择 target（应用自己打开的 DevTools 窗口和 `<webview>` 不参与自动选择，不会造成歧义） |
 | 观察 | `electron_status` / `electron_logs` / `electron_wait_for` | 状态、统一时间线（main / renderer / utility，带 `seq`）、等待日志或表达式 |
-| 检查 | `electron_evaluate` / `electron_screenshot` / `electron_dom_snapshot` | 主进程、renderer 或 utility 求值、截图（保存为文件）、无障碍树文本 |
+| 检查 | `electron_evaluate` / `electron_screenshot` / `electron_dom_snapshot` | 主进程、renderer 或 utility 求值、截图（保存为文件）、无障碍树文本（可交互元素带 `[ref=…]`） |
+| 交互 | `electron_click` / `electron_type` | 按快照里的 ref 点击、输入，页面收到真实事件（`isTrusted` 为 true） |
 
 文本输出有大小上限，并按常见模式脱敏（尽力而为；截图不脱敏）。只允许回环地址。
 
@@ -33,7 +34,8 @@ MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运
 7. 多窗口应用里，`TARGET_SELECTION_REQUIRED` 时对照 `targets` 的 `title` 和 `url` 选择。窗口被重建（关闭后重开、重新加载到新的 target）时，原来选中的页面消失，重新发现后会自动改选另一个页面并返回 `TARGET_CHANGED` 警告：先确认新页面就是要验证的窗口，有意切换时传 `clearSelection`。
 8. attach 后缓冲区里可能已带有应用启动以来的历史事件（上限默认 500 条），并被重新编号；每个新进程都会重放一遍，`seq` 在不同进程间不可比。只想看本次连接之后的事件时，给 `electron_logs` 传 `sinceAttach: true`：每个通道只返回它最近一次连接之后的事件，不含重放的历史，注册 MCP 和批处理模式都适用。要从某个操作之后开始看，注册 MCP 时先用 `electron_status` 或 `electron_logs` 记下 `lastSeq`，之后用 `afterSeq`；批处理模式每次都是新进程，`seq` 不能跨次使用，同一次执行内用 `sinceAttach`。`electron_logs` 返回的 `gap` 为 `true` 说明缓冲区满过、所请求的范围内可能有事件被丢弃，缩短两次取证的间隔，或在 MCP 配置里调大 `ELECTRON_DEBUG_MAX_LOG_EVENTS`。
 9. 截图不脱敏；`electron_dom_snapshot` 只按常见密钥模式脱敏。两者都可能带出聊天标题、账号等个人内容。汇报只引用必要片段，不整段贴出。
-10. 本工具集不提供网络观察、断点、真实输入和性能分析，替代做法见下节。
+10. 回归要走界面时（改了按钮的处理、表单、跳转）：先 `electron_dom_snapshot` 找到元素的 ref，再 `electron_click` 或 `electron_type`，把返回的 `afterSeq` 传给 `electron_wait_for` 的 `log.afterSeq`（或用表达式条件）等结果，最后按证据矩阵在 main 和 renderer 两侧取证。工具本身不等待。`ELEMENT_COVERED` 说明有弹层或遮罩挡住，先处理它，不要绕过去用 `element.click()`；`REF_STALE` 说明页面重新渲染过，重新取快照。点击和输入会改变应用状态，和求值一样只用于验证，`ELECTRON_DEBUG_ALLOW_EVAL=0` 时一起禁用。
+11. 本工具集不提供网络观察、断点、拖拽悬停快捷键和性能分析，替代做法见下节。
 
 ## 启动参数
 
@@ -54,7 +56,7 @@ MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运
 | 调用栈 | 未捕获异常的事件自带栈，直接读 `electron_logs`。要看某处是怎么被调用到的，在该位置加 `console.trace('标记')`，热更新或重启后触发，再读日志 | 栈最多保留 10 帧；`console.log`、`console.error` 等不带栈。不能改代码的位置（依赖库、打包产物）无替代 |
 | 局部变量、中间值 | 在代码里 `console.log` 打印后读取日志；或直接用 `electron_evaluate` 读全局可达的状态 | 函数内部的局部变量只能靠打印 |
 | 断点、单步 | 不提供。`debugger;` 在本工具连接下不会暂停，也不要自行启用调试器，暂停会冻住应用 | 代码改不了（依赖库、打包产物）时无替代 |
-| 点击、输入 | `electron_evaluate`(renderer) 调用 `element.click()` 或 `dispatchEvent`；表单输入需用原生 setter 赋值后再派发 `input` 事件 | 事件的 `isTrusted` 为 false，依赖真实输入的逻辑覆盖不到，改用项目已有的测试工具 |
+| 下拉选择、快捷键、拖拽、悬停 | 原生 `<select>` 用 `electron_evaluate`(renderer) 设 `value` 后派发 `change`；自定义下拉框用 `electron_click` 先点开再点选项；快捷键、拖拽、悬停用 `dispatchEvent` 模拟 | 模拟事件的 `isTrusted` 为 false；输入法组合输入（composition）也不覆盖，依赖它们的逻辑改用项目已有的测试工具 |
 | 列出窗口 | `electron_evaluate`(main) 用 `process.mainModule.require('electron').BrowserWindow.getAllWindows()` | 只读窗口状态，不用于操作 |
 | 内存 | main 用 `process.memoryUsage()`；renderer 用 `performance.memory`（Chromium 非标准接口） | 只是当前读数，不能做泄漏分析 |
 | utility process 里的代码 | `electron_attach` 传 `utility`（fork 时的 `serviceName`，或 pid）。工具通过已连接的主进程用 `app.getAppMetrics()` 找到该进程，打开调试口并连接，成为独立的第三通道，与 main、renderer 同时在线，之后用 `electron_evaluate`(scope=`utility`) 和 `electron_logs`(process=`utility`) 观察。不需要自己查 pid 或调用 `process._debugProcess`。同名进程有多个时用 pid；一次只连一个 utility，再次 attach 其他 utility 会替换当前连接 | 需要主进程通道在线且未设置 `ELECTRON_DEBUG_ALLOW_EVAL=0`。调试口默认端口 9229，被占用时开口不报错也不会生效，attach 会返回 `UTILITY_INSPECTOR_UNAVAILABLE`；此时（或同时调试多个 utility 时）让 fork 带 `execArgv: ['--inspect-port=<各自空闲端口>']`（只指定端口，不自动开启）。开口用的 `process._debugProcess` 是未公开接口，查端口用 netstat（Windows）或 lsof（macOS/Linux）；已在 Windows、macOS、Linux 上用 fixture 锁定的 Electron 版本实测；CI 另在 Linux、Windows 上对 Electron 43、44 和最新稳定版运行同样的冒烟，其他版本以 attach 结果为准。查端口的命令无法运行时，错误的 `details.portLookupError` 会给出原因 |
@@ -94,7 +96,7 @@ attach 成功、无 console error 或工具返回 `ok` 都不足以判定 `PASS`
 
 ## 接入
 
-随包运行文件见 `runtime/launch.cjs`，需要 Node.js 20+。先执行 `node <absolute-skill-directory>/runtime/launch.cjs --verify`。校验失败或文件缺失时报告 `BLOCKED`，不要下载或在本机构建。之后二选一，两种方式提供同样的 8 个工具：
+随包运行文件见 `runtime/launch.cjs`，需要 Node.js 20+。先执行 `node <absolute-skill-directory>/runtime/launch.cjs --verify`。校验失败或文件缺失时报告 `BLOCKED`，不要下载或在本机构建。之后二选一，两种方式提供同样的 10 个工具：
 
 - **注册 MCP**：把同一入口注册为本地 stdio MCP Server，并确认工具可见。适合需要多轮、跨调用保持连接的诊断。
 - **不注册 MCP**：执行 `node <absolute-skill-directory>/runtime/launch.cjs --run`，在 stdin 传入 JSON 数组 `[{"tool":"electron_attach","arguments":{...}},{"tool":"electron_logs"}]`，同一进程内按顺序执行，stdout 输出 `{ok, results}`。进程退出后连接和日志缓存随之消失，每次执行都要从 `electron_attach` 开始。参数的形状（嵌套对象、枚举值）用 `launch.cjs --tools [工具名 ...]` 查（可以一次传几个名字，不传则列全部），输出每个工具的描述和 JSON Schema，不要猜，例如 `electron_wait_for` 的 `expression` 是 `{scope, expression}` 对象而不是字符串。

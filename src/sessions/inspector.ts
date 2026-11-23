@@ -6,6 +6,7 @@ import { renderAxTree, type AxNode } from "../ax-tree.js";
 import type { RuntimeConfig } from "../config.js";
 import { DiagnosticException, errorResult, toDiagnosticError } from "../errors.js";
 import { evaluateExpression, type EvaluateResult } from "../evaluate.js";
+import { clickRef, RefRegistry, typeRef, type ClickInput, type TypeInput } from "../interaction.js";
 import type {
   DiagnosticEvent,
   EvaluateScope,
@@ -99,7 +100,38 @@ function clamp(value: number | undefined, fallback: number, minimum: number, max
 }
 
 export class Inspector {
+  readonly refs = new RefRegistry();
+
   constructor(private readonly deps: InspectorDependencies) {}
+
+  async click(input: ClickInput): Promise<Result<Record<string, unknown>>> {
+    return this.interact((afterSeq) => clickRef(this.deps.renderer, this.refs, input).then((data) => ({ ...data, afterSeq })));
+  }
+
+  async type(input: TypeInput): Promise<Result<Record<string, unknown>>> {
+    return this.interact((afterSeq) => typeRef(this.deps.renderer, this.refs, input).then((data) => ({ ...data, afterSeq })));
+  }
+
+  // Input changes the app's state just as evaluated code can, so it is switched off by the same setting. afterSeq is
+  // the timeline position before the input: pass it to electron_wait_for or electron_logs to see what followed.
+  private async interact(
+    run: (afterSeq: number) => Promise<Record<string, unknown>>,
+  ): Promise<Result<Record<string, unknown>>> {
+    if (!this.deps.config.allowEval) {
+      return errorResult({
+        code: "INTERACTION_NOT_ALLOWED",
+        message: "宿主已通过 ELECTRON_DEBUG_ALLOW_EVAL=0 禁用执行代码，点击和输入随之禁用",
+        retryable: false,
+      });
+    }
+    const afterSeq = this.deps.lastSeq();
+    try {
+      const target = this.deps.renderer.snapshot().selectedTarget;
+      return { ok: true, data: { ...(await run(afterSeq)), targetId: target?.id } };
+    } catch (error) {
+      return errorResult(toDiagnosticError(error, "INTERACTION_FAILED"));
+    }
+  }
 
   async evaluate(input: EvaluateInput): Promise<Result<EvaluateResult & { scope: EvaluateScope; targetId?: string }>> {
     const session = input.scope === "main"
@@ -239,8 +271,9 @@ export class Inspector {
         {},
         Math.max(this.deps.config.requestTimeoutMs, 10_000),
       ) as { nodes?: AxNode[] };
-      const rendering = renderAxTree(response.nodes ?? [], clamp(input.maxNodes, 400, 1, 2_000));
       const target = this.deps.renderer.snapshot().selectedTarget;
+      const assignRef = target ? this.refs.begin(target.id) : undefined;
+      const rendering = renderAxTree(response.nodes ?? [], clamp(input.maxNodes, 400, 1, 2_000), assignRef);
       return { ok: true, data: { targetId: target?.id, url: await this.currentUrl(), ...rendering } };
     } catch (error) {
       return errorResult(toDiagnosticError(error, "SNAPSHOT_FAILED"));

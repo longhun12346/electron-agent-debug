@@ -1,6 +1,6 @@
 {
   "name": "electron-agent-debug",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Electron runtime diagnostics MCP server (attach, inspect, evaluate, screenshot) and Agent skill guidance.",
   "license": "MIT",
   "private": true,

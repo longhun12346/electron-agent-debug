@@ -1,5 +1,16 @@
 # 版本记录
 
+## 1.5.0
+
+- MCP 0.6.0：新增 `electron_click` 和 `electron_type`，工具从 8 个变为 10 个。依据：社区里点赞最多的 Electron 需求是让 Agent 能操作界面；此前证据矩阵要求覆盖调用链的回归，但只能用 `element.click()`，事件的 `isTrusted` 为 false。
+- `electron_dom_snapshot` 给可点击、可输入的节点标上 `[ref=eN]`，结果新增 `refCount`。同一页面里同一元素的 ref 在多次快照间不变；只接受当前页面最近一次快照里的 ref，别的页面或已移除的元素返回 `REF_STALE`，未知的返回 `REF_NOT_FOUND`。
+- `electron_click`：滚动到可见处，点击元素中心，用 CDP `Input.dispatchMouseEvent`。点击前做命中检测，中心被其他元素挡住时返回 `ELEMENT_COVERED` 并说明挡住它的元素，不点击；禁用返回 `ELEMENT_DISABLED`，没有可点区域返回 `ELEMENT_NOT_VISIBLE`。支持 `doubleClick`。
+- `electron_type`：聚焦、默认全选替换（`clear: false` 时追加），用 `Input.insertText` 写入，支持中文，React 这类受控输入框也能保留输入；`submit` 时按 Enter。不可编辑时返回 `ELEMENT_NOT_EDITABLE`。返回输入后的值，密码框脱敏。
+- 两个工具都返回 `afterSeq`，交给 `electron_wait_for` 等待结果，不内置隐式等待。`ELECTRON_DEBUG_ALLOW_EVAL=0` 时一起禁用（`INTERACTION_NOT_ALLOWED`）。输入事件超时且页面不可见时，`hint` 提示先恢复最小化的窗口。
+- 在真实 Electron 43、2x 缩放下实测：坐标无需按缩放换算；滚动后的命中检测要换成文档坐标（否则返回 “No node found at given location”，已修正）；隐藏窗口可以输入，最小化窗口可能丢弃点击。新增 `examples/fixture/interaction-smoke.mjs`，覆盖可信事件、滚动、遮挡、禁用、受控输入框、中文、提交和过期 ref，加入 CI 和 Electron 版本矩阵。
+- 不做：拖拽、悬停、快捷键、原生 `<select>` 的键盘选择、输入法组合输入。SKILL.md 的替代做法表相应更新。
+- 已注册 MCP 的宿主需要刷新工具列表，确认 10 个工具可见；原有工具的参数和字段不变。
+
 ## 1.4.0
 
 依据社区同类工具的 issue 调研：用户反馈最集中的是连错页面、attach 失败原因不明、截图太大和被对话框卡住。

@@ -53,6 +53,7 @@ GitHub Release 的 Skill ZIP 附带构建来源证明，绑定发布工作流及
 | 连接 | `electron_attach`、`electron_targets` |
 | 观察 | `electron_status`、`electron_logs`、`electron_wait_for` |
 | 检查 | `electron_evaluate`、`electron_screenshot`、`electron_dom_snapshot` |
+| 交互 | `electron_click`、`electron_type`（按快照里的 `[ref=…]` 发送真实输入） |
 
 MCP 只 attach，不启动应用：Agent 用项目已有命令启动 Electron 并加上 `--inspect`、`--remote-debugging-port`，再用 `electron_attach` 传入实际 endpoint。`electron_evaluate` 和表达式型 `electron_wait_for` 默认开启，宿主可在 MCP 配置的 env 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用。截图保存到 `ELECTRON_DEBUG_OUTPUT_DIR`（默认系统临时目录，保留最近 50 张）。
 
@@ -82,7 +83,7 @@ Agent 可以使用本项目完成：
 - 不启动、停止或重启应用，只连接 Agent 已启动的应用。
 - 输出有大小上限，并对常见密钥字段脱敏。
 - 不含任何项目专属逻辑。
-- 不提供通用桌面自动化、网络录制、性能分析、heap snapshot 或源码级断点调试。
+- 点击和输入只按无障碍树 ref 操作当前页面；不提供拖拽、悬停、快捷键等通用桌面自动化，也不提供网络录制、性能分析、heap snapshot 或源码级断点调试。
 - 不提供原生对话框或菜单的自动化替身；窗口隐藏或最小化时无法截图。
 
 ## Agent 使用诊断流程

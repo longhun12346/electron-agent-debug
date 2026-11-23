@@ -96,7 +96,8 @@ export const inspectionTools = [
     title: "Snapshot the renderer accessibility tree",
     description:
       "读取当前 renderer 的无障碍树并渲染为缩进文本（role \"name\" value 及 disabled/checked 等状态），有节点数上限。" +
-      "不在页面中执行脚本，可用于附加模式。",
+      "不在页面中执行脚本，可用于附加模式。可点击或可输入的元素带 [ref=e12] 标记，传给 electron_click、electron_type；" +
+      "同一元素在同一页面的多次快照里 ref 不变，只有最近一次快照里的 ref 可用。",
     inputSchema: snapshotSchema,
     handler: async (manager, input) => {
       const result = await manager.inspector.domSnapshot(input);

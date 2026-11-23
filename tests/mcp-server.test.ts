@@ -141,7 +141,7 @@ test("registers the diagnostic, lifecycle and inspection tools", async () => {
       [
         "electron_attach", "electron_status", "electron_targets", "electron_logs",
         "electron_evaluate", "electron_wait_for", "electron_screenshot",
-        "electron_dom_snapshot",
+        "electron_dom_snapshot", "electron_click", "electron_type",
       ],
     );
   } finally {

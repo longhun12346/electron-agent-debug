@@ -24,7 +24,7 @@ node <absolute-skill-directory>/runtime/launch.cjs --verify
 
 如果全局 Skill 和项目级 Skill 同时存在，应优先遵守项目级规则，并保留本 Skill 的 MCP 前提、端点安全和证据要求。项目级副本可以随项目提交，从而避免全局 Skill 更新后改变已有项目的诊断行为。
 
-当前仓库没有跨宿主的 Skill 安装器或自动注册机制。安装完成后，Agent 仍必须单独配置 MCP，并通过 `initialize`、`tools/list` 或宿主等价界面确认 8 个工具可见（attach、status、targets、logs、evaluate、wait_for、screenshot、dom_snapshot）。
+当前仓库没有跨宿主的 Skill 安装器或自动注册机制。安装完成后，Agent 仍必须单独配置 MCP，并通过 `initialize`、`tools/list` 或宿主等价界面确认 10 个工具可见（attach、status、targets、logs、evaluate、wait_for、screenshot、dom_snapshot、click、type）。
 
 ## Agent 宿主接入
 

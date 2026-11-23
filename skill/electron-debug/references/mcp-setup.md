@@ -43,7 +43,7 @@ gh attestation verify <absolute-release-zip> --repo longhun12346/electron-agent-
 }
 ```
 
-这是概念示例，字段与刷新方式以实际宿主为准。已存在相同 Server 时先核对其入口和版本，避免重复注册。刷新后确认全部 8 个工具可见：`electron_attach`、`electron_status`、`electron_targets`、`electron_logs`、`electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`。MCP 启动成功不代表 Electron 已启动或业务已通过。
+这是概念示例，字段与刷新方式以实际宿主为准。已存在相同 Server 时先核对其入口和版本，避免重复注册。刷新后确认全部 10 个工具可见：`electron_attach`、`electron_status`、`electron_targets`、`electron_logs`、`electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`、`electron_click`、`electron_type`。MCP 启动成功不代表 Electron 已启动或业务已通过。
 
 ## 不注册 MCP：批处理模式
 
@@ -56,7 +56,7 @@ node <absolute-skill-directory>/runtime/launch.cjs --run
 stdin 传入 JSON 数组，每项为 `{"tool": "<工具名>", "arguments": {...}, "continueOnError": false}`，`arguments` 和 `continueOnError` 可省略。工具名和参数与 MCP 完全相同。没有 MCP 就没有 `tools/list`，不要猜参数的形状，先用 `--tools` 查：
 
 ```text
-node <absolute-skill-directory>/runtime/launch.cjs --tools                                   # 全部 8 个工具
+node <absolute-skill-directory>/runtime/launch.cjs --tools                                   # 全部 10 个工具
 node <absolute-skill-directory>/runtime/launch.cjs --tools electron_wait_for                 # 只看一个
 node <absolute-skill-directory>/runtime/launch.cjs --tools electron_attach electron_logs     # 一次看几个，按给的顺序输出
 ```

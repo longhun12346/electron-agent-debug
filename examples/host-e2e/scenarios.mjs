@@ -4,6 +4,7 @@ import { hasExpectedEvidence } from "../fixture/smoke-assertions.mjs";
 export const allTools = [
   "electron_attach", "electron_status", "electron_targets", "electron_logs",
   "electron_evaluate", "electron_wait_for", "electron_screenshot", "electron_dom_snapshot",
+    "electron_click", "electron_type",
 ];
 
 // Pairs each tools/call request of an MCP trace with the structured result the server answered.

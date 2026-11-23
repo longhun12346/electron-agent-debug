@@ -6,6 +6,7 @@ interface AxValue {
 
 export interface AxNode {
   nodeId: string;
+  backendDOMNodeId?: number;
   parentId?: string;
   childIds?: string[];
   ignored?: boolean;
@@ -19,7 +20,20 @@ export interface AxRendering {
   text: string;
   nodeCount: number;
   truncated: boolean;
+  /** Number of nodes tagged with a ref; only present when refs were requested. */
+  refCount?: number;
 }
+
+/** Gives the ref of an interactive node, or undefined to leave it untagged. */
+export type RefAssigner = (node: AxNode, role: string, name: string) => string | undefined;
+
+// Roles an agent can click or type into. Containers, text and landmarks get no ref: a ref on them would only invite
+// clicks that land on whatever happens to be in their centre.
+export const interactiveRoles = new Set([
+  "button", "link", "checkbox", "radio", "switch", "tab", "menuitem", "menuitemcheckbox", "menuitemradio",
+  "option", "treeitem", "textbox", "searchbox", "combobox", "spinbutton", "slider", "listbox", "ComboBoxSelect",
+  "ComboBoxMenuButton", "PopUpButton", "DisclosureTriangle",
+]);
 
 const passThroughRoles = new Set([
   "none", "presentation", "generic", "InlineTextBox", "LineBreak", "ignored",
@@ -54,11 +68,12 @@ function propertyLabels(node: AxNode): string {
   return labels.length ? ` ${labels.join("")}` : "";
 }
 
-export function renderAxTree(nodes: AxNode[], maxNodes: number): AxRendering {
+export function renderAxTree(nodes: AxNode[], maxNodes: number, assignRef?: RefAssigner): AxRendering {
   const byId = new Map(nodes.map((node) => [node.nodeId, node]));
   const roots = nodes.filter((node) => !node.parentId || !byId.has(node.parentId));
   const lines: string[] = [];
   let truncated = false;
+  let refCount = 0;
 
   const stack: Array<{ node: AxNode; depth: number; parentName: string }> = roots
     .map((node) => ({ node, depth: 0, parentName: "" }))
@@ -78,7 +93,11 @@ export function renderAxTree(nodes: AxNode[], maxNodes: number): AxRendering {
       }
       const value = clean(node.value?.value);
       const label = `${role}${name ? ` "${name}"` : ""}${value ? ` value="${value}"` : ""}`;
-      lines.push(`${"  ".repeat(depth)}${label}${propertyLabels(node)}`);
+      const ref = assignRef && interactiveRoles.has(role) && node.backendDOMNodeId !== undefined
+        ? assignRef(node, role, name)
+        : undefined;
+      if (ref !== undefined) refCount += 1;
+      lines.push(`${"  ".repeat(depth)}${label}${propertyLabels(node)}${ref !== undefined ? ` [ref=${ref}]` : ""}`);
       childDepth = depth + 1;
       childParentName = name;
     }
@@ -89,5 +108,10 @@ export function renderAxTree(nodes: AxNode[], maxNodes: number): AxRendering {
       stack.push({ node: children[index]!, depth: childDepth, parentName: childParentName });
     }
   }
-  return { text: redact(lines.join("\n")), nodeCount: lines.length, truncated };
+  return {
+    text: redact(lines.join("\n")),
+    nodeCount: lines.length,
+    truncated,
+    ...(assignRef ? { refCount } : {}),
+  };
 }

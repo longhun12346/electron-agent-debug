@@ -152,7 +152,7 @@ test("--tools lists every tool with its input as JSON Schema, so batch callers n
   const names = output.tools!.map((tool) => tool.name);
   assert.deepEqual(names, [
     "electron_attach", "electron_status", "electron_targets", "electron_logs",
-    "electron_evaluate", "electron_wait_for", "electron_screenshot", "electron_dom_snapshot",
+    "electron_evaluate", "electron_wait_for", "electron_screenshot", "electron_dom_snapshot", "electron_click", "electron_type",
   ]);
   for (const tool of output.tools!) {
     assert.ok(tool.description.length > 0, `${tool.name} has no description`);

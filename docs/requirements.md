@@ -23,7 +23,7 @@ Electron 应用的主进程和渲染进程使用不同的调试入口：
 
 编码 Agent 需要同时查看两个进程的状态，才能处理白屏、窗口创建失败、preload 注入失败、IPC 失效、主进程异常和前端运行时错误等问题。
 
-现有大型 Electron 调试工具的工具数量和依赖较多。本项目保持轻量实现，只提供 Agent 调试真正需要的工具集（当前 8 个），并通过一个薄 Skill 给出使用建议。
+现有大型 Electron 调试工具的工具数量和依赖较多。本项目保持轻量实现，只提供 Agent 调试真正需要的工具集（当前 10 个），并通过一个薄 Skill 给出使用建议。
 
 ## 2. 目标
 
@@ -44,7 +44,7 @@ Electron 应用的主进程和渲染进程使用不同的调试入口：
 - MCP Server 使用 WebSocket 连接 Node Inspector 和 CDP。
 - 只允许连接回环地址：`127.0.0.1`、`::1` 或 `localhost`。
 - 不设置任何固定端口。Agent 按诊断范围提供实际 endpoint；至少提供一个 endpoint 才能执行 attach。
-- 当前对外工具共 8 个：attach、status、targets、logs（Phase 1 基线），以及 evaluate、wait_for、screenshot、dom_snapshot。会弹出原生对话框的流程由 Agent 提示用户人工操作，不提供自动化替身。
+- 当前对外工具共 10 个：attach、status、targets、logs（Phase 1 基线），evaluate、wait_for、screenshot、dom_snapshot，以及最小交互 click、type。会弹出原生对话框的流程由 Agent 提示用户人工操作，不提供自动化替身。
 - 表达式执行必须有超时和结果大小限制，默认开启，宿主可用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用。
 - 渲染进程 reload 或窗口销毁后，Agent 再次调用 `electron_attach` 或 `electron_targets` 时能够重新发现 target。
 - 连接断开后，`electron_attach` 或 `electron_targets` 会进行有限恢复；`electron_status` 和 `electron_logs` 只返回当前已缓存的状态和事件。
@@ -235,6 +235,18 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 
 读取当前 renderer 的无障碍树（`Accessibility.getFullAXTree`），渲染为缩进文本（`role "name" value=".." [状态]`），忽略的节点被穿透，与父节点同名的静态文本被合并，输入框的值经过脱敏。节点数有上限（默认 400，最多 2000），超限标记 `truncated`。不在页面执行脚本，附加模式也可使用。
 
+可点击或可输入的节点（button、link、checkbox、radio、switch、tab、menuitem、option、treeitem、textbox、searchbox、combobox、spinbutton、slider、listbox 等）且对应 DOM 节点时，行尾带 `[ref=eN]`，结果带 `refCount`。同一页面里同一 DOM 节点的 ref 在多次快照间不变；只接受当前选中页面最近一次快照里的 ref。
+
+#### `electron_click`
+
+输入 `ref`、可选 `doubleClick`。依次：解析 ref（不在最近一次快照里 `REF_NOT_FOUND`，属于别的页面或节点已不在文档里 `REF_STALE`）；检查禁用（`ELEMENT_DISABLED`）；`DOM.scrollIntoViewIfNeeded`；取 `DOM.getContentQuads` 最大四边形的中心（视口 CSS 像素，高分屏无需换算），没有可点区域时 `ELEMENT_NOT_VISIBLE`；在该点做 `DOM.getNodeForLocation`（加上滚动偏移换成文档坐标），命中的不是元素本身、其后代或关联 label 时返回 `ELEMENT_COVERED` 并在 `details.coveredBy` 描述挡住它的元素，不点击；最后用 `Input.dispatchMouseEvent` 发送 moved、pressed、released，页面收到的事件 `isTrusted` 为 true。返回 ref、role、name、坐标和 `afterSeq`（操作前的 `lastSeq`）。不内置等待，结果由 Agent 用 `electron_wait_for` 或 `electron_logs` 的 `afterSeq` 观察。
+
+#### `electron_type`
+
+输入 `ref`、`text`，可选 `clear`（默认 true）、`submit`。目标必须是可编辑的文本输入、textarea 或 contenteditable 且未禁用、非只读，否则 `ELEMENT_NOT_EDITABLE`。聚焦后全选已有内容（`clear: false` 时把光标放到末尾），用 `Input.insertText` 写入，空文本且 clear 时按 Delete；`submit` 时再按 Enter。返回输入后的 `value`（密码框为 `[REDACTED]`，其余脱敏，最多 500 字符）。`insertText` 不产生 composition 事件。
+
+点击和输入都在 `ELECTRON_DEBUG_ALLOW_EVAL=0` 时返回 `INTERACTION_NOT_ALLOWED`。输入事件超时且页面处于 hidden 状态时，`hint` 提示先恢复最小化的窗口。
+
 重连、target 重新发现和 Session 重建属于 MCP Server 内部行为，不单独暴露为工具。`electron_attach` 必须幂等，并在连接失效时重新发现端点和 target。
 
 ### P1：可选调试增强
@@ -301,7 +313,7 @@ Skill 必须明确以下判断规则：
 ## 7. 非目标
 
 - 由 MCP Server 替用户猜测开发命令、入口文件或窗口，或同时管理多个应用。
-- 提供完整桌面 UI 自动化。
+- 提供完整桌面 UI 自动化。点击和输入只到“按无障碍树 ref 操作当前页面”为止，不做拖拽、悬停、快捷键、原生 `<select>` 的键盘选择、输入法组合输入或录制回放；交互之后的验证仍由 Agent 用诊断工具完成。
 - 提供完整网络录制、性能分析、heap snapshot、HAR 导出或源码级调试器。
 - 连接公网或局域网中的远程 Electron 应用。
 
