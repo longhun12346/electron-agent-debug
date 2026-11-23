@@ -1,5 +1,15 @@
 # 版本记录
 
+## 1.5.1
+
+- MCP 0.6.1：`electron_wait_for` 的 log 条件新增 `sinceAttach`，规则同 `electron_logs`。命中的事件早于该通道最近一次连接时，结果带 `beforeAttach: true` 和 `hint`。依据：在 field 应用上实测，批处理第一次执行点击 Save，第二次执行什么都不做，等同一条主进程报错却在 0ms 内命中了重放的旧日志；修复后验证时，Agent 会把上一轮的报错当成这一轮的结果。默认仍检查重放的历史，因为启动期间的错误也是证据。
+- host e2e 的 `click-save` 场景改为要求用 `electron_click` 点击快照里 Save 的 ref；用 `electron_evaluate` 执行 `.click()` 的运行判为失败，只认点击之后的日志。此前它要求 renderer 里执行过求值，按 SKILL.md 建议只用 `electron_click` 的模型反而通不过。参考解法支持由前面结果计算参数。
+- `electron_click`、`electron_type` 可以不传 ref，改传 `role` 和 `name`（与快照行里显示的一致），在整个页面里按完全一致查找；多个匹配返回 `ELEMENT_AMBIGUOUS` 并列出候选，没有匹配返回 `ELEMENT_NOT_FOUND`。批处理一次执行就能完成"点击、等结果"。
+- ref 改为每个进程随机的三个字母前缀加序号（如 `kqx12`，此前是 `e12`）。依据：在 field 应用上实测，批处理第一次执行取到 Save 的 ref，页面顶部插入一个按钮后，第二次执行点击同一个 ref，实际点到了 Name 输入框并返回 ok。现在其他进程的 ref 返回 `REF_NOT_FOUND`，`hint` 建议改用 role 和 name。
+- `electron_dom_snapshot` 新增 `interactive: true`，只列可交互元素和标题；已包含在父节点名字里的静态文本不再单独一行；链接 url 里的长查询串缩写为 `?…`。实测在表单前插入 150 条会话的侧栏：此前默认快照 400 行截断、看不到 Save，现在默认快照也能看到（26 KB，原 36 KB），`interactive` 为 155 行、不截断。
+- 页面崩溃时清除它打开的 JavaScript 对话框记录。依据：实测 alert 打开时崩溃，Chromium 不发 Closed 事件，重新加载后 `electron_status` 仍报告一个阻塞的对话框，之后的超时都会被归因于它。alert 打开时 reload 不会留下记录：页面要等对话框关闭后才导航。
+- SKILL.md 第 2 条说明 `beforeAttach`，第 10 条补充 role 和 name、批处理和长页面的用法。
+
 ## 1.5.0
 
 - MCP 0.6.0：新增 `electron_click` 和 `electron_type`，工具从 8 个变为 10 个。依据：社区里点赞最多的 Electron 需求是让 Agent 能操作界面；此前证据矩阵要求覆盖调用链的回归，但只能用 `element.click()`，事件的 `isTrusted` 为 false。

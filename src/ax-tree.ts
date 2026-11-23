@@ -51,6 +51,12 @@ function clean(value: unknown): string {
   return text.length > textLimit ? `${text.slice(0, textLimit)}...` : text;
 }
 
+// A long query string (dev builds often carry a session or run id there) repeats on every link; the hash is kept.
+function shortUrl(value: string): string {
+  const query = /\?[^#]*/u.exec(value);
+  return query && query[0].length > 30 ? value.replace(query[0], "?…") : value;
+}
+
 function propertyLabels(node: AxNode): string {
   const labels: string[] = [];
   for (const property of node.properties ?? []) {
@@ -62,13 +68,27 @@ function propertyLabels(node: AxNode): string {
       labels.push(`[${property.name}]`);
     } else if ((value === false && ["checked", "expanded"].includes(property.name)) ||
         typeof value === "string" || typeof value === "number") {
-      labels.push(`[${property.name}=${clean(value)}]`);
+      const text = property.name === "url" && typeof value === "string" ? shortUrl(value) : value;
+      labels.push(`[${property.name}=${clean(text)}]`);
     }
   }
   return labels.length ? ` ${labels.join("")}` : "";
 }
 
-export function renderAxTree(nodes: AxNode[], maxNodes: number, assignRef?: RefAssigner): AxRendering {
+export interface RenderOptions {
+  /** Keep only nodes that get a ref, plus headings for orientation. */
+  interactive?: boolean;
+}
+
+// Headings stay in an interactive rendering so the elements can be told apart by the section they are in.
+const landmarkRoles = new Set(["heading"]);
+
+export function renderAxTree(
+  nodes: AxNode[],
+  maxNodes: number,
+  assignRef?: RefAssigner,
+  options: RenderOptions = {},
+): AxRendering {
   const byId = new Map(nodes.map((node) => [node.nodeId, node]));
   const roots = nodes.filter((node) => !node.parentId || !byId.has(node.parentId));
   const lines: string[] = [];
@@ -82,8 +102,11 @@ export function renderAxTree(nodes: AxNode[], maxNodes: number, assignRef?: RefA
     const { node, depth, parentName } = stack.pop()!;
     const role = clean(node.role?.value) || "unknown";
     const name = clean(node.name?.value);
+    // Text already in the name of its parent (a link or button usually names itself after its text) adds nothing.
     const passThrough = node.ignored === true || passThroughRoles.has(role) ||
-      (role === "StaticText" && name === parentName);
+      (role === "StaticText" && name !== "" && parentName.includes(name)) ||
+      (options.interactive === true && !landmarkRoles.has(role) &&
+        !(interactiveRoles.has(role) && node.backendDOMNodeId !== undefined));
     let childDepth = depth;
     let childParentName = parentName;
     if (!passThrough) {
@@ -99,6 +122,9 @@ export function renderAxTree(nodes: AxNode[], maxNodes: number, assignRef?: RefA
       if (ref !== undefined) refCount += 1;
       lines.push(`${"  ".repeat(depth)}${label}${propertyLabels(node)}${ref !== undefined ? ` [ref=${ref}]` : ""}`);
       childDepth = depth + 1;
+      childParentName = name;
+    } else if (name !== "" && !passThroughRoles.has(role) && node.ignored !== true) {
+      // A node left out of an interactive rendering still names its text children.
       childParentName = name;
     }
     const children = (node.childIds ?? [])

@@ -19,6 +19,7 @@ const waitSchema = z.object({
     process: z.enum(["main", "renderer", "utility", "all"]).optional(),
     level: z.string().optional(),
     afterSeq: z.number().int().min(0).optional(),
+    sinceAttach: z.boolean().optional(),
   }).optional(),
   expression: z.object({
     scope: scopeSchema,
@@ -36,6 +37,7 @@ const screenshotSchema = z.object({
 
 const snapshotSchema = z.object({
   maxNodes: z.number().int().min(1).max(2_000).optional(),
+  interactive: z.boolean().optional(),
 });
 
 export const inspectionTools = [
@@ -56,7 +58,8 @@ export const inspectionTools = [
     name: "electron_wait_for",
     title: "Wait for a runtime condition",
     description:
-      "等待一个条件成立，超时返回 WAIT_TIMEOUT。二选一：log（事件消息包含 contains，默认也检查已缓存事件，可用 afterSeq 只看之后的事件）、" +
+      "等待一个条件成立，超时返回 WAIT_TIMEOUT。二选一：log（事件消息包含 contains，默认也检查已缓存事件，包括 attach 时重放的应用历史输出；" +
+      "afterSeq 只看之后的事件，sinceAttach 只看各通道最近一次连接之后的事件。命中该通道最近一次连接之前的事件时结果带 beforeAttach: true，它不是本次连接期间产生的）、" +
       "expression（反复执行表达式直到返回真值，规则同 electron_evaluate）。",
     inputSchema: waitSchema,
     handler: async (manager, input) => {
@@ -96,8 +99,10 @@ export const inspectionTools = [
     title: "Snapshot the renderer accessibility tree",
     description:
       "读取当前 renderer 的无障碍树并渲染为缩进文本（role \"name\" value 及 disabled/checked 等状态），有节点数上限。" +
-      "不在页面中执行脚本，可用于附加模式。可点击或可输入的元素带 [ref=e12] 标记，传给 electron_click、electron_type；" +
-      "同一元素在同一页面的多次快照里 ref 不变，只有最近一次快照里的 ref 可用。",
+      "不在页面中执行脚本，可用于附加模式。可点击或可输入的元素带 [ref=kqx12] 标记，传给 electron_click、electron_type；" +
+      "同一元素在同一页面的多次快照里 ref 不变，只有最近一次快照里的 ref 可用；ref 只在本进程内有效（批处理每次执行都是新进程）。" +
+      "页面很长（如几百条的列表）时默认 400 行会被截断（truncated 为 true），后面的元素拿不到 ref：" +
+      "传 interactive: true 只列可交互元素和标题，或直接用 role 和 name 调用 electron_click、electron_type。",
     inputSchema: snapshotSchema,
     handler: async (manager, input) => {
       const result = await manager.inspector.domSnapshot(input);

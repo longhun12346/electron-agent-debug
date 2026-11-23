@@ -216,7 +216,7 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 
 等待一个条件成立，超时返回 `WAIT_TIMEOUT`（含最后的 `lastSeq` 和最近错误）。二选一：
 
-- `log`：事件消息包含 `contains`，可限定 `process`、`level`，默认也检查已缓存事件，`afterSeq` 只看其后事件。
+- `log`：事件消息包含 `contains`，可限定 `process`、`level`，默认也检查已缓存事件，`afterSeq` 只看其后事件，`sinceAttach` 只看各通道最近一次连接之后的事件（规则同 `electron_logs`）。命中的事件早于该通道最近一次连接（attach 时重放的历史，或之前连接期间的输出）时，结果带 `beforeAttach: true` 和 `hint`：同样的文本常来自上一轮操作，不能证明本次操作的结果。默认不排除这些事件，因为启动期间、attach 之前发生的错误也是要读的证据。
 - `expression`：按 `intervalMs`（50 毫秒至 5 秒）反复执行表达式直到返回真值，规则同 evaluate。
 
 `timeoutMs` 默认 10 秒，上限 120 秒。
@@ -225,7 +225,7 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 
 所有错误保留底层报错作为 `message`，可附可选的 `hint` 说明下一步。attach 失败按原因给出提示：端口没有进程监听（`ECONNREFUSED`，提示启动参数、`ELECTRON_RUN_AS_NODE`、`EnableNodeCliInspectArguments` fuse）、端口不响应、端口有响应但返回的不是调试协议、`mainUrl` 实际是 renderer 端口（返回 page 而没有 node target，不连接）、`rendererUrl` 实际是主进程 Inspector（只有 node target）。
 
-`electron_status` 和各通道快照的 `dialogs` 列出等待用户操作的对话框：renderer 通过 `Page.javascriptDialogOpening/Closed` 报告页面的 JavaScript 对话框；允许求值时，主进程在 attach 后包装 `dialog` 模块的函数，通过 `Runtime.addBinding` 报告打开和关闭（Electron 自己为页面 alert 调用的不报告，避免重复）。每项含 `process`、`kind`（`javascript` / `native`）、`type`、`blocking`、脱敏截断后的 `title`/`message` 和 `openedAt`。打开和关闭写入时间线（`kind: "dialog"`）。有阻塞的对话框时请求超时，错误的 `hint` 说明原因，`details.dialog` 给出对话框。
+`electron_status` 和各通道快照的 `dialogs` 列出等待用户操作的对话框：renderer 通过 `Page.javascriptDialogOpening/Closed` 报告页面的 JavaScript 对话框；允许求值时，主进程在 attach 后包装 `dialog` 模块的函数，通过 `Runtime.addBinding` 报告打开和关闭（Electron 自己为页面 alert 调用的不报告，避免重复）。每项含 `process`、`kind`（`javascript` / `native`）、`type`、`blocking`、脱敏截断后的 `title`/`message` 和 `openedAt`。打开和关闭写入时间线（`kind: "dialog"`）。有阻塞的对话框时请求超时，错误的 `hint` 说明原因，`details.dialog` 给出对话框。页面崩溃时对话框随页面消失，Chromium 不发 Closed 事件，记录在 `Inspector.targetCrashed` 时清除，日志写 `closed (the page crashed)`。alert 打开时 reload 不需要特殊处理：被阻塞的页面要等对话框关闭后才会导航，那时 Closed 事件已经到达（Electron 43 实测）。
 
 #### `electron_screenshot`
 
@@ -233,17 +233,17 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 
 #### `electron_dom_snapshot`
 
-读取当前 renderer 的无障碍树（`Accessibility.getFullAXTree`），渲染为缩进文本（`role "name" value=".." [状态]`），忽略的节点被穿透，与父节点同名的静态文本被合并，输入框的值经过脱敏。节点数有上限（默认 400，最多 2000），超限标记 `truncated`。不在页面执行脚本，附加模式也可使用。
+读取当前 renderer 的无障碍树（`Accessibility.getFullAXTree`），渲染为缩进文本（`role "name" value=".." [状态]`），忽略的节点被穿透，已包含在父节点名字里的静态文本不再单独输出，链接 url 里超过 30 个字符的查询串缩写为 `?…`（保留 hash），输入框的值经过脱敏。节点数有上限（默认 400，最多 2000），超限标记 `truncated`。`interactive: true` 只输出带 ref 的节点和标题，长列表页面也能放下全部可交互元素（实测 150 条会话的侧栏：155 行，不截断）。不在页面执行脚本，附加模式也可使用。
 
-可点击或可输入的节点（button、link、checkbox、radio、switch、tab、menuitem、option、treeitem、textbox、searchbox、combobox、spinbutton、slider、listbox 等）且对应 DOM 节点时，行尾带 `[ref=eN]`，结果带 `refCount`。同一页面里同一 DOM 节点的 ref 在多次快照间不变；只接受当前选中页面最近一次快照里的 ref。
+可点击或可输入的节点（button、link、checkbox、radio、switch、tab、menuitem、option、treeitem、textbox、searchbox、combobox、spinbutton、slider、listbox 等）且对应 DOM 节点时，行尾带 `[ref=…]`，结果带 `refCount`。ref 由每个进程随机的三个字母前缀加序号组成（如 `kqx12`）。同一页面里同一 DOM 节点的 ref 在多次快照间不变；只接受当前选中页面最近一次快照里的 ref。前缀的作用：批处理每次执行都是新进程，若都从同一编号开始，上一次执行的 ref 在页面变化后会指向另一个元素并被静默点击（实测：Save 的 ref 点到了 Name 输入框，结果为 ok）；有了前缀，这样的 ref 返回 `REF_NOT_FOUND`，`hint` 建议改用 role 和 name。
 
 #### `electron_click`
 
-输入 `ref`、可选 `doubleClick`。依次：解析 ref（不在最近一次快照里 `REF_NOT_FOUND`，属于别的页面或节点已不在文档里 `REF_STALE`）；检查禁用（`ELEMENT_DISABLED`）；`DOM.scrollIntoViewIfNeeded`；取 `DOM.getContentQuads` 最大四边形的中心（视口 CSS 像素，高分屏无需换算），没有可点区域时 `ELEMENT_NOT_VISIBLE`；在该点做 `DOM.getNodeForLocation`（加上滚动偏移换成文档坐标），命中的不是元素本身、其后代或关联 label 时返回 `ELEMENT_COVERED` 并在 `details.coveredBy` 描述挡住它的元素，不点击；最后用 `Input.dispatchMouseEvent` 发送 moved、pressed、released，页面收到的事件 `isTrusted` 为 true。返回 ref、role、name、坐标和 `afterSeq`（操作前的 `lastSeq`）。不内置等待，结果由 Agent 用 `electron_wait_for` 或 `electron_logs` 的 `afterSeq` 观察。
+输入 `ref`，或 `role` 加 `name`（二选一），可选 `doubleClick`。按 role 和 name 时先读取整个页面的无障碍树（不受快照行数上限影响，并作为最近一次快照），按完全一致匹配（name 的空白归一），多个匹配返回 `ELEMENT_AMBIGUOUS` 并列出候选，没有匹配返回 `ELEMENT_NOT_FOUND` 并列出名字相近的元素。之后依次：解析 ref（不在最近一次快照里 `REF_NOT_FOUND`，属于别的页面或节点已不在文档里 `REF_STALE`）；检查禁用（`ELEMENT_DISABLED`）；`DOM.scrollIntoViewIfNeeded`；取 `DOM.getContentQuads` 最大四边形的中心（视口 CSS 像素，高分屏无需换算），没有可点区域时 `ELEMENT_NOT_VISIBLE`；在该点做 `DOM.getNodeForLocation`（加上滚动偏移换成文档坐标），命中的不是元素本身、其后代或关联 label 时返回 `ELEMENT_COVERED` 并在 `details.coveredBy` 描述挡住它的元素，不点击；最后用 `Input.dispatchMouseEvent` 发送 moved、pressed、released，页面收到的事件 `isTrusted` 为 true。返回 ref、role、name、坐标和 `afterSeq`（操作前的 `lastSeq`）。不内置等待，结果由 Agent 用 `electron_wait_for` 或 `electron_logs` 的 `afterSeq` 观察。
 
 #### `electron_type`
 
-输入 `ref`、`text`，可选 `clear`（默认 true）、`submit`。目标必须是可编辑的文本输入、textarea 或 contenteditable 且未禁用、非只读，否则 `ELEMENT_NOT_EDITABLE`。聚焦后全选已有内容（`clear: false` 时把光标放到末尾），用 `Input.insertText` 写入，空文本且 clear 时按 Delete；`submit` 时再按 Enter。返回输入后的 `value`（密码框为 `[REDACTED]`，其余脱敏，最多 500 字符）。`insertText` 不产生 composition 事件。
+元素的指定方式同 `electron_click`，另有 `text`，可选 `clear`（默认 true）、`submit`。目标必须是可编辑的文本输入、textarea 或 contenteditable 且未禁用、非只读，否则 `ELEMENT_NOT_EDITABLE`。聚焦后全选已有内容（`clear: false` 时把光标放到末尾），用 `Input.insertText` 写入，空文本且 clear 时按 Delete；`submit` 时再按 Enter。返回输入后的 `value`（密码框为 `[REDACTED]`，其余脱敏，最多 500 字符）。`insertText` 不产生 composition 事件。
 
 点击和输入都在 `ELECTRON_DEBUG_ALLOW_EVAL=0` 时返回 `INTERACTION_NOT_ALLOWED`。输入事件超时且页面处于 hidden 状态时，`hint` 提示先恢复最小化的窗口。
 

@@ -404,6 +404,11 @@ export class DiagnosticSession {
   private handleEvent(event: JsonRpcEvent): void {
     if (event.method === "Inspector.targetCrashed") {
       this.crashedAt = new Date().toISOString();
+      // A page's dialog dies with the page and no Page.javascriptDialogClosed follows (measured on Electron 43: after
+      // the reload the record was still there, marked blocking). A reload while the dialog is open does not need this:
+      // the blocked renderer only navigates once the dialog is closed, and then the Closed event arrives.
+      const dialog = this.dialogs.javascriptClosed();
+      if (dialog) this.recordDialog({ event: "close", dialog, reason: "crash" });
       this.events.add({
         process: this.options.process,
         targetId: this.selectedTarget?.id,
@@ -449,7 +454,7 @@ export class DiagnosticSession {
     }
   }
 
-  private recordDialog(change: ReturnType<DialogTracker["native"]>): void {
+  private recordDialog(change: (ReturnType<DialogTracker["native"]> & { reason?: "crash" }) | undefined): void {
     if (!change) return;
     this.events.add({
       process: this.options.process,
@@ -457,7 +462,7 @@ export class DiagnosticSession {
       observedAt: new Date().toISOString(),
       kind: "dialog",
       level: change.event === "open" ? "warn" : "info",
-      message: dialogMessage(change.event, change.dialog),
+      message: dialogMessage(change.event, change.dialog, change.reason),
       data: change.dialog,
     });
   }

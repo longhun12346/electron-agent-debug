@@ -23,10 +23,10 @@ for (const name of names) {
     client.notify("notifications/initialized", {});
     const calls = [];
     for (const step of scenario.reference) {
-      const response = await client.request(requestId++, "tools/call", {
-        name: step.tool, arguments: step.arguments ?? {},
-      }, 30_000);
-      calls.push({ name: step.tool, args: step.arguments ?? {}, result: response.result?.structuredContent });
+      // A step's arguments may depend on earlier results (a snapshot ref, the afterSeq of a click).
+      const args = (typeof step.arguments === "function" ? step.arguments(calls) : step.arguments) ?? {};
+      const response = await client.request(requestId++, "tools/call", { name: step.tool, arguments: args }, 30_000);
+      calls.push({ name: step.tool, args, result: response.result?.structuredContent });
     }
     scenario.verify(calls);
     console.log(JSON.stringify({ scenario: name, tools: calls.map((call) => call.name), result: "PASS" }));

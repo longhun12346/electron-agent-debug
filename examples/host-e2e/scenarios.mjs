@@ -4,7 +4,7 @@ import { hasExpectedEvidence } from "../fixture/smoke-assertions.mjs";
 export const allTools = [
   "electron_attach", "electron_status", "electron_targets", "electron_logs",
   "electron_evaluate", "electron_wait_for", "electron_screenshot", "electron_dom_snapshot",
-    "electron_click", "electron_type",
+  "electron_click", "electron_type",
 ];
 
 // Pairs each tools/call request of an MCP trace with the structured result the server answered.
@@ -37,6 +37,9 @@ MCP server and started the Electron fixture with Inspector and CDP; do not confi
 Only use electron-debug MCP tools, no shell, files, browser, other servers, or subagents. The endpoints are
 already configured, so electron_attach needs no endpoint arguments. Report what you observed, then stop.
 Do not fix the fixture.`;
+
+const saveRef = /button "Save"[^\n]*\[ref=([a-z]{3}\d+)\]/gu;
+const afterPress = (calls) => calls.find((call) => call.name === "electron_click").result.data.afterSeq;
 
 const bothOnline = (data) => data.main?.online && data.renderer?.online && data.selectedTarget;
 
@@ -224,8 +227,8 @@ main process how many BrowserWindow instances exist. Report the heading, the cou
   "click-save": {
     summary: "Nothing happens until a button is pressed: press it and read what happens on both sides",
     fixture: { app: "field", fault: "save" },
-    tools: ["electron_attach", "electron_targets", "electron_evaluate", "electron_wait_for", "electron_logs",
-      "electron_dom_snapshot", "electron_status"],
+    tools: ["electron_attach", "electron_targets", "electron_dom_snapshot", "electron_click", "electron_wait_for",
+      "electron_logs", "electron_evaluate", "electron_status"],
     prompt: `${boundary}
 This is a development build with DevTools open and two windows, "Field App" and "Field Settings". The developer changed
 the Save button handler in "Field App" and wants to know whether saving works. Nothing happens until the button is
@@ -233,23 +236,43 @@ pressed, so press it yourself, using only the electron-debug tools. Then read th
 renderer's console and what the page shows, and the main process's console. Report PASS, FAIL or BLOCKED with the
 evidence you saw.`,
     verify(calls) {
-      requireTools(calls, ["electron_attach", "electron_evaluate"]);
-      assert.ok(succeeded(calls, "electron_evaluate", (data, args) => args.scope === "renderer" && data.scope === "renderer").length,
-        "nothing was evaluated in the renderer, so the button cannot have been pressed");
+      requireTools(calls, ["electron_attach", "electron_click"]);
+      // The Save button is pressed the way a user presses it: a trusted click by its snapshot ref or by role and name,
+      // not element.click(). The click result names the element it pressed, which settles both forms.
+      const saveRefs = new Set(succeeded(calls, "electron_dom_snapshot")
+        .flatMap((call) => [...call.result.data.text.matchAll(saveRef)].map((match) => match[1])));
+      const presses = succeeded(calls, "electron_click", (data, args) =>
+        saveRefs.has(args.ref) || (data.role === "button" && data.name === "Save" && args.ref === undefined));
+      assert.ok(presses.length, "the Save button was never pressed with electron_click");
+      assert.ok(!calls.some((call) => call.name === "electron_evaluate" && /\.click\s*\(/u.test(String(call.args.expression ?? ""))),
+        "the button was clicked from evaluated code instead of electron_click");
+      // Only events after the first press count, so an earlier run's output cannot stand in for this one.
+      const pressedAt = Math.min(...presses.map((call) => call.result.data.afterSeq));
       const events = [
         ...succeeded(calls, "electron_logs").flatMap((call) => call.result.data.events),
         ...succeeded(calls, "electron_wait_for", (data) => data.event).map((call) => call.result.data.event),
-      ];
+      ].filter((event) => event.seq > pressedAt);
       const seen = (process, text) => events.some((event) => event.process === process && event.message.includes(text));
-      assert.ok(seen("renderer", "FIELD_SAVE_CALL_FAILURE"), "the renderer's failed save call was never read");
-      assert.ok(seen("main", "FIELD_SAVE_HANDLER_FAILURE"), "the main process's failing handler was never read");
+      assert.ok(seen("renderer", "FIELD_SAVE_CALL_FAILURE"), "the renderer's failed save call after the press was never read");
+      assert.ok(seen("main", "FIELD_SAVE_HANDLER_FAILURE"), "the main process's failing handler after the press was never read");
     },
+    // A function argument is computed from the calls so far: the click needs the ref the snapshot returned.
     reference: [
       { tool: "electron_attach" },
       { tool: "electron_targets", arguments: { title: "Field App" } },
-      { tool: "electron_evaluate", arguments: { scope: "renderer", expression: "document.querySelector('#save').click(); true" } },
-      { tool: "electron_wait_for", arguments: { log: { contains: "FIELD_SAVE_CALL_FAILURE", process: "renderer" } } },
-      { tool: "electron_wait_for", arguments: { log: { contains: "FIELD_SAVE_HANDLER_FAILURE", process: "main" } } },
+      { tool: "electron_dom_snapshot" },
+      {
+        tool: "electron_click",
+        arguments: (calls) => ({ ref: [...calls.at(-1).result.data.text.matchAll(saveRef)][0][1] }),
+      },
+      {
+        tool: "electron_wait_for",
+        arguments: (calls) => ({ log: { contains: "FIELD_SAVE_CALL_FAILURE", process: "renderer", afterSeq: afterPress(calls) } }),
+      },
+      {
+        tool: "electron_wait_for",
+        arguments: (calls) => ({ log: { contains: "FIELD_SAVE_HANDLER_FAILURE", process: "main", afterSeq: afterPress(calls) } }),
+      },
       { tool: "electron_logs", arguments: { process: "all", sinceAttach: true } },
     ],
   },

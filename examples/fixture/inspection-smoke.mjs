@@ -248,6 +248,19 @@ try {
   assert.equal((await evaluate("renderer", "1 + 1")).value, 2);
   await eventAfter(lastSeq, "renderer", "JavaScript dialog alert closed");
 
+  // A renderer crash while an alert is open: the dialog dies with the page and no Closed event follows, so the record
+  // must go with it, or status keeps reporting a blocking dialog after the reload and every later timeout blames it.
+  await evaluate("renderer", "setTimeout(() => alert('smoke-crash-alert'), 0); true");
+  await waitUntil(() => call("electron_status"), (status) => status.dialogs?.length === 1, "alert before crash");
+  ({ lastSeq } = await call("electron_logs", {}));
+  await evaluate("main", "process.mainModule.require('electron').BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer(); true");
+  await waitUntil(() => call("electron_status"), (status) => status.dialogs === undefined, "alert dropped by the crash");
+  await eventAfter(lastSeq, "renderer", "JavaScript dialog alert closed (the page crashed)");
+  await evaluate("main", "process.mainModule.require('electron').BrowserWindow.getAllWindows()[0].webContents.reload(); true");
+  await waitUntil(() => call("electron_status"), (status) => status.renderer.online === true, "renderer after crash reload", 10_000);
+  assert.equal((await evaluate("renderer", "1 + 1")).value, 2);
+  assert.equal((await call("electron_status")).dialogs, undefined, "no stale dialog after the reload");
+
   await evaluate("main", `(() => {
     const { dialog, BrowserWindow } = process.mainModule.require('electron');
     globalThis.smokeDialog = new AbortController();

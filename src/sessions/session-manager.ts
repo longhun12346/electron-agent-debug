@@ -73,6 +73,7 @@ export class SessionManager {
       renderer: this.renderer,
       utility: this.utility,
       listEvents: (input) => this.collectEvents(input),
+      isBeforeAttach: (event) => this.isBeforeAttach(event),
       lastSeq: () => this.sequence.last,
     });
   }
@@ -341,6 +342,11 @@ export class SessionManager {
   // With sinceAttach each channel starts after its own latest connection, so replayed history is left out.
   private afterSeqFor(buffer: EventBuffer, input: LogsInput): number | undefined {
     return input.sinceAttach === true ? Math.max(input.afterSeq ?? 0, buffer.lastConnectedSeq) : input.afterSeq;
+  }
+
+  private isBeforeAttach(event: DiagnosticEvent): boolean {
+    const buffer = this.buffersFor(event.process)[0];
+    return buffer !== undefined && (event.seq ?? 0) < buffer.lastConnectedSeq;
   }
 
   private collectEvents(input: LogsInput): DiagnosticEvent[] {

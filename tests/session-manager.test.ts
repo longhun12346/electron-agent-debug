@@ -209,6 +209,30 @@ test("sinceAttach leaves out the history replayed before each channel's latest c
     "a smaller afterSeq cannot move the boundary back before the connection");
 });
 
+test("a log wait flags events from before the channel's latest connection and sinceAttach skips them", async () => {
+  const manager = new SessionManager(runtimeConfig());
+  const add = (kind: "console" | "connection", message: string) =>
+    manager.main.events.add({ process: "main", kind, message, observedAt: "2026-01-01T00:00:00.000Z", level: "error" });
+  add("console", "SAVE_FAILURE from the last run");
+  add("connection", "Session connected");
+
+  const stale = await manager.inspector.waitFor({ condition: { kind: "log", contains: "SAVE_FAILURE", process: "main" } });
+  assert.ok(stale.ok);
+  assert.equal(stale.data.beforeAttach, true, "the replayed event is matched but flagged");
+  assert.match(String(stale.data.hint), /sinceAttach/u);
+
+  const fresh = await manager.inspector.waitFor({
+    condition: { kind: "log", contains: "SAVE_FAILURE", process: "main", sinceAttach: true }, timeoutMs: 100,
+  });
+  assert.ok(!fresh.ok && fresh.error.code === "WAIT_TIMEOUT", "sinceAttach does not match the replayed event");
+
+  add("console", "SAVE_FAILURE now");
+  const live = await manager.inspector.waitFor({ condition: { kind: "log", contains: "SAVE_FAILURE", sinceAttach: true } });
+  assert.ok(live.ok);
+  assert.equal(live.data.beforeAttach, undefined);
+  assert.equal((live.data.event as { message: string }).message, "SAVE_FAILURE now");
+});
+
 test("sinceAttach does not report a gap for events evicted before the connection", () => {
   const manager = new SessionManager({ ...runtimeConfig(), maxLogEvents: 3 });
   const add = (kind: "console" | "connection", message: string) =>

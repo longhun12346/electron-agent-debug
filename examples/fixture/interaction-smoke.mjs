@@ -33,7 +33,7 @@ const evaluate = async (scope, expression) => (await call("electron_evaluate", {
 const events = () => evaluate("renderer", "window.interactionEvents");
 
 function refOf(text, line) {
-  const match = text.split("\n").find((candidate) => candidate.includes(line))?.match(/\[ref=(e\d+)\]/u);
+  const match = text.split("\n").find((candidate) => candidate.includes(line))?.match(/\[ref=([a-z]{3}\d+)\]/u);
   assert.ok(match, `no ref for ${line} in:\n${text}`);
   return match[1];
 }
@@ -110,7 +110,10 @@ try {
   assert.equal((await failure("electron_type", { ref: save, text: "x" })).code, "ELEMENT_NOT_EDITABLE");
 
   // Refs: unknown, stable across snapshots of the same page, stale after a reload.
-  assert.equal((await failure("electron_click", { ref: "e99999" })).code, "REF_NOT_FOUND");
+  assert.equal((await failure("electron_click", { ref: `${save.slice(0, 3)}99999` })).code, "REF_NOT_FOUND");
+  const foreign = await failure("electron_click", { ref: save.startsWith("zzz") ? "yyy1" : "zzz1" });
+  assert.equal(foreign.code, "REF_NOT_FOUND");
+  assert.match(foreign.hint, /role/u, "a ref from another run points to role and name");
   snapshot = await call("electron_dom_snapshot", {});
   assert.equal(refOf(snapshot.text, 'button "Save"'), save, "the same element keeps its ref");
   await evaluate("renderer", "location.reload(); true");
@@ -122,6 +125,16 @@ try {
   snapshot = await call("electron_dom_snapshot", {});
   await call("electron_click", { ref: refOf(snapshot.text, 'button "Save"') });
   assert.equal((await events()).length, 1, "a fresh ref works after the reload");
+
+  // Role and name: no ref needed, so a batch run can find, press and wait in one go; ambiguity is refused.
+  const byName = await call("electron_click", { role: "button", name: "Save" });
+  assert.equal(byName.ref, refOf(snapshot.text, 'button "Save"'), "the same element gets the same ref");
+  assert.equal((await events()).at(-1).trusted, true);
+  await evaluate("renderer", "const twin = document.createElement('button'); twin.textContent = 'Save'; document.body.append(twin); true");
+  assert.equal((await failure("electron_click", { role: "button", name: "Save" })).code, "ELEMENT_AMBIGUOUS");
+  assert.equal((await failure("electron_click", { role: "button", name: "Nope" })).code, "ELEMENT_NOT_FOUND");
+  const interactive = await call("electron_dom_snapshot", { interactive: true });
+  assert.ok(interactive.text.split("\n").every((line) => /\[ref=|heading/u.test(line)), interactive.text);
 
   console.log(JSON.stringify({ platform: process.platform, interaction: "PASS", refs: snapshot.refCount }));
 } finally {

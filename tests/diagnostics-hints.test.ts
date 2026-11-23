@@ -289,6 +289,13 @@ test("a JavaScript dialog is reported in status and explains the timeouts it cau
     renderer.push("Page.javascriptDialogClosed", { result: true });
     await until(() => manager.status().dialogs === undefined, "dialog cleared");
     assert.equal(manager.logs({ process: "renderer" }).events.filter((event) => event.kind === "dialog").length, 2);
+
+    // A crash takes the dialog with it and no Closed event follows.
+    renderer.push("Page.javascriptDialogOpening", { type: "alert", message: "before crash" });
+    await until(() => manager.status().dialogs !== undefined, "second dialog reported");
+    renderer.push("Inspector.targetCrashed", {});
+    await until(() => manager.status().dialogs === undefined, "dialog cleared by the crash");
+    assert.ok(manager.logs({ process: "renderer" }).events.some((event) => event.message.endsWith("closed (the page crashed)")));
   } finally {
     await manager.close();
     await renderer.close();

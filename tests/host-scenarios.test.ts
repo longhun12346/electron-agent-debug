@@ -54,28 +54,47 @@ test("devtools-windows needs the Field App window, not Settings or DevTools", ()
   assert.throws(() => scenarios["devtools-windows"].verify(good.slice(0, 3)), assert.AssertionError, "the window count was never asked");
 });
 
-test("click-save needs a press and the evidence from both processes", () => {
+test("click-save needs a trusted press of Save and the evidence from both processes after it", () => {
+  const verify = scenarios["click-save"].verify;
   const attach = ok("electron_attach", {}, { main: { online: true }, renderer: { online: true } });
-  const press = ok("electron_evaluate", { scope: "renderer" }, { scope: "renderer", value: true });
+  const snapshot = ok("electron_dom_snapshot", {}, { text: 'button "Save" [invalid=false] [ref=abc2]\nbutton "Probe" [ref=abc3]' });
+  const press = ok("electron_click", { ref: "abc2" }, { ref: "abc2", afterSeq: 10 });
+  const at = (seq: number, process: string, message: string) => ({ ...event(process, message), seq });
   const bothSides = ok("electron_logs", {}, {
-    events: [event("renderer", "FIELD_SAVE_CALL_FAILURE Error"), event("main", "FIELD_SAVE_HANDLER_FAILURE")],
+    events: [at(11, "renderer", "FIELD_SAVE_CALL_FAILURE Error"), at(12, "main", "FIELD_SAVE_HANDLER_FAILURE")],
   });
-  scenarios["click-save"].verify([attach, press, bothSides]);
+  verify([attach, snapshot, press, bothSides]);
 
   const viaWait = [
-    attach, press,
-    ok("electron_wait_for", {}, { matched: true, event: event("renderer", "FIELD_SAVE_CALL_FAILURE Error") }),
-    ok("electron_wait_for", {}, { matched: true, event: event("main", "FIELD_SAVE_HANDLER_FAILURE") }),
+    attach, snapshot, press,
+    ok("electron_wait_for", {}, { matched: true, event: at(11, "renderer", "FIELD_SAVE_CALL_FAILURE Error") }),
+    ok("electron_wait_for", {}, { matched: true, event: at(12, "main", "FIELD_SAVE_HANDLER_FAILURE") }),
   ];
-  scenarios["click-save"].verify(viaWait);
+  verify(viaWait);
 
-  const rendererOnly = ok("electron_logs", {}, { events: [event("renderer", "FIELD_SAVE_CALL_FAILURE Error")] });
-  assert.throws(() => scenarios["click-save"].verify([attach, press, rendererOnly]), assert.AssertionError, "main evidence is required");
-  assert.throws(() => scenarios["click-save"].verify([attach, bothSides]), assert.AssertionError, "the button must have been pressed");
+  const rendererOnly = ok("electron_logs", {}, { events: [at(11, "renderer", "FIELD_SAVE_CALL_FAILURE Error")] });
+  assert.throws(() => verify([attach, snapshot, press, rendererOnly]), assert.AssertionError, "main evidence is required");
+  assert.throws(() => verify([attach, snapshot, bothSides]), assert.AssertionError, "the button must have been pressed");
   const swapped = ok("electron_logs", {}, {
-    events: [event("main", "FIELD_SAVE_CALL_FAILURE Error"), event("renderer", "FIELD_SAVE_HANDLER_FAILURE")],
+    events: [at(11, "main", "FIELD_SAVE_CALL_FAILURE Error"), at(12, "renderer", "FIELD_SAVE_HANDLER_FAILURE")],
   });
-  assert.throws(() => scenarios["click-save"].verify([attach, press, swapped]), assert.AssertionError, "channels must not be swapped");
+  assert.throws(() => verify([attach, snapshot, press, swapped]), assert.AssertionError, "channels must not be swapped");
+
+  const evaluated = ok("electron_evaluate", { scope: "renderer", expression: "document.querySelector('#save').click()" },
+    { scope: "renderer", value: true });
+  assert.throws(() => verify([attach, snapshot, evaluated, bothSides]), assert.AssertionError, "element.click() is not a press");
+  assert.throws(() => verify([attach, snapshot, press, evaluated, bothSides]), assert.AssertionError,
+    "a click from evaluated code is rejected even next to a real one");
+  const otherButton = ok("electron_click", { ref: "abc3" }, { ref: "abc3", afterSeq: 10 });
+  assert.throws(() => verify([attach, snapshot, otherButton, bothSides]), assert.AssertionError, "the press must hit Save");
+  const byName = ok("electron_click", { role: "button", name: "Save" }, { role: "button", name: "Save", afterSeq: 10 });
+  verify([attach, byName, bothSides]);
+  const byNameOther = ok("electron_click", { role: "button", name: "Probe" }, { role: "button", name: "Probe", afterSeq: 10 });
+  assert.throws(() => verify([attach, byNameOther, bothSides]), assert.AssertionError, "a press by name must hit Save");
+  const stale = ok("electron_logs", {}, {
+    events: [at(4, "renderer", "FIELD_SAVE_CALL_FAILURE Error"), at(5, "main", "FIELD_SAVE_HANDLER_FAILURE")],
+  });
+  assert.throws(() => verify([attach, snapshot, press, stale]), assert.AssertionError, "evidence from before the press does not count");
 });
 
 test("callsFromTraffic pairs each tools/call with its structured result", () => {

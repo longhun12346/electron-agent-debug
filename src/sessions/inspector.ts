@@ -6,7 +6,7 @@ import { renderAxTree, type AxNode } from "../ax-tree.js";
 import type { RuntimeConfig } from "../config.js";
 import { DiagnosticException, errorResult, toDiagnosticError } from "../errors.js";
 import { evaluateExpression, type EvaluateResult } from "../evaluate.js";
-import { clickRef, RefRegistry, typeRef, type ClickInput, type TypeInput } from "../interaction.js";
+import { clickRef, RefRegistry, typeRef, type ClickInput, type ElementTarget, type TypeInput } from "../interaction.js";
 import type {
   DiagnosticEvent,
   EvaluateScope,
@@ -22,6 +22,8 @@ export interface InspectorDependencies {
   renderer: DiagnosticSession;
   utility: DiagnosticSession;
   listEvents(input: LogsInput): DiagnosticEvent[];
+  /** Whether the event is older than its channel's latest connection (replayed history or an earlier connection). */
+  isBeforeAttach(event: DiagnosticEvent): boolean;
   lastSeq(): number;
 }
 
@@ -34,7 +36,7 @@ export interface EvaluateInput {
 }
 
 export type WaitCondition =
-  | { kind: "log"; contains: string; process?: ProcessScope | "all"; level?: string; afterSeq?: number }
+  | { kind: "log"; contains: string; process?: ProcessScope | "all"; level?: string; afterSeq?: number; sinceAttach?: boolean }
   | { kind: "expression"; scope: EvaluateScope; expression: string };
 
 export interface WaitInput {
@@ -105,16 +107,32 @@ export class Inspector {
   constructor(private readonly deps: InspectorDependencies) {}
 
   async click(input: ClickInput): Promise<Result<Record<string, unknown>>> {
-    return this.interact((afterSeq) => clickRef(this.deps.renderer, this.refs, input).then((data) => ({ ...data, afterSeq })));
+    return this.interact(input, (afterSeq) => clickRef(this.deps.renderer, this.refs, input).then((data) => ({ ...data, afterSeq })));
   }
 
   async type(input: TypeInput): Promise<Result<Record<string, unknown>>> {
-    return this.interact((afterSeq) => typeRef(this.deps.renderer, this.refs, input).then((data) => ({ ...data, afterSeq })));
+    return this.interact(input, (afterSeq) => typeRef(this.deps.renderer, this.refs, input).then((data) => ({ ...data, afterSeq })));
+  }
+
+  // Reads the page's accessibility tree into the ref registry without rendering it, so an element given by role and
+  // name is looked up in the whole page, not only the part a size-limited snapshot shows. It counts as the latest
+  // snapshot: refs it assigns are the same a snapshot would show.
+  private async indexPage(): Promise<void> {
+    const response = await this.deps.renderer.request(
+      "Accessibility.getFullAXTree",
+      {},
+      Math.max(this.deps.config.requestTimeoutMs, 10_000),
+    ) as { nodes?: AxNode[] };
+    const target = this.deps.renderer.snapshot().selectedTarget;
+    if (!target) return;
+    const nodes = response.nodes ?? [];
+    renderAxTree(nodes, nodes.length, this.refs.begin(target.id));
   }
 
   // Input changes the app's state just as evaluated code can, so it is switched off by the same setting. afterSeq is
   // the timeline position before the input: pass it to electron_wait_for or electron_logs to see what followed.
   private async interact(
+    target: ElementTarget,
     run: (afterSeq: number) => Promise<Record<string, unknown>>,
   ): Promise<Result<Record<string, unknown>>> {
     if (!this.deps.config.allowEval) {
@@ -124,10 +142,11 @@ export class Inspector {
         retryable: false,
       });
     }
-    const afterSeq = this.deps.lastSeq();
     try {
-      const target = this.deps.renderer.snapshot().selectedTarget;
-      return { ok: true, data: { ...(await run(afterSeq)), targetId: target?.id } };
+      if (!("ref" in target)) await this.indexPage();
+      const afterSeq = this.deps.lastSeq();
+      const page = this.deps.renderer.snapshot().selectedTarget;
+      return { ok: true, data: { ...(await run(afterSeq)), targetId: page?.id } };
     } catch (error) {
       return errorResult(toDiagnosticError(error, "INTERACTION_FAILED"));
     }
@@ -178,9 +197,21 @@ export class Inspector {
           process: condition.process,
           level: condition.level,
           afterSeq: condition.afterSeq,
+          sinceAttach: condition.sinceAttach,
           limit: 10_000,
         }).find((candidate) => candidate.message.includes(condition.contains));
         if (event) {
+          // An event from before the channel's latest connection (replayed history, or an earlier connection) is
+          // often the same text from an earlier run of the step, so a fresh failure or success is not proven by it.
+          if (this.deps.isBeforeAttach(event)) {
+            return {
+              ok: true,
+              data: {
+                matched: true, condition: "log", event, elapsedMs, beforeAttach: true,
+                hint: "命中的是该通道最近一次连接之前的事件（attach 时重放的应用历史，或之前连接期间的输出），可能来自上一轮操作。要等新事件，传 sinceAttach: true 或操作前记下的 afterSeq。",
+              },
+            };
+          }
           return { ok: true, data: { matched: true, condition: "log", event, elapsedMs } };
         }
       } else {
@@ -264,7 +295,7 @@ export class Inspector {
     }
   }
 
-  async domSnapshot(input: { maxNodes?: number }): Promise<Result<Record<string, unknown>>> {
+  async domSnapshot(input: { maxNodes?: number; interactive?: boolean }): Promise<Result<Record<string, unknown>>> {
     try {
       const response = await this.deps.renderer.request(
         "Accessibility.getFullAXTree",
@@ -273,7 +304,9 @@ export class Inspector {
       ) as { nodes?: AxNode[] };
       const target = this.deps.renderer.snapshot().selectedTarget;
       const assignRef = target ? this.refs.begin(target.id) : undefined;
-      const rendering = renderAxTree(response.nodes ?? [], clamp(input.maxNodes, 400, 1, 2_000), assignRef);
+      const rendering = renderAxTree(response.nodes ?? [], clamp(input.maxNodes, 400, 1, 2_000), assignRef, {
+        interactive: input.interactive === true,
+      });
       return { ok: true, data: { targetId: target?.id, url: await this.currentUrl(), ...rendering } };
     } catch (error) {
       return errorResult(toDiagnosticError(error, "SNAPSHOT_FAILED"));

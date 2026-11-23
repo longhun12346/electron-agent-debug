@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { DiagnosticException } from "./errors.js";
 import { redact } from "./redact.js";
 import type { AxNode } from "./ax-tree.js";
@@ -23,15 +24,42 @@ interface RefEntry {
   name: string;
 }
 
+/** Refs look like `kqx12`: a per-process prefix and a number. */
+export const refPattern = /^[a-z]{3}\d+$/u;
+
+// Three letters (about 13,800 prefixes) keep the chance that two runs share a prefix small.
+function randomPrefix(): string {
+  const letters = "abcdefghijkmnpqrstuvwxyz";
+  let prefix = "";
+  for (let index = 0; index < 3; index += 1) prefix += letters[randomInt(letters.length)]!;
+  return prefix;
+}
+
+/** What electron_click and electron_type accept in place of a ref: the role and name a snapshot line shows. */
+export interface ElementLocator {
+  role: string;
+  name: string;
+}
+
 /**
  * Refs of the latest snapshot of the selected page. A node keeps its ref across snapshots of the same page, so an
  * agent can reuse a ref after taking a fresh snapshot; refs that are not in the latest snapshot are rejected.
+ *
+ * Every registry numbers with its own random prefix. Batch mode starts a new process for every run, and without the
+ * prefix each run would number from 1 again: a ref read in one run would name a different element in the next once the
+ * page changed (measured: a Save ref clicked the Name textbox after a button was inserted above it, and reported ok).
+ * With the prefix such a ref is unknown and rejected.
  */
 export class RefRegistry {
   private next = 1;
+  readonly prefix: string;
   private targetId?: string;
   private byBackend = new Map<number, string>();
   private latest = new Map<string, RefEntry>();
+
+  constructor(prefix = randomPrefix()) {
+    this.prefix = prefix;
+  }
 
   /** Starts a snapshot of `targetId` and returns the assigner for renderAxTree. */
   begin(targetId: string): (node: AxNode, role: string, name: string) => string | undefined {
@@ -45,7 +73,7 @@ export class RefRegistry {
       if (backendNodeId === undefined) return undefined;
       let ref = this.byBackend.get(backendNodeId);
       if (ref === undefined) {
-        ref = `e${this.next++}`;
+        ref = `${this.prefix}${this.next++}`;
         this.byBackend.set(backendNodeId, ref);
       }
       this.latest.set(ref, { ref, backendNodeId, targetId, role, name });
@@ -56,8 +84,12 @@ export class RefRegistry {
   resolve(ref: string, currentTargetId: string | undefined): RefEntry {
     const entry = this.latest.get(ref);
     if (!entry) {
+      const otherProcess = !ref.startsWith(this.prefix);
       throw new DiagnosticException("REF_NOT_FOUND", `ref ${ref} 不在最近一次 electron_dom_snapshot 的结果里`, {
-        hint: "先调用 electron_dom_snapshot，用它返回的 [ref=…]；ref 只对当前页面最近一次快照有效。",
+        hint: otherProcess
+          ? "这个 ref 来自另一次运行（批处理每次执行都是新进程，MCP Server 重启后也一样），在这里无效。" +
+            "批处理里改用 role 和 name 定位（如 {role: \"button\", name: \"Save\"}），或在同一次执行里先取快照。"
+          : "先调用 electron_dom_snapshot，用它返回的 [ref=…]；ref 只对当前页面最近一次快照有效。",
         details: { ref },
       });
     }
@@ -68,6 +100,34 @@ export class RefRegistry {
       });
     }
     return entry;
+  }
+
+  /**
+   * The element of the latest snapshot with exactly this role and name. Several matches are refused with the
+   * candidates rather than guessed between; no match lists elements whose name contains the requested one.
+   */
+  find(locator: ElementLocator): RefEntry {
+    const name = locator.name.replace(/\s+/gu, " ").trim();
+    const entries = [...this.latest.values()];
+    const matches = entries.filter((entry) => entry.role === locator.role && entry.name === name);
+    if (matches.length === 1) return matches[0]!;
+    const list = (candidates: RefEntry[]) => candidates.slice(0, 10).map(describeEntry);
+    if (matches.length > 1) {
+      throw new DiagnosticException("ELEMENT_AMBIGUOUS", `页面上有 ${matches.length} 个 ${locator.role} "${name}"`, {
+        hint: "按 role 和 name 无法确定是哪一个；取快照对照上下文后用 ref 指定。",
+        details: { ...locator, candidates: list(matches) },
+      });
+    }
+    const lowered = name.toLowerCase();
+    const similar = entries.filter((entry) => entry.name.toLowerCase().includes(lowered) ||
+      (entry.role === locator.role && lowered.includes(entry.name.toLowerCase()) && entry.name !== ""));
+    throw new DiagnosticException("ELEMENT_NOT_FOUND", `页面上没有 ${locator.role} "${name}"`, {
+      retryable: true,
+      hint: similar.length
+        ? "name 要与快照里显示的完全一致（区分大小写）；details.candidates 是名字相近的元素。"
+        : "元素可能还没渲染出来，用 electron_wait_for 等它出现；或用 electron_dom_snapshot 查看实际的 role 和 name。",
+      details: { ...locator, candidates: list(similar) },
+    });
   }
 
   clear(): void {
@@ -240,20 +300,23 @@ async function dispatch(session: DiagnosticSession, method: string, params: Reco
   }
 }
 
-export interface ClickInput {
-  ref: string;
-  doubleClick?: boolean;
-}
+/** An element is given either by a snapshot ref or by role and name. */
+export type ElementTarget = { ref: string } | ElementLocator;
 
-export interface TypeInput {
-  ref: string;
+export type ClickInput = ElementTarget & { doubleClick?: boolean };
+
+export type TypeInput = ElementTarget & {
   text: string;
   clear?: boolean;
   submit?: boolean;
+};
+
+function entryFor(session: DiagnosticSession, refs: RefRegistry, target: ElementTarget): RefEntry {
+  return "ref" in target ? refs.resolve(target.ref, session.snapshot().selectedTarget?.id) : refs.find(target);
 }
 
 export async function clickRef(session: DiagnosticSession, refs: RefRegistry, input: ClickInput): Promise<Record<string, unknown>> {
-  const entry = refs.resolve(input.ref, session.snapshot().selectedTarget?.id);
+  const entry = entryFor(session, refs, input);
   try {
     const objectId = await resolveObject(session, entry);
     const state = await elementState(session, objectId);
@@ -317,7 +380,7 @@ const readValue = `function () {
 }`;
 
 export async function typeRef(session: DiagnosticSession, refs: RefRegistry, input: TypeInput): Promise<Record<string, unknown>> {
-  const entry = refs.resolve(input.ref, session.snapshot().selectedTarget?.id);
+  const entry = entryFor(session, refs, input);
   const clear = input.clear !== false;
   try {
     const objectId = await resolveObject(session, entry);

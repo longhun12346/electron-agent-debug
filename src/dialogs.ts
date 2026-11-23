@@ -143,10 +143,10 @@ export class DialogTracker {
   }
 }
 
-export function dialogMessage(event: "open" | "close", dialog: OpenDialog): string {
+export function dialogMessage(event: "open" | "close", dialog: OpenDialog, reason?: "crash"): string {
   const label = [dialog.title, dialog.message].filter(Boolean).join(": ");
   const what = `${dialog.kind === "native" ? "Native dialog" : "JavaScript dialog"} ${dialog.type}`;
-  if (event === "close") return `${what} closed`;
+  if (event === "close") return `${what} closed${reason === "crash" ? " (the page crashed)" : ""}`;
   return `${what} opened${label ? ` (${label})` : ""}${dialog.blocking ? "; the process is blocked until the user closes it" : ""}`;
 }
 
