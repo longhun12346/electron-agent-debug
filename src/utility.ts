@@ -76,6 +76,9 @@ async function evaluateJson<T>(main: DiagnosticSession, expression: string, time
   return JSON.parse(result.value) as T;
 }
 
+const processWaitAttempts = 15;
+const portWaitAttempts = 30;
+
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -119,16 +122,31 @@ export async function locateUtilityInspector(options: UtilityLocateOptions): Pro
     );
   }
 
-  const processes = await evaluateJson<UtilityProcess[]>(options.main, listScript);
+  // An agent usually attaches right after starting the app, often before the app has forked its utility process, so
+  // a missing process is looked for again for a short while before it is reported.
   const query = options.query;
-  const matches = processes.filter((item) => typeof query === "number" ? item.pid === query : item.name === query);
+  let processes: UtilityProcess[] = [];
+  let matches: UtilityProcess[] = [];
+  for (let attempt = 0; ; attempt += 1) {
+    processes = await evaluateJson<UtilityProcess[]>(options.main, listScript);
+    matches = processes.filter((item) => typeof query === "number" ? item.pid === query : item.name === query);
+    if (matches.length > 0 || attempt >= processWaitAttempts) break;
+    await sleep(200);
+  }
   if (matches.length !== 1) {
     throw new DiagnosticException(
       matches.length === 0 ? "UTILITY_NOT_FOUND" : "UTILITY_AMBIGUOUS",
       matches.length === 0
         ? `没有找到匹配的 utility process：${String(query)}`
         : `有多个同名 utility process，请改用 pid：${String(query)}`,
-      { details: { candidates: matches.length === 0 ? processes : matches }, retryable: matches.length === 0 },
+      {
+        details: { candidates: matches.length === 0 ? processes : matches },
+        retryable: matches.length === 0,
+        hint: matches.length === 0
+          ? "等了约 3 秒仍没有这个进程：确认名字是 utilityProcess.fork 的 serviceName（candidates 列出了现有的 utility process），" +
+            "或 fork 发生在某个操作之后，先触发它再 attach。"
+          : "用 candidates 里的 pid 作为 utility 参数。",
+      },
     );
   }
   const target = matches[0]!;
@@ -142,7 +160,8 @@ export async function locateUtilityInspector(options: UtilityLocateOptions): Pro
     if (!opened.available) {
       throw new DiagnosticException("UTILITY_INSPECTOR_UNAVAILABLE", "当前运行时没有 process._debugProcess，无法打开 utility 调试口");
     }
-    for (let attempt = 0; attempt < 15 && !search.inspector; attempt += 1) {
+    // The inspector of a freshly signalled process takes longer to listen on slower machines (seen on macOS CI).
+    for (let attempt = 0; attempt < portWaitAttempts && !search.inspector; attempt += 1) {
       await sleep(200);
       search = await findInspector(options, target);
     }

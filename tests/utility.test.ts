@@ -123,11 +123,21 @@ test("lists candidates when the utility name is unknown", async () => {
     const result = await manager.attach({ utility: "missing" });
     assert.ok(result.ok);
     assert.equal(result.data.errors[0]?.code, "UTILITY_NOT_FOUND");
+    assert.match(result.data.errors[0]?.hint ?? "", /serviceName/u);
     assert.equal(result.data.utility.online, false);
     assert.deepEqual(
       (result.data.errors[0]?.details?.candidates as Array<{ pid: number }>).map((item) => item.pid),
       [4242, 4243, 4244],
     );
+  });
+});
+
+test("waits for a utility process that the app forks shortly after attach", async () => {
+  await withApp((port) => [`--utility-port=${port}`, "--utility-forked-after=3"], {}, async (manager) => {
+    const result = await manager.attach({ utility: "worker" });
+    assert.ok(result.ok);
+    assert.deepEqual(result.data.errors, []);
+    assert.equal(result.data.utility.online, true);
   });
 });
 

@@ -40,8 +40,12 @@ function answer(scope, socket, message) {
     const expression = message.params.expression;
     runs.set(expression, (runs.get(expression) ?? 0) + 1);
     if (scope === "main" && expression.includes("getAppMetrics")) {
+      // --utility-forked-after=N: the app forks "worker" only from the Nth listing on, like an app that forks its
+      // utility process a moment after startup.
+      const listings = (runs.get(expression) ?? 0);
+      const forked = listings > Number(options["utility-forked-after"] ?? 0);
       return reply({ result: { type: "string", value: JSON.stringify([
-        { pid: 4242, name: "worker" }, { pid: 4243, name: "dup" }, { pid: 4244, name: "dup" },
+        ...(forked ? [{ pid: 4242, name: "worker" }] : []), { pid: 4243, name: "dup" }, { pid: 4244, name: "dup" },
       ]) } });
     }
     if (scope === "main" && expression.includes("netstat")) {

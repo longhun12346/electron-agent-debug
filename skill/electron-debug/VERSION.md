@@ -8,6 +8,7 @@
 - `electron_type`：聚焦、默认全选替换（`clear: false` 时追加），用 `Input.insertText` 写入，支持中文，React 这类受控输入框也能保留输入；`submit` 时按 Enter。不可编辑时返回 `ELEMENT_NOT_EDITABLE`。返回输入后的值，密码框脱敏。
 - 两个工具都返回 `afterSeq`，交给 `electron_wait_for` 等待结果，不内置隐式等待。`ELECTRON_DEBUG_ALLOW_EVAL=0` 时一起禁用（`INTERACTION_NOT_ALLOWED`）。输入事件超时且页面不可见时，`hint` 提示先恢复最小化的窗口。
 - 在真实 Electron 43、2x 缩放下实测：坐标无需按缩放换算；滚动后的命中检测要换成文档坐标（否则返回 “No node found at given location”，已修正）；隐藏窗口可以输入，最小化窗口可能丢弃点击。新增 `examples/fixture/interaction-smoke.mjs`，覆盖可信事件、滚动、遮挡、禁用、受控输入框、中文、提交和过期 ref，加入 CI 和 Electron 版本矩阵。
+- 时序：`electron_attach` 传 `utility` 时，进程还没被 fork 出来会再找约 3 秒（应用刚启动就 attach 是常态），找不到时 `UTILITY_NOT_FOUND` 附 `hint`；打开调试口后等端口的时间从约 3 秒延长到约 6 秒。依据：macOS CI 上 utility 场景偶发失败。SKILL.md 补充：需要两个通道的证据时分别等每个通道的信号，各通道走各自的连接，先发生的事件可能后到（Linux CI 上 IPC 场景只等 renderer 一侧就读日志，连续两次漏掉 main 一侧）。
 - 不做：拖拽、悬停、快捷键、原生 `<select>` 的键盘选择、输入法组合输入。SKILL.md 的替代做法表相应更新。
 - 已注册 MCP 的宿主需要刷新工具列表，确认 10 个工具可见；原有工具的参数和字段不变。
 

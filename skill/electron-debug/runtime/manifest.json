@@ -3,10 +3,10 @@
   "skillVersion": "1.5.0",
   "mcpVersion": "0.6.0",
   "entry": "server.cjs",
-  "sourceDigest": "21726e79914b8c5d84889b81e8dd54b56a06ccdc8d31dd9b09dddc7aeb557f13",
+  "sourceDigest": "bbb9db7b16a1e83f0d271adcb4b1ac1a61df257b49b7b146abb334b87b0cb057",
   "files": {
     "launch.cjs": "ac2968250972cff3e35eab0a2dfddc59bbb5181703ab33df6d4a797a2660cb88",
-    "server.cjs": "ac4f6ef6b54925af7728a4ba8ceea921507b1a94f814e7bf1106c467d17a8e49",
+    "server.cjs": "3fedd49a7ec0c962e88dcba059c1edb9e9808cf3f262a143c592abc687ac281e",
     "THIRD_PARTY_LICENSES.txt": "3eba090b1b0a71712b84fd092b2f474eb6ab21014a1deafdddc8717f7c3e5ce2"
   }
 }

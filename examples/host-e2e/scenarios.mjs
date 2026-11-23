@@ -67,7 +67,10 @@ Report whether both scoped error messages were observed.`,
       { tool: "electron_attach" },
       { tool: "electron_status" },
       { tool: "electron_targets" },
+      // Each channel has its own connection, so one channel's event can arrive before another's that happened earlier:
+      // wait for the evidence of each channel, not for one and then read both.
       { tool: "electron_wait_for", arguments: { log: { contains: "FIXTURE_IPC_CALL_FAILURE", process: "renderer" } } },
+      { tool: "electron_wait_for", arguments: { log: { contains: "FIXTURE_IPC_HANDLER_FAILURE", process: "main" } } },
       { tool: "electron_logs", arguments: { process: "all", limit: 100 } },
     ],
   },
