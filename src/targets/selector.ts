@@ -7,11 +7,13 @@ export interface TargetSelector {
   title?: string;
 }
 
+// `<webview>` guests are listed next to the windows but are never the window under test on their own: they can be
+// selected explicitly, and are left out of the automatic choice.
+const selectableTypes = new Set(["page", "webview"]);
+
 export function selectTarget(targets: TargetInfo[], selector: TargetSelector): TargetInfo | undefined {
-  const allPages = targets.filter((target) => target.type === "page");
-  const pages = allPages.filter(
-    (target) => target.type === "page" && target.webSocketDebuggerUrl !== undefined,
-  );
+  const allPages = targets.filter((target) => selectableTypes.has(target.type));
+  const pages = allPages.filter((target) => target.webSocketDebuggerUrl !== undefined);
   const hasSelector = Boolean(selector.targetId || selector.url || selector.title);
   if (selector.targetId) {
     const page = allPages.find((target) => target.id === selector.targetId);
@@ -77,8 +79,9 @@ export function selectTarget(targets: TargetInfo[], selector: TargetSelector): T
   // An app that opens DevTools lists that window as one more page (`devtools://…`). It is never the window under
   // test, and dev builds often open it at startup, so it must not turn a single real window into an ambiguity. It
   // stays in the target list and can still be chosen explicitly.
-  const candidates = pages.filter((target) => !target.url.startsWith("devtools://"));
-  const automatic = candidates.length > 0 ? candidates : pages;
+  const windows = pages.filter((target) => target.type === "page");
+  const candidates = windows.filter((target) => !target.url.startsWith("devtools://"));
+  const automatic = candidates.length > 0 ? candidates : windows;
   if (automatic.length === 1) {
     return automatic[0];
   }
@@ -86,8 +89,16 @@ export function selectTarget(targets: TargetInfo[], selector: TargetSelector): T
     throw new DiagnosticException(
       "TARGET_SELECTION_REQUIRED",
       "发现多个 page target，请提供 targetId、url 或 title",
-      { details: { count: automatic.length } },
+      {
+        hint: "应用有多个窗口或视图，自动选择会有选错的风险；对照返回的 targets 里的 title 和 url，选要验证的那一个。",
+        details: { count: automatic.length },
+      },
     );
   }
-  throw new DiagnosticException("TARGET_NOT_FOUND", "没有可用的 page target", { retryable: true });
+  throw new DiagnosticException("TARGET_NOT_FOUND", "没有可用的 page target", {
+    retryable: true,
+    hint: pages.length > 0
+      ? "只发现了 <webview> 等嵌入页面，没有窗口；窗口可能还没创建或已经关闭。要检查嵌入页面时用 targetId 显式选择。"
+      : "调试端口已打开，但应用还没有创建窗口，或窗口已全部关闭；等窗口出现后重试，或查看主进程日志里的创建错误。",
+  });
 }

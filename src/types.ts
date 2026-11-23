@@ -35,7 +35,7 @@ export interface DiagnosticEvent {
   process: ProcessScope;
   targetId?: string;
   observedAt: string;
-  kind: "console" | "exception" | "connection" | "protocol";
+  kind: "console" | "exception" | "connection" | "protocol" | "dialog";
   level?: string;
   message: string;
   data?: unknown;
@@ -45,7 +45,23 @@ export interface DiagnosticError {
   code: string;
   message: string;
   retryable: boolean;
+  /** What to check or do next; the message above stays the underlying error. */
+  hint?: string;
   details?: Record<string, unknown>;
+}
+
+/** A dialog that is waiting for the user: a JavaScript alert/confirm/prompt in a page, or a native Electron dialog. */
+export interface OpenDialog {
+  process: ProcessScope;
+  kind: "javascript" | "native";
+  /** alert/confirm/prompt/beforeunload, or the dialog function (showOpenDialog, showMessageBoxSync, …). */
+  type: string;
+  /** True when the process cannot answer anything until the dialog is closed. */
+  blocking: boolean;
+  title?: string;
+  message?: string;
+  targetId?: string;
+  openedAt: string;
 }
 
 export interface SessionSnapshot {
@@ -59,6 +75,8 @@ export interface SessionSnapshot {
   lastDisconnectedAt?: string;
   lastDisconnectReason?: string;
   eventCount: number;
+  /** Dialogs waiting for the user in this channel; omitted when there are none. */
+  dialogs?: OpenDialog[];
   error?: DiagnosticError;
 }
 
@@ -69,6 +87,8 @@ export interface AttachResult {
   targets: TargetInfo[];
   selectedTarget?: TargetInfo;
   errors: DiagnosticError[];
+  /** Things that did not stop the attach but may mean the evidence is not from the intended window or app. */
+  warnings: DiagnosticError[];
 }
 
 export type Result<T> = { ok: true; data: T } | { ok: false; error: DiagnosticError };
@@ -79,6 +99,8 @@ export interface StatusResult {
   utility: SessionSnapshot;
   targets: TargetInfo[];
   selectedTarget?: TargetInfo;
+  /** Dialogs waiting for the user across all channels; omitted when there are none. */
+  dialogs?: OpenDialog[];
   lastSeq: number;
 }
 

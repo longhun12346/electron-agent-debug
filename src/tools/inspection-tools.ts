@@ -31,6 +31,7 @@ const waitSchema = z.object({
 const screenshotSchema = z.object({
   format: z.enum(["png", "jpeg"]).optional(),
   quality: z.number().int().min(1).max(100).optional(),
+  maxWidth: z.number().int().min(100).max(8_000).optional(),
 });
 
 const snapshotSchema = z.object({
@@ -82,7 +83,8 @@ export const inspectionTools = [
     title: "Capture a renderer screenshot",
     description:
       "对当前选中的 renderer target 截图，保存为本地文件并返回路径、大小和 target（目录由 ELECTRON_DEBUG_OUTPUT_DIR 指定，" +
-      "默认系统临时目录，仅保留最近 50 张）。不返回图像内容，请用文件读取工具查看。",
+      "默认系统临时目录，仅保留最近 50 张）。不返回图像内容，请用文件读取工具查看。" +
+      "默认按页面的 CSS 尺寸截图（高分屏不会放大两三倍），maxWidth 可再缩小以节省读取图片的开销，大于 CSS 宽度时最多取到屏幕实际分辨率；返回图片的 width、height 和屏幕的 deviceScaleFactor。",
     inputSchema: screenshotSchema,
     handler: async (manager, input) => {
       const result = await manager.inspector.screenshot(input);

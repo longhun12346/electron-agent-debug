@@ -16,7 +16,8 @@ const [mainPort, rendererPort] = [await freePort(), await freePort()];
 const run = randomUUID();
 const outputDir = await mkdtemp(path.join(tmpdir(), "electron inspection smoke "));
 
-const args = [`--inspect=${mainPort}`, `--remote-debugging-port=${rendererPort}`, fixtureRoot];
+// A 2x screen, so the screenshot checks below prove that the default capture is the CSS size, not the device size.
+const args = [`--inspect=${mainPort}`, `--remote-debugging-port=${rendererPort}`, "--force-device-scale-factor=2", fixtureRoot];
 if (process.env.FIXTURE_ELECTRON_NO_SANDBOX === "true") args.unshift("--no-sandbox");
 const env = { ...process.env, FIXTURE_RUN_ID: run, FIXTURE_RENDERER_PORT: rendererPort };
 delete env.FIXTURE_FAULT;
@@ -185,9 +186,22 @@ try {
   assert.deepEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   assert.equal(shot.bytes, png.length);
   assert.ok(png.readUInt32BE(16) > 100 && png.readUInt32BE(20) > 100, "screenshot should have real dimensions");
+  // The reported size is the image's size, and by default that is the page's CSS size whatever the screen's DPI.
+  assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [shot.width, shot.height]);
+  const cssSize = (await evaluate("renderer", "[innerWidth, innerHeight]")).value;
+  assert.ok(Math.abs(shot.width - cssSize[0]) <= 1 && Math.abs(shot.height - cssSize[1]) <= 1,
+    `screenshot ${shot.width}x${shot.height} should match the CSS viewport ${cssSize}`);
+  assert.equal(shot.deviceScaleFactor, 2);
+  const sharp = await call("electron_screenshot", { maxWidth: 4_000 });
+  assert.equal(sharp.width, (await readFile(sharp.path)).readUInt32BE(16));
+  assert.ok(Math.abs(sharp.width - cssSize[0] * 2) <= 2, `full resolution ${sharp.width} for CSS width ${cssSize[0]}`);
+  const small = await call("electron_screenshot", { maxWidth: 200 });
+  const smallPng = await readFile(small.path);
+  assert.equal(smallPng.readUInt32BE(16), 200);
+  assert.equal(small.width, 200);
   const jpeg = await call("electron_screenshot", { format: "jpeg", quality: 60 });
   assert.deepEqual([...(await readFile(jpeg.path)).subarray(0, 2)], [0xff, 0xd8]);
-  assert.equal((await readdir(outputDir)).length, 2);
+  assert.equal((await readdir(outputDir)).length, 4);
 
   // Chromium keeps the connection of a crashed page open and the page answers nothing, so the session has to say so
   // instead of letting every request time out. Reloading the page recovers the same connection.
@@ -208,6 +222,69 @@ try {
     (renderer) => renderer.online === true && renderer.error === undefined, "renderer recovery after reload", 10_000);
   assert.equal((await evaluate("renderer", "1 + 1")).value, 2);
 
+  // Dialogs: a page's alert blocks its scripts, and a native dialog waits for the user. Both are reported in status
+  // and the timeline, and a request that times out behind a blocking dialog says why.
+  // A second debugger client closes the alert the way a user would. It has to enable the Page domain before the
+  // alert opens, or Chromium does not let it answer the dialog.
+  await evaluate("main", `(async () => {
+    const wc = process.mainModule.require('electron').BrowserWindow.getAllWindows()[0].webContents;
+    wc.debugger.attach('1.3');
+    await wc.debugger.sendCommand('Page.enable');
+    return true;
+  })()`);
+  ({ lastSeq } = await call("electron_logs", {}));
+  await evaluate("renderer", "setTimeout(() => alert('smoke-alert'), 0); true");
+  const alerted = await waitUntil(() => call("electron_status"), (status) => status.dialogs?.length === 1, "alert in status");
+  assert.equal(alerted.dialogs[0].kind, "javascript");
+  assert.equal(alerted.dialogs[0].message, "smoke-alert");
+  const blockedEvaluate = await failure("electron_evaluate", { scope: "renderer", expression: "1", timeoutMs: 300 });
+  assert.match(blockedEvaluate.hint ?? "", /对话框/u, JSON.stringify(blockedEvaluate));
+  await evaluate("main", `(async () => {
+    const wc = process.mainModule.require('electron').BrowserWindow.getAllWindows()[0].webContents;
+    try { await wc.debugger.sendCommand('Page.handleJavaScriptDialog', { accept: true }); } finally { wc.debugger.detach(); }
+    return true;
+  })()`);
+  await waitUntil(() => call("electron_status"), (status) => status.dialogs === undefined, "alert closed");
+  assert.equal((await evaluate("renderer", "1 + 1")).value, 2);
+  await eventAfter(lastSeq, "renderer", "JavaScript dialog alert closed");
+
+  await evaluate("main", `(() => {
+    const { dialog, BrowserWindow } = process.mainModule.require('electron');
+    globalThis.smokeDialog = new AbortController();
+    void dialog.showMessageBox(BrowserWindow.getAllWindows()[0], { title: 'Smoke', message: 'smoke-native', signal: smokeDialog.signal });
+    return true;
+  })()`);
+  const native = await waitUntil(() => call("electron_status"), (status) => status.dialogs?.length === 1, "native dialog in status");
+  assert.deepEqual([native.dialogs[0].kind, native.dialogs[0].type, native.dialogs[0].blocking, native.dialogs[0].message],
+    ["native", "showMessageBox", false, "smoke-native"]);
+  assert.equal((await evaluate("main", "1 + 1")).value, 2, "an async native dialog does not block the main process");
+  await evaluate("main", "smokeDialog.abort(); true");
+  await waitUntil(() => call("electron_status"), (status) => status.dialogs === undefined, "native dialog closed");
+
+  // A second window with a <webview>: two windows need an explicit choice, and the webview guest is listed and can be
+  // chosen but is never picked on its own.
+  await evaluate("main", `(async () => {
+    const { BrowserWindow } = process.mainModule.require('electron');
+    const extra = new BrowserWindow({ width: 400, height: 300, show: true, webPreferences: { webviewTag: true } });
+    globalThis.smokeExtra = extra;
+    const guest = new Promise((resolve) => extra.webContents.once('did-attach-webview', (_event, wc) =>
+      wc.once('did-finish-load', resolve)));
+    await extra.loadURL("data:text/html,<title>smoke-host</title><webview src='data:text/html,<title>smoke-guest</title>'></webview>");
+    await guest;
+    return true;
+  })()`);
+  const twoWindows = await call("electron_targets", { clearSelection: true });
+  assert.equal(twoWindows.errors[0]?.code, "TARGET_SELECTION_REQUIRED", JSON.stringify(twoWindows));
+  assert.ok(twoWindows.errors[0].hint);
+  const guestTarget = twoWindows.targets.find((target) => target.type === "webview");
+  assert.ok(guestTarget, JSON.stringify(twoWindows.targets));
+  const onGuest = await call("electron_targets", { targetId: guestTarget.id });
+  assert.equal(onGuest.selectedTarget.id, guestTarget.id);
+  assert.equal((await evaluate("renderer", "document.title")).value, "smoke-guest");
+  await evaluate("main", "(() => { globalThis.smokeExtra.destroy(); return true; })()");
+  const back = await call("electron_targets", { clearSelection: true });
+  assert.match(back.selectedTarget.url, /^file:.*index\.html/u, JSON.stringify(back));
+
   // Dev builds often open DevTools at startup, which lists it as a second page. A fresh attach (a new server with no
   // remembered selection) must still pick the window under test, and DevTools must stay in the target list.
   await evaluate("main", "(() => { const w = process.mainModule.require('electron').BrowserWindow.getAllWindows()[0]; w.webContents.openDevTools({ mode: 'detach' }); return true; })()");
@@ -225,6 +302,13 @@ try {
       arguments: { mainUrl: `http://127.0.0.1:${mainPort}`, rendererUrl: `http://127.0.0.1:${rendererPort}` },
     }, 30_000), "fresh attach");
     assert.equal(reattached.renderer.online, true, JSON.stringify(reattached.errors));
+    // Ports passed the wrong way round fail with a hint instead of attaching to the wrong process.
+    const swapped = structuredData(await fresh.request(requestId++, "tools/call", {
+      name: "electron_attach",
+      arguments: { mainUrl: `http://127.0.0.1:${rendererPort}`, rendererUrl: `http://127.0.0.1:${mainPort}` },
+    }, 30_000), "swapped attach");
+    assert.deepEqual(swapped.errors.map((error) => [error.code, /传反/u.test(error.hint ?? "")]),
+      [["MAIN_INSPECTOR_UNAVAILABLE", true], ["RENDERER_CDP_UNAVAILABLE", true]], JSON.stringify(swapped.errors));
     assert.match(reattached.selectedTarget.url, /^file:.*index\.html/u);
     assert.ok(reattached.targets.some((target) => target.url.startsWith("devtools://")), "DevTools should stay listed");
   } finally {

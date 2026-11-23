@@ -1,5 +1,18 @@
 # 版本记录
 
+## 1.4.0
+
+依据社区同类工具的 issue 调研：用户反馈最集中的是连错页面、attach 失败原因不明、截图太大和被对话框卡住。
+
+- MCP 0.5.0：失败的结果保留底层报错，新增可选的 `hint` 字段说明下一步。attach 失败时区分端口没有进程监听（附启动参数、`ELECTRON_RUN_AS_NODE`、fuse 的排查）、端口有响应但不是调试端口、端口不响应，以及主进程和 renderer 端口传反（此前把 renderer 端口当 `mainUrl` 会连上一个页面，“主进程”求值实际在窗口里执行）。底层的 `fetch failed` 补上系统错误码（如 `ECONNREFUSED`）。
+- `electron_attach`、`electron_targets` 的结果新增 `warnings`：renderer 端口的 User-Agent 不含 Electron（例如占用 9222 的 Chrome）时返回 `RENDERER_NOT_ELECTRON`；原来检查的页面消失、自动改选了另一个页面时返回 `TARGET_CHANGED`，附前后两个页面的 title 和 url。传 `clearSelection` 表示有意切换，不再提示。
+- `<webview>` 出现在 target 列表里，可用 `targetId` 显式选择并检查；不参与自动选择，一个窗口加一个 webview 不会造成歧义。`TARGET_SELECTION_REQUIRED`、`TARGET_NOT_FOUND`、`SESSION_DISCONNECTED` 都附 `hint`。
+- `electron_screenshot` 默认按页面的 CSS 尺寸截图，高分屏（2x、3x）不再成倍放大；新增 `maxWidth` 进一步缩小，大于 CSS 宽度时最多取到屏幕实际分辨率。结果新增图片的 `width`、`height` 和 `deviceScaleFactor`。
+- `electron_status` 新增 `dialogs`（各通道快照里也有）：页面的 JavaScript 对话框（`alert`、`confirm`、`prompt`、`beforeunload`），以及主进程通过 `dialog` 模块打开的原生对话框，标明是否阻塞进程。对话框打开和关闭写入日志（`kind` 为 `dialog`），文本脱敏并截断。阻塞的对话框期间请求超时时，错误的 `hint` 说明原因。原生对话框通过在主进程包装 `dialog` 的函数实现，只在允许求值时启用；attach 之前已持有函数引用的代码、Electron 为页面 alert 打开的消息框不经过包装（后者由 renderer 通道报告）。
+- renderer Session 额外启用 `Page` 域，用于接收对话框事件。
+- 真实 Electron 冒烟新增：2x 缩放下截图尺寸、多窗口加 `<webview>` 的选择、alert 与原生对话框的报告和清除、端口传反的提示、窗口重建后的 `TARGET_CHANGED`。
+- 工具集合不变，原有字段和参数不变，只新增可选参数和字段；已注册 MCP 的宿主无需改动配置。
+
 ## 1.3.4
 
 - MCP 0.4.4：`electron_logs` 新增 `sinceAttach`。传 `true` 时每个通道只返回它最近一次连接之后的事件，不含 attach 时重放的应用历史输出；与 `afterSeq` 取较大者，`gap` 也按各通道的边界计算。注册 MCP 和批处理模式都适用，SKILL.md 不再要求在批处理里手工以 `Session connected` 事件为界。

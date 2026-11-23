@@ -31,7 +31,7 @@ test("the platform description states the real tool count and Node.js version", 
 });
 
 test("the platform description mentions the behaviours an agent has to know about", () => {
-  for (const term of ["sinceAttach", "droppedThroughSeq", "gap", "TARGET_CRASHED", "DevTools"]) {
+  for (const term of ["sinceAttach", "droppedThroughSeq", "gap", "TARGET_CRASHED", "DevTools", "TARGET_CHANGED", "maxWidth", "dialogs"]) {
     assert.ok(detail.includes(term), `the description should mention ${term}`);
   }
 });

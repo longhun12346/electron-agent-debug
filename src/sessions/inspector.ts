@@ -50,6 +50,46 @@ const defaultWaitTimeoutMs = 10_000;
 const maxWaitTimeoutMs = 120_000;
 const retainedScreenshots = 50;
 
+export interface ScreenshotInput {
+  format?: "png" | "jpeg";
+  quality?: number;
+  maxWidth?: number;
+}
+
+interface Viewport {
+  pageX?: number;
+  pageY?: number;
+  clientWidth: number;
+  clientHeight: number;
+}
+
+interface LayoutMetrics {
+  cssVisualViewport?: Viewport;
+  visualViewport?: Viewport;
+}
+
+interface CaptureSize {
+  deviceScaleFactor: number;
+  clip?: { x: number; y: number; width: number; height: number; scale: number };
+}
+
+// Read from the image itself: Chromium rounds a fractional viewport its own way.
+function imageSize(image: Buffer, format: "png" | "jpeg"): { width?: number; height?: number } {
+  if (format === "png") {
+    return image.length >= 24 ? { width: image.readUInt32BE(16), height: image.readUInt32BE(20) } : {};
+  }
+  for (let offset = 2; offset + 9 < image.length;) {
+    if (image[offset] !== 0xff) return {};
+    const marker = image[offset + 1]!;
+    // Start-of-frame markers carry the size; C4, C8 and CC are other segments with the same prefix.
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { height: image.readUInt16BE(offset + 5), width: image.readUInt16BE(offset + 7) };
+    }
+    offset += 2 + image.readUInt16BE(offset + 2);
+  }
+  return {};
+}
+
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -146,12 +186,14 @@ export class Inspector {
     }
   }
 
-  async screenshot(input: { format?: "png" | "jpeg"; quality?: number }): Promise<Result<Record<string, unknown>>> {
+  async screenshot(input: ScreenshotInput): Promise<Result<Record<string, unknown>>> {
     const format = input.format ?? "png";
     try {
+      const size = await this.captureSize(input.maxWidth);
       const response = await this.deps.renderer.request("Page.captureScreenshot", {
         format,
         ...(format === "jpeg" ? { quality: clamp(input.quality, 80, 1, 100) } : {}),
+        ...(size?.clip ? { clip: size.clip } : {}),
       }, 15_000) as { data?: string };
       if (typeof response.data !== "string") {
         throw new DiagnosticException("PROTOCOL_ERROR", "截图响应缺少图像数据");
@@ -168,7 +210,15 @@ export class Inspector {
       const target = this.deps.renderer.snapshot().selectedTarget;
       return {
         ok: true,
-        data: { path: file, bytes: image.length, format, targetId: target?.id, url: await this.currentUrl() },
+        data: {
+          path: file,
+          bytes: image.length,
+          format,
+          ...imageSize(image, format),
+          ...(size ? { deviceScaleFactor: size.deviceScaleFactor } : {}),
+          targetId: target?.id,
+          url: await this.currentUrl(),
+        },
       };
     } catch (error) {
       const diagnostic = toDiagnosticError(error, "SCREENSHOT_FAILED");
@@ -195,6 +245,38 @@ export class Inspector {
     } catch (error) {
       return errorResult(toDiagnosticError(error, "SNAPSHOT_FAILED"));
     }
+  }
+
+  // A high-DPI screen doubles or triples both sides of a screenshot, and the agent pays for every pixel it reads. By
+  // default the image is taken at the page's CSS size (what a 1x screen shows); maxWidth shrinks it further, and a
+  // maxWidth above the CSS width keeps up to the full device resolution. Without layout metrics the capture is left
+  // as Chromium takes it.
+  private async captureSize(maxWidth: number | undefined): Promise<CaptureSize | undefined> {
+    let metrics: LayoutMetrics;
+    try {
+      metrics = await this.deps.renderer.request("Page.getLayoutMetrics", {}) as LayoutMetrics;
+    } catch (error) {
+      // A crashed page or one blocked by a dialog would only make the capture itself wait for its longer timeout.
+      if (error instanceof DiagnosticException &&
+        (error.diagnostic.code === "TARGET_CRASHED" || error.diagnostic.details?.reason === "timeout")) {
+        throw error;
+      }
+      return undefined;
+    }
+    const css = metrics.cssVisualViewport;
+    const device = metrics.visualViewport;
+    if (!css || !device || !(css.clientWidth > 0) || !(css.clientHeight > 0)) return undefined;
+    const deviceScaleFactor = device.clientWidth > 0 ? device.clientWidth / css.clientWidth : 1;
+    const deviceWidth = css.clientWidth * deviceScaleFactor;
+    const width = Math.max(1, Math.min(maxWidth ?? css.clientWidth, deviceWidth));
+    // clip.scale is relative to the device resolution.
+    const scale = width / deviceWidth;
+    const result = { deviceScaleFactor: Math.round(deviceScaleFactor * 100) / 100 };
+    if (scale > 0.999) return result;
+    return {
+      ...result,
+      clip: { x: css.pageX ?? 0, y: css.pageY ?? 0, width: css.clientWidth, height: css.clientHeight, scale },
+    };
   }
 
   private async currentUrl(): Promise<string | undefined> {

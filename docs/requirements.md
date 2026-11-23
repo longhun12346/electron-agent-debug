@@ -55,7 +55,7 @@ Electron 应用的主进程和渲染进程使用不同的调试入口：
 
 - 不新增与诊断无关的工具；每个工具返回结构化、有界、脱敏的结果。
 - MCP Server 不启动、停止或重启应用，只 attach 到 Agent 已启动的应用；不扫描或猜测应用。
-- 只管理一个 Agent 会话和当前 page target，不递归管理 iframe、worker、webview 或多客户端共享状态。
+- 只管理一个 Agent 会话和当前 page target，不递归管理 iframe、worker 或多客户端共享状态；webview 只能作为当前 target 显式选择。
 - 只在工具调用期间进行有限恢复，不运行持续轮询或无限期后台重连。
 - 不依赖业务项目的专属逻辑；evaluate 默认只连接回环地址的应用。
 - 不引入 Playwright、浏览器下载器、桌面自动化框架或完整 CDP 封装。
@@ -169,7 +169,9 @@ endpoint 解析优先级为：
 - webSocketDebuggerUrl
 - favicon URL（如果存在）
 
-输入可以包含 `targetId`、`url`、`title` 或 `clearSelection`；这些条件只用于选择当前 page target，不改变发现到的 target 列表。`clearSelection=true` 用于清除之前保存的 target 选择条件和当前选择，再按当前 target 列表重新选择。只有发现单个带有可连接 WebSocket 的 page target 时才允许自动选择；应用打开的 DevTools 窗口（URL 以 `devtools://` 开头）不参与这个计数，仍会出现在 target 列表中，也可以用 `targetId` 显式选择，只有它一个 page 时则选它。没有可连接 target 时返回 `TARGET_NOT_FOUND`，存在多个可连接候选且 Agent 没有提供选择条件时，返回 `TARGET_SELECTION_REQUIRED`（`details.count` 不含 DevTools）。
+输入可以包含 `targetId`、`url`、`title` 或 `clearSelection`；这些条件只用于选择当前 page target，不改变发现到的 target 列表。`clearSelection=true` 用于清除之前保存的 target 选择条件和当前选择，再按当前 target 列表重新选择。只有发现单个带有可连接 WebSocket 的 page target 时才允许自动选择；应用打开的 DevTools 窗口（URL 以 `devtools://` 开头）不参与这个计数，仍会出现在 target 列表中，也可以用 `targetId` 显式选择，只有它一个 page 时则选它。`<webview>`（`type` 为 `webview`）同样列出、可显式选择，但从不自动选择。没有可连接 target 时返回 `TARGET_NOT_FOUND`，存在多个可连接候选且 Agent 没有提供选择条件时，返回 `TARGET_SELECTION_REQUIRED`（`details.count` 不含 DevTools 和 webview）。
+
+原来选中的页面消失后（窗口被关闭重开、换成新的 target），重新发现时若自动选中了另一个页面，结果的 `warnings` 带 `TARGET_CHANGED`（`details.previous`、`details.selected` 给出两个页面的 id、title、url）；传 `clearSelection` 或换了 endpoint 时不提示。renderer endpoint 的 `/json/version` 里 User-Agent 不含 `Electron/` 时带 `RENDERER_NOT_ELECTRON` 警告。attach 和 targets 的结果总有 `warnings` 数组。
 
 #### `electron_logs`
 
@@ -219,9 +221,15 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 
 `timeoutMs` 默认 10 秒，上限 120 秒。
 
+#### 错误提示与对话框
+
+所有错误保留底层报错作为 `message`，可附可选的 `hint` 说明下一步。attach 失败按原因给出提示：端口没有进程监听（`ECONNREFUSED`，提示启动参数、`ELECTRON_RUN_AS_NODE`、`EnableNodeCliInspectArguments` fuse）、端口不响应、端口有响应但返回的不是调试协议、`mainUrl` 实际是 renderer 端口（返回 page 而没有 node target，不连接）、`rendererUrl` 实际是主进程 Inspector（只有 node target）。
+
+`electron_status` 和各通道快照的 `dialogs` 列出等待用户操作的对话框：renderer 通过 `Page.javascriptDialogOpening/Closed` 报告页面的 JavaScript 对话框；允许求值时，主进程在 attach 后包装 `dialog` 模块的函数，通过 `Runtime.addBinding` 报告打开和关闭（Electron 自己为页面 alert 调用的不报告，避免重复）。每项含 `process`、`kind`（`javascript` / `native`）、`type`、`blocking`、脱敏截断后的 `title`/`message` 和 `openedAt`。打开和关闭写入时间线（`kind: "dialog"`）。有阻塞的对话框时请求超时，错误的 `hint` 说明原因，`details.dialog` 给出对话框。
+
 #### `electron_screenshot`
 
-对当前 renderer target 截图，保存到 `ELECTRON_DEBUG_OUTPUT_DIR`（默认系统临时目录下的 `electron-agent-debug`），返回路径、字节数、格式、target 和 URL，不返回图像内容。支持 `png` 和 `jpeg`（含 `quality`）。目录权限 0700、文件权限 0600，只保留最近 50 张。窗口被隐藏或最小化时 Chromium 不响应，调用超时失败。
+对当前 renderer target 截图，保存到 `ELECTRON_DEBUG_OUTPUT_DIR`（默认系统临时目录下的 `electron-agent-debug`），返回路径、字节数、格式、图片的 `width` 和 `height`、`deviceScaleFactor`、target 和 URL，不返回图像内容。支持 `png` 和 `jpeg`（含 `quality`）。默认按 `Page.getLayoutMetrics` 的 CSS 视口尺寸截图，高分屏不成倍放大；`maxWidth`（100–8000）进一步缩小，大于 CSS 宽度时最多取到设备分辨率。取不到布局信息时按 Chromium 默认截图。目录权限 0700、文件权限 0600，只保留最近 50 张。窗口被隐藏或最小化时 Chromium 不响应，调用超时失败。
 
 #### `electron_dom_snapshot`
 
@@ -306,7 +314,7 @@ Skill 必须明确以下判断规则：
 - Agent 必须在调用 MCP 前准备工作目录、调试端点和本次修改的预期行为或回归操作。
 - Agent 如果无法提供这些前提，应报告前提缺失，而不是宣称代码失败或修复成功。
 - 主进程和渲染进程使用独立 Session；preload 和 IPC 问题由 Agent 联合使用两个 Session 判断。
-- 第一阶段只处理当前 Electron page target，不递归管理 iframe、worker、webview 或其他浏览器 target。
+- 第一阶段只处理当前 Electron page target（可显式选择 webview），不递归管理 iframe、worker 或其他浏览器 target。
 - 表达式执行只连接回环地址的应用，可由宿主禁用。
 - fixture 负责启动应用、注入故障和定义预期行为；MCP Server 只负责连接 fixture 并返回观察结果。
 

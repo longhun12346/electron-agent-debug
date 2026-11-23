@@ -8,6 +8,7 @@ export class DiagnosticException extends Error {
     message: string,
     options: {
       retryable?: boolean;
+      hint?: string;
       details?: Record<string, unknown>;
       cause?: unknown;
     } = {},
@@ -18,6 +19,7 @@ export class DiagnosticException extends Error {
       code,
       message,
       retryable: options.retryable ?? false,
+      ...(options.hint !== undefined ? { hint: options.hint } : {}),
       details: options.details,
     };
   }
@@ -31,7 +33,7 @@ export function toDiagnosticError(error: unknown, fallbackCode = "PROTOCOL_ERROR
   if (error instanceof Error) {
     return {
       code: fallbackCode,
-      message: error.message,
+      message: transportMessage(error),
       retryable: true,
     };
   }
@@ -52,4 +54,21 @@ export function errorResult(error: DiagnosticError): {
 
 export function successResult<T>(data: T): { ok: true; data: T } {
   return { ok: true, data };
+}
+
+/** The system error code under a failed fetch or socket (ECONNREFUSED, ETIMEDOUT, …), when there is one. */
+export function transportCode(error: unknown): string | undefined {
+  for (let current = error, depth = 0; current !== undefined && current !== null && depth < 4; depth += 1) {
+    const record = current as { code?: unknown; name?: unknown; cause?: unknown };
+    if (typeof record.code === "string" && /^E[A-Z]+$/u.test(record.code)) return record.code;
+    if (record.name === "TimeoutError") return "ETIMEDOUT";
+    current = record.cause;
+  }
+  return undefined;
+}
+
+// `fetch failed` alone does not say whether nothing listens or the port is taken by something that never answers.
+function transportMessage(error: Error): string {
+  const code = transportCode(error);
+  return code !== undefined && !error.message.includes(code) ? `${error.message} (${code})` : error.message;
 }

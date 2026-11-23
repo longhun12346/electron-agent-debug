@@ -1,4 +1,5 @@
 import { EventBuffer, sessionConnectedMessage, type EventSequence } from "../events/event-buffer.js";
+import { blockingDialogHint, DialogTracker, dialogBinding, dialogMessage, instrumentDialogsScript } from "../dialogs.js";
 import { DiagnosticException, toDiagnosticError } from "../errors.js";
 import { JsonRpcConnection, type JsonRpcEvent } from "../protocol/json-rpc-connection.js";
 import type {
@@ -164,9 +165,11 @@ export class DiagnosticSession {
   private crashedAt?: string;
   private error?: ReturnType<typeof toDiagnosticError>;
   readonly events: EventBuffer;
+  readonly dialogs: DialogTracker;
 
   constructor(private readonly options: SessionOptions) {
     this.events = new EventBuffer(options.maxLogEvents, options.maxLogBytes, options.sequence);
+    this.dialogs = new DialogTracker(options.process);
   }
 
   get isConnected(): boolean {
@@ -221,6 +224,7 @@ export class DiagnosticSession {
     this.endpoint = endpoint;
     this.selectedTarget = target;
     this.crashedAt = undefined;
+    this.dialogs.clear();
 
     let connection!: JsonRpcConnection;
     connection = new JsonRpcConnection({
@@ -269,6 +273,7 @@ export class DiagnosticSession {
     this.websocketUrl = undefined;
     this.selectedTarget = undefined;
     this.crashedAt = undefined;
+    this.dialogs.clear();
     if (!connection) {
       this.status = this.endpoint ? "offline" : "unconfigured";
       return;
@@ -283,6 +288,8 @@ export class DiagnosticSession {
     if (!this.connection?.isOpen) {
       throw new DiagnosticException("SESSION_DISCONNECTED", `${this.options.process} 通道当前不可用`, {
         retryable: true,
+        hint: this.disconnectedHint(),
+        ...(this.lastDisconnectReason !== undefined ? { details: { lastDisconnectReason: this.lastDisconnectReason } } : {}),
       });
     }
     if (this.crashedAt !== undefined) {
@@ -292,7 +299,56 @@ export class DiagnosticSession {
         details: { crashedAt: this.crashedAt },
       });
     }
-    return this.connection.request(method, params, timeoutMs);
+    try {
+      return await this.connection.request(method, params, timeoutMs);
+    } catch (error) {
+      // A request that times out while a dialog is waiting for the user timed out because of the dialog.
+      const dialog = this.dialogs.blocking;
+      if (dialog === undefined || !(error instanceof DiagnosticException) || error.diagnostic.details?.reason !== "timeout") {
+        throw error;
+      }
+      throw new DiagnosticException(error.diagnostic.code, error.diagnostic.message, {
+        retryable: true,
+        hint: blockingDialogHint,
+        details: { ...error.diagnostic.details, dialog },
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Main process only: report native dialogs by wrapping Electron's `dialog` functions (see dialogs.ts). This runs
+   * code in the app, so the caller only does it when evaluation is allowed. A failure leaves a warning in the timeline.
+   */
+  async instrumentDialogs(): Promise<void> {
+    const connection = this.connection;
+    if (!connection?.isOpen) return;
+    try {
+      await connection.request("Runtime.addBinding", { name: dialogBinding });
+      const response = await connection.request("Runtime.evaluate", {
+        expression: instrumentDialogsScript,
+        awaitPromise: true,
+        returnByValue: true,
+      }, 3_000) as { result?: { value?: unknown }; exceptionDetails?: { text?: string } };
+      if (response.exceptionDetails) {
+        throw new Error(response.exceptionDetails.text ?? "instrumentation threw");
+      }
+      const state = JSON.parse(String(response.result?.value ?? "{}")) as { open?: unknown[] };
+      // Dialogs opened before this attach (seen by an earlier attach of the wrapper) are reported again.
+      for (const entry of state.open ?? []) {
+        this.recordDialog(this.dialogs.native(JSON.stringify({ ...(entry as object), event: "open" })));
+      }
+    } catch (error) {
+      if (!connection.isOpen) return;
+      this.events.add({
+        process: this.options.process,
+        observedAt: new Date().toISOString(),
+        kind: "protocol",
+        level: "warn",
+        message: "原生对话框监测未启用，status 不会报告主进程打开的对话框",
+        data: toDiagnosticError(error),
+      });
+    }
   }
 
   snapshot(): SessionSnapshot {
@@ -308,6 +364,7 @@ export class DiagnosticSession {
       lastDisconnectedAt: this.lastDisconnectedAt,
       lastDisconnectReason: this.lastDisconnectReason,
       eventCount: this.events.size,
+      ...(this.dialogs.list.length > 0 ? { dialogs: this.dialogs.list } : {}),
       error: crashed
         ? {
           code: "TARGET_CRASHED",
@@ -320,8 +377,9 @@ export class DiagnosticSession {
   }
 
   private async enableCoreDomains(connection: JsonRpcConnection): Promise<void> {
+    // Page.enable only brings the JavaScript dialog events. A dialog already open before the attach is not announced.
     const domains = this.options.process === "renderer"
-      ? ["Runtime.enable", "Log.enable", "Inspector.enable"]
+      ? ["Runtime.enable", "Log.enable", "Inspector.enable", "Page.enable"]
       : ["Runtime.enable"];
     for (const method of domains) {
       try {
@@ -368,11 +426,50 @@ export class DiagnosticSession {
       });
       return;
     }
+    if (event.method === "Page.javascriptDialogOpening") {
+      this.recordDialog({
+        event: "open",
+        dialog: this.dialogs.javascriptOpened(asRecord(event.params), this.selectedTarget?.id),
+      });
+      return;
+    }
+    if (event.method === "Page.javascriptDialogClosed") {
+      const dialog = this.dialogs.javascriptClosed();
+      if (dialog) this.recordDialog({ event: "close", dialog });
+      return;
+    }
+    if (event.method === "Runtime.bindingCalled" && asRecord(event.params).name === dialogBinding) {
+      this.recordDialog(this.dialogs.native(asRecord(event.params).payload));
+      return;
+    }
     const normalized = eventFromProtocol(this.options.process, event);
     if (normalized) {
       normalized.targetId = this.selectedTarget?.id;
       this.events.add(normalized);
     }
+  }
+
+  private recordDialog(change: ReturnType<DialogTracker["native"]>): void {
+    if (!change) return;
+    this.events.add({
+      process: this.options.process,
+      targetId: change.dialog.targetId,
+      observedAt: new Date().toISOString(),
+      kind: "dialog",
+      level: change.event === "open" ? "warn" : "info",
+      message: dialogMessage(change.event, change.dialog),
+      data: change.dialog,
+    });
+  }
+
+  private disconnectedHint(): string {
+    if (this.endpoint === undefined) {
+      return "还没有连接这个通道，先调用 electron_attach。";
+    }
+    if (this.options.process === "renderer") {
+      return "选中的页面已关闭、被替换或应用已退出；用 electron_targets 重新发现并选择页面，应用重启过则重新 electron_attach。";
+    }
+    return "应用可能已退出或重启；重启后端口可能变化，用新的 endpoint 重新 electron_attach。";
   }
 
   private handleClose(connection: JsonRpcConnection, reason: string): void {
@@ -384,6 +481,7 @@ export class DiagnosticSession {
     this.websocketUrl = undefined;
     this.selectedTarget = undefined;
     this.crashedAt = undefined;
+    this.dialogs.clear();
     this.status = this.endpoint ? "offline" : "unconfigured";
     this.lastDisconnectedAt = new Date().toISOString();
     this.lastDisconnectReason = reason;

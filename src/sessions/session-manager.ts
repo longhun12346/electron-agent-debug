@@ -14,6 +14,7 @@ import type {
   DiagnosticEvent,
   EndpointConfig,
   LogsInput,
+  OpenDialog,
   StatusResult,
   TargetInfo,
 } from "../types.js";
@@ -32,6 +33,9 @@ export class SessionManager {
   private rendererEndpoint?: EndpointConfig;
   private rendererTargets: TargetInfo[] = [];
   private selector: TargetSelector = {};
+  // The page the renderer session last inspected. The session forgets its target when the page closes; this does not,
+  // so a later automatic selection of a different page is reported instead of happening silently.
+  private lastSelected?: TargetInfo;
   private operationQueue: Promise<void> = Promise.resolve();
 
   constructor(config = readRuntimeConfig()) {
@@ -81,6 +85,7 @@ export class SessionManager {
     input: AttachInput,
   ): Promise<{ ok: true; data: AttachResult } | { ok: false; error: DiagnosticError }> {
     const errors: DiagnosticError[] = [];
+    const warnings: DiagnosticError[] = [];
     const resolved = this.resolveEndpoints(input, errors);
     if (!resolved.main && !resolved.renderer && input.utility === undefined) {
       return errorResult(
@@ -94,6 +99,7 @@ export class SessionManager {
 
     if (input.clearSelection) {
       this.selector = {};
+      this.lastSelected = undefined;
       this.renderer.clearTargetSelection();
     }
     if (input.targetId !== undefined || input.url !== undefined || input.title !== undefined) {
@@ -116,6 +122,9 @@ export class SessionManager {
           timeoutMs: this.config.discoveryTimeoutMs,
         });
         await this.main.connect(resolved.main, discovered.websocketUrl as string);
+        if (this.config.allowEval !== false) {
+          await this.main.instrumentDialogs();
+        }
       } catch (error) {
         const diagnostic = toDiagnosticError(error, "MAIN_INSPECTOR_UNAVAILABLE");
         await this.main.close("Main attach failed");
@@ -137,7 +146,7 @@ export class SessionManager {
     if (resolved.renderer) {
       this.rendererEndpoint = resolved.renderer;
       try {
-        await this.refreshRenderer(resolved.renderer, errors);
+        await this.refreshRenderer(resolved.renderer, errors, warnings);
       } catch (error) {
         errors.push(toDiagnosticError(error, "RENDERER_CDP_UNAVAILABLE"));
       }
@@ -157,6 +166,7 @@ export class SessionManager {
         targets: this.rendererTargets,
         selectedTarget: this.renderer.snapshot().selectedTarget,
         errors,
+        warnings,
       },
     };
   }
@@ -164,7 +174,7 @@ export class SessionManager {
   async refreshTargets(
     input: Pick<AttachInput, "rendererUrl" | "targetId" | "url" | "title" | "clearSelection">,
   ): Promise<
-    | { ok: true; data: { targets: TargetInfo[]; selectedTarget?: TargetInfo; errors: DiagnosticError[] } }
+    | { ok: true; data: TargetsResult }
     | { ok: false; error: DiagnosticError }
   > {
     return this.serialize(() => this.refreshTargetsInternal(input));
@@ -173,10 +183,11 @@ export class SessionManager {
   private async refreshTargetsInternal(
     input: Pick<AttachInput, "rendererUrl" | "targetId" | "url" | "title" | "clearSelection">,
   ): Promise<
-    | { ok: true; data: { targets: TargetInfo[]; selectedTarget?: TargetInfo; errors: DiagnosticError[] } }
+    | { ok: true; data: TargetsResult }
     | { ok: false; error: DiagnosticError }
   > {
     const errors: DiagnosticError[] = [];
+    const warnings: DiagnosticError[] = [];
     const endpoint = this.resolveRendererEndpoint(input.rendererUrl, errors);
     if (!endpoint) {
       return errorResult(
@@ -190,6 +201,7 @@ export class SessionManager {
 
     if (input.clearSelection) {
       this.selector = {};
+      this.lastSelected = undefined;
       this.renderer.clearTargetSelection();
     }
     if (input.targetId !== undefined || input.url !== undefined || input.title !== undefined) {
@@ -202,7 +214,7 @@ export class SessionManager {
 
     this.rendererEndpoint = endpoint;
     try {
-      await this.refreshRenderer(endpoint, errors);
+      await this.refreshRenderer(endpoint, errors, warnings);
     } catch (error) {
       errors.push(toDiagnosticError(error, "RENDERER_CDP_UNAVAILABLE"));
     }
@@ -212,6 +224,7 @@ export class SessionManager {
         targets: this.rendererTargets,
         selectedTarget: this.renderer.snapshot().selectedTarget,
         errors,
+        warnings,
       },
     };
   }
@@ -227,6 +240,7 @@ export class SessionManager {
       this.rendererEndpoint = undefined;
       this.rendererTargets = [];
       this.selector = {};
+      this.lastSelected = undefined;
       this.main.setEndpoint(undefined);
       this.renderer.setEndpoint(undefined);
       this.utility.setEndpoint(undefined);
@@ -276,12 +290,18 @@ export class SessionManager {
   }
 
   status(): StatusResult {
+    const dialogs: OpenDialog[] = [
+      ...this.main.dialogs.list,
+      ...this.renderer.dialogs.list,
+      ...this.utility.dialogs.list,
+    ];
     return {
       main: this.main.snapshot(),
       renderer: this.renderer.snapshot(),
       utility: this.utility.snapshot(),
       targets: this.rendererTargets,
       selectedTarget: this.renderer.snapshot().selectedTarget,
+      ...(dialogs.length > 0 ? { dialogs } : {}),
       lastSeq: this.sequence.last,
     };
   }
@@ -384,10 +404,13 @@ export class SessionManager {
   private async refreshRenderer(
     endpoint: EndpointConfig,
     errors: DiagnosticError[],
+    warnings: DiagnosticError[],
   ): Promise<void> {
     const previousEndpoint = this.renderer.endpointConfig?.url;
     if (previousEndpoint !== undefined && previousEndpoint !== endpoint.url) {
       await this.renderer.close("Renderer endpoint changed");
+      // A new endpoint is a restarted or different app: its pages are new, not replacements of the old ones.
+      this.lastSelected = undefined;
     }
 
     this.renderer.setEndpoint(endpoint);
@@ -407,10 +430,20 @@ export class SessionManager {
       return;
     }
     this.rendererTargets = pageTargets(discovered.targets);
+    if (discovered.userAgent !== undefined && !discovered.userAgent.includes("Electron/")) {
+      warnings.push({
+        code: "RENDERER_NOT_ELECTRON",
+        message: "renderer endpoint 的 User-Agent 里没有 Electron",
+        retryable: false,
+        hint: "这个端口可能是浏览器（例如同样使用 9222 端口的 Chrome）而不是要验证的应用；核对端口。" +
+          "应用自己改写了 User-Agent 时可忽略。",
+        details: { userAgent: discovered.userAgent.slice(0, 300) },
+      });
+    }
 
     let target: TargetInfo;
     try {
-      const previous = this.renderer.snapshot().selectedTarget;
+      const previous = this.renderer.snapshot().selectedTarget ?? this.lastSelected;
       const hasExplicitSelector = Object.values(this.selector).some(Boolean);
       const previousStillExists =
         previous !== undefined && this.rendererTargets.some((candidate) => candidate.id === previous.id);
@@ -424,6 +457,19 @@ export class SessionManager {
         throw new DiagnosticException("TARGET_NOT_FOUND", "没有选中的 target", { retryable: true });
       }
       target = selected;
+      if (!hasExplicitSelector && previous !== undefined && previous.id !== target.id) {
+        warnings.push({
+          code: "TARGET_CHANGED",
+          message: "之前检查的页面已不存在，已自动改选另一个页面",
+          retryable: false,
+          hint: "确认新页面就是要验证的窗口（对照 title 和 url）；之后的日志、截图和求值都来自新页面。" +
+            "有意切换时传 clearSelection 可去掉这条提示。",
+          details: {
+            previous: { id: previous.id, title: previous.title, url: previous.url },
+            selected: { id: target.id, title: target.title, url: target.url },
+          },
+        });
+      }
     } catch (error) {
       const diagnostic = toDiagnosticError(error, "TARGET_NOT_FOUND");
       await this.renderer.close("Renderer target selection failed");
@@ -448,10 +494,18 @@ export class SessionManager {
 
     try {
       await this.renderer.connect(endpoint, target.webSocketDebuggerUrl, target);
+      this.lastSelected = target;
     } catch (error) {
       const diagnostic = toDiagnosticError(error, "RENDERER_CDP_UNAVAILABLE");
       this.renderer.setError(diagnostic);
       errors.push(diagnostic);
     }
   }
+}
+
+export interface TargetsResult {
+  targets: TargetInfo[];
+  selectedTarget?: TargetInfo;
+  errors: DiagnosticError[];
+  warnings: DiagnosticError[];
 }

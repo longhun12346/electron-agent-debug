@@ -108,9 +108,12 @@ try {
   await waitUntil(() => call("electron_status"),
     (status) => !status.renderer.online && !status.selectedTarget && status.targets.length === 0,
     "old renderer disconnected");
-  const replacement = await call("electron_targets", { clearSelection: true });
+  // Without clearSelection the switch to the new window is reported, so evidence is not silently from another page.
+  const replacement = await call("electron_targets", {});
   assert.ok(replacement.selectedTarget);
   assert.notEqual(replacement.selectedTarget.id, oldTarget);
+  assert.equal(replacement.warnings[0]?.code, "TARGET_CHANGED", JSON.stringify(replacement));
+  assert.equal(replacement.warnings[0].details.previous.id, oldTarget);
   await evidence(first.run, reloadMessage);
   console.log("Lifecycle verified: BrowserWindow replacement and target reselection");
 
