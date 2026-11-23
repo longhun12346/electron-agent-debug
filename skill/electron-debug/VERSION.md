@@ -1,5 +1,12 @@
 # 版本记录
 
+## 1.6.0
+
+- MCP 0.7.0：主进程通道追踪 IPC。依据：preload/IPC 是双通道诊断的核心场景，此前主进程一侧只能靠应用自己打日志或用求值读副作用；社区的浏览器类工具（agent-browser、chrome-devtools-mcp）连不上主进程。attach 后在主进程包装 `ipcMain`，时间线新增 `kind: "ipc"` 事件：`invoke` 的成功、失败与错误信息（attach 前后注册的 handler 都覆盖），`send`/`sendSync` 的处理结果，没有监听者时为 warn。只记录通道、耗时、结果和参数大小，不含参数值；每通道每秒最多 20 条。只在主进程通道在线且未设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 时启用，失败时写警告。
+- invoke 依赖 Electron 的私有字段 `ipcMain._invokeHandlers`，在 Electron 45 上实测；字段不存在的版本只追踪 send/sendSync 并写警告。CI 在 Electron 43、44 和最新稳定版上运行同一冒烟。
+- 定位写入 requirements 0.1 节：重点投入主进程、utility 和跨进程诊断，renderer 保留最小集，深入的 renderer 分析与 chrome-devtools-mcp 并用。
+- fixture 的 preload 新增仅供测试的 `fixtureIpc`，只允许 `fixture:` 通道。
+
 ## 1.5.1
 
 - MCP 0.6.1：`electron_wait_for` 的 log 条件新增 `sinceAttach`，规则同 `electron_logs`。命中的事件早于该通道最近一次连接时，结果带 `beforeAttach: true` 和 `hint`。依据：在 field 应用上实测，批处理第一次执行点击 Save，第二次执行什么都不做，等同一条主进程报错却在 0ms 内命中了重放的旧日志；修复后验证时，Agent 会把上一轮的报错当成这一轮的结果。默认仍检查重放的历史，因为启动期间的错误也是证据。

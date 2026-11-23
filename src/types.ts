@@ -35,7 +35,7 @@ export interface DiagnosticEvent {
   process: ProcessScope;
   targetId?: string;
   observedAt: string;
-  kind: "console" | "exception" | "connection" | "protocol" | "dialog";
+  kind: "console" | "exception" | "connection" | "protocol" | "dialog" | "ipc";
   level?: string;
   message: string;
   data?: unknown;

@@ -222,6 +222,31 @@ try {
     (renderer) => renderer.online === true && renderer.error === undefined, "renderer recovery after reload", 10_000);
   assert.equal((await evaluate("renderer", "1 + 1")).value, 2);
 
+  // IPC tracing: the main channel records each message a renderer sends, with its outcome, without the app logging.
+  // A handler registered before the attach (fixture:get-value) and one registered after it are both traced.
+  await evaluate("main", `(() => {
+    const { ipcMain } = process.mainModule.require('electron');
+    ipcMain.handle('fixture:late', async (_event, value) => { if (value < 0) throw new Error('fixture late failure'); return value * 2; });
+    ipcMain.on('fixture:sync', (event) => { event.returnValue = 'sync-ok'; });
+    return true;
+  })()`);
+  ({ lastSeq } = await call("electron_logs", {}));
+  assert.equal((await evaluate("renderer", "fixtureApi.getValue()")).value, "fixture-ok");
+  assert.equal((await evaluate("renderer", "fixtureIpc.invoke('fixture:late', 21)")).value, 42);
+  assert.equal((await evaluate("renderer", "fixtureIpc.invoke('fixture:late', -1).catch(() => 'rejected')")).value, "rejected");
+  assert.equal((await evaluate("renderer", "fixtureIpc.sendSync('fixture:sync')")).value, "sync-ok");
+  await evaluate("renderer", "fixtureIpc.send('fixture:nobody'); true");
+  await eventAfter(lastSeq, "main", "IPC send fixture:nobody");
+  const traced = (await call("electron_logs", { process: "main", afterSeq: lastSeq, limit: 100 })).events
+    .filter((event) => event.kind === "ipc").map((event) => `${event.level} ${event.message.replace(/ in \d+ms| after \d+ms/u, "")}`);
+  assert.deepEqual(traced, [
+    "info IPC invoke fixture:get-value ok",
+    "info IPC invoke fixture:late ok",
+    "error IPC invoke fixture:late failed: Error: fixture late failure",
+    "info IPC sendSync fixture:sync ok",
+    "warn IPC send fixture:nobody: no listener in the main process",
+  ], JSON.stringify(traced));
+
   // Dialogs: a page's alert blocks its scripts, and a native dialog waits for the user. Both are reported in status
   // and the timeline, and a request that times out behind a blocking dialog says why.
   // A second debugger client closes the alert the way a user would. It has to enable the Page domain before the

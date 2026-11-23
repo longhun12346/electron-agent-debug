@@ -14,6 +14,17 @@
 - 工具输出结构化、有界、脱敏、仅限回环，不含项目专属逻辑。
 - 返回适合 Agent 消化的结构化状态、日志、异常和连接错误；最终诊断结论由 Agent 结合项目回归结果自行判断。
 
+### 0.1 与浏览器类工具的分工
+
+社区里让 Agent 调 Electron 的主流做法只连 renderer：用 `--remote-debugging-port` 接 agent-browser 或 chrome-devtools-mcp，做快照、交互和截图。chrome-devtools-mcp 基于 Puppeteer 连接浏览器端点，连不上主进程的 Node Inspector，也不覆盖 utility process；官方只正式支持 Chrome，对 Electron 是"可能可用"。
+
+本项目的投入方向据此确定：
+
+- **重点**：主进程、utility process，以及跨进程的 preload/IPC 诊断。新增能力优先落在这里。
+- **renderer**：保留诊断和回归所需的最小集（日志、求值、等待、截图、无障碍树、按 ref 或 role+name 点击和输入），以及 Electron 特有的处理（DevTools 窗口不参与自动选择、窗口重建的 `TARGET_CHANGED`、webview、崩溃恢复、对话框）。只修问题，不扩展通用浏览器能力。
+- **不改用浏览器类工具承载 renderer**：两侧证据必须在同一条 `seq` 时间线上，交互返回的 `afterSeq`、`sinceAttach`、`beforeAttach` 才能同时用于 main 和 renderer；拆成两个 MCP 后 Agent 要按时间戳自行对齐，批处理也无法跨工具运行。以 chrome-devtools-mcp 的 Electron fork 为底座同样不采用：fork 不提供上述 Electron 特有处理，需长期跟随上游，并引入 Puppeteer 和数倍的工具数量，与 2.3 节的轻量判定冲突。
+- **并用**：需要网络、性能、logpoints 等深入的 renderer 分析时，由用户另行配置 chrome-devtools-mcp，连接同一个 renderer 端口。两者同时连接同一页面的相互影响尚未实测，验证前不写入推荐配置。
+
 ## 1. 背景
 
 Electron 应用的主进程和渲染进程使用不同的调试入口：
@@ -225,6 +236,8 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 
 所有错误保留底层报错作为 `message`，可附可选的 `hint` 说明下一步。attach 失败按原因给出提示：端口没有进程监听（`ECONNREFUSED`，提示启动参数、`ELECTRON_RUN_AS_NODE`、`EnableNodeCliInspectArguments` fuse）、端口不响应、端口有响应但返回的不是调试协议、`mainUrl` 实际是 renderer 端口（返回 page 而没有 node target，不连接）、`rendererUrl` 实际是主进程 Inspector（只有 node target）。
 
+主进程通道在允许求值时还会追踪 IPC：通过 `Runtime.addBinding` 包装 `ipcMain`，把主进程收到的每条消息写入时间线（`kind: "ipc"`）。`invoke` 通过 Electron 的私有处理表 `ipcMain._invokeHandlers`（Map）包装，attach 前后注册的 handler 都覆盖，记录成功、失败和错误信息；表不存在时只追踪 `send`/`sendSync`，并在时间线写一条警告。`send`/`sendSync` 包装 `ipcMain.emit`，没有监听者时为 warn。没有 handler 的 `invoke` 不另记，Electron 自己会在主进程打印 `Error occurred in handler for … No handler registered`。只记录通道名、类型、耗时、结果、错误信息（脱敏）和参数序列化后的大小，不记录参数和返回值；每个通道每秒最多 20 条，超出的条数记在下一条的 `skipped` 里；跳过 Electron 内部通道。`webContents.ipc` 和 session 级 handler 不追踪。实测（Electron 45）：主进程监听者抛出异常时，主进程与之后的请求一起停止响应，追踪仍会在此之前记下这条失败。
+
 `electron_status` 和各通道快照的 `dialogs` 列出等待用户操作的对话框：renderer 通过 `Page.javascriptDialogOpening/Closed` 报告页面的 JavaScript 对话框；允许求值时，主进程在 attach 后包装 `dialog` 模块的函数，通过 `Runtime.addBinding` 报告打开和关闭（Electron 自己为页面 alert 调用的不报告，避免重复）。每项含 `process`、`kind`（`javascript` / `native`）、`type`、`blocking`、脱敏截断后的 `title`/`message` 和 `openedAt`。打开和关闭写入时间线（`kind: "dialog"`）。有阻塞的对话框时请求超时，错误的 `hint` 说明原因，`details.dialog` 给出对话框。页面崩溃时对话框随页面消失，Chromium 不发 Closed 事件，记录在 `Inspector.targetCrashed` 时清除，日志写 `closed (the page crashed)`。alert 打开时 reload 不需要特殊处理：被阻塞的页面要等对话框关闭后才会导航，那时 Closed 事件已经到达（Electron 43 实测）。
 
 #### `electron_screenshot`
@@ -314,7 +327,7 @@ Skill 必须明确以下判断规则：
 
 - 由 MCP Server 替用户猜测开发命令、入口文件或窗口，或同时管理多个应用。
 - 提供完整桌面 UI 自动化。点击和输入只到“按无障碍树 ref 操作当前页面”为止，不做拖拽、悬停、快捷键、原生 `<select>` 的键盘选择、输入法组合输入或录制回放；交互之后的验证仍由 Agent 用诊断工具完成。
-- 提供完整网络录制、性能分析、heap snapshot、HAR 导出或源码级调试器。
+- 提供完整网络录制、性能分析、heap snapshot、HAR 导出或源码级调试器。renderer 侧的这类需求交给 chrome-devtools-mcp 等浏览器类工具，见 0.1 节。
 - 连接公网或局域网中的远程 Electron 应用。
 
 ### 职责边界

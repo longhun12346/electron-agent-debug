@@ -125,6 +125,7 @@ export class SessionManager {
         await this.main.connect(resolved.main, discovered.websocketUrl as string);
         if (this.config.allowEval !== false) {
           await this.main.instrumentDialogs();
+          await this.main.instrumentIpc();
         }
       } catch (error) {
         const diagnostic = toDiagnosticError(error, "MAIN_INSPECTOR_UNAVAILABLE");

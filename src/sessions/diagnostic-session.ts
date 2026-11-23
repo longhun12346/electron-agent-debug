@@ -1,6 +1,7 @@
 import { EventBuffer, sessionConnectedMessage, type EventSequence } from "../events/event-buffer.js";
 import { blockingDialogHint, DialogTracker, dialogBinding, dialogMessage, instrumentDialogsScript } from "../dialogs.js";
 import { DiagnosticException, toDiagnosticError } from "../errors.js";
+import { instrumentIpcScript, ipcBinding, ipcEvent } from "../ipc.js";
 import { JsonRpcConnection, type JsonRpcEvent } from "../protocol/json-rpc-connection.js";
 import type {
   DiagnosticEvent,
@@ -351,6 +352,46 @@ export class DiagnosticSession {
     }
   }
 
+  /**
+   * Main process only: trace IPC messages from renderers by wrapping ipcMain (see ipc.ts). Like the dialog wrapper
+   * this runs code in the app, so it is only done when evaluation is allowed; a failure leaves a warning.
+   */
+  async instrumentIpc(): Promise<void> {
+    const connection = this.connection;
+    if (!connection?.isOpen) return;
+    try {
+      await connection.request("Runtime.addBinding", { name: ipcBinding });
+      const response = await connection.request("Runtime.evaluate", {
+        expression: instrumentIpcScript,
+        awaitPromise: true,
+        returnByValue: true,
+      }, 3_000) as { result?: { value?: unknown }; exceptionDetails?: { text?: string } };
+      if (response.exceptionDetails) {
+        throw new Error(response.exceptionDetails.text ?? "instrumentation threw");
+      }
+      const state = JSON.parse(String(response.result?.value ?? "{}")) as { installed?: boolean; invoke?: boolean };
+      if (state.installed && state.invoke === false) {
+        this.events.add({
+          process: this.options.process,
+          observedAt: new Date().toISOString(),
+          kind: "protocol",
+          level: "warn",
+          message: "IPC 追踪只覆盖 send/sendSync：这个 Electron 版本的 ipcMain 没有可包装的 invoke 处理表，invoke 不会出现在时间线里",
+        });
+      }
+    } catch (error) {
+      if (!connection.isOpen) return;
+      this.events.add({
+        process: this.options.process,
+        observedAt: new Date().toISOString(),
+        kind: "protocol",
+        level: "warn",
+        message: "IPC 追踪未启用，时间线不会记录主进程收到的 IPC 消息",
+        data: toDiagnosticError(error),
+      });
+    }
+  }
+
   snapshot(): SessionSnapshot {
     const crashed = this.crashedAt !== undefined;
     return {
@@ -441,6 +482,11 @@ export class DiagnosticSession {
     if (event.method === "Page.javascriptDialogClosed") {
       const dialog = this.dialogs.javascriptClosed();
       if (dialog) this.recordDialog({ event: "close", dialog });
+      return;
+    }
+    if (event.method === "Runtime.bindingCalled" && asRecord(event.params).name === ipcBinding) {
+      const traced = ipcEvent(this.options.process, asRecord(event.params).payload);
+      if (traced) this.events.add(traced);
       return;
     }
     if (event.method === "Runtime.bindingCalled" && asRecord(event.params).name === dialogBinding) {
