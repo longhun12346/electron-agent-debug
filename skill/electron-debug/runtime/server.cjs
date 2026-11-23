@@ -176,8 +176,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
     if (internal(channel)) return emit.call(this, channel, ...rest);
     const [event, ...args] = rest;
     const started = Date.now();
-    // A sendSync event carries the reply channel the renderer waits on (measured on Electron 45).
-    const base = { type: event && ('_replyChannel' in event || 'returnValue' in event) ? 'sendSync' : 'send',
+    // Only a sendSync event has an own returnValue the renderer waits for. _replyChannel is no guide: Electron 43 sets
+    // it only for sendSync, Electron 45 for every message (both measured).
+    const base = { type: event && Object.prototype.hasOwnProperty.call(event, 'returnValue') ? 'sendSync' : 'send',
       channel, argBytes: size(args), listeners: this.listenerCount(channel), ...sender(event) };
     try {
       const handled = emit.call(this, channel, ...rest);
