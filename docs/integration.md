@@ -24,6 +24,19 @@ node <absolute-skill-directory>/runtime/launch.cjs --verify
 
 如果全局 Skill 和项目级 Skill 同时存在，应优先遵守项目级规则，并保留本 Skill 的 MCP 前提、端点安全和证据要求。项目级副本可以随项目提交，从而避免全局 Skill 更新后改变已有项目的诊断行为。
 
+### 已知宿主的安装位置
+
+下表只列有官方文档依据的位置。本仓库没有对这些位置做过自动安装的端到端验证，Skill 目录仍要完整复制或链接（包含 `runtime` 和 `references`）。
+
+| 宿主 | 用户级（所有项目） | 项目级 | 说明 |
+| --- | --- | --- | --- |
+| Claude Code | `~/.claude/skills/electron-debug/` | `<项目>/.claude/skills/electron-debug/` | 描述和 `when_to_use` 合计最多 1,536 字符；已装 Skill 很多时描述会被截断，可用 `/doctor`、`/skill-doctor` 查看。见 [Skills 文档](https://code.claude.com/docs/en/skills) |
+| Codex | `~/.agents/skills/electron-debug/` | `<项目>/.agents/skills/electron-debug/`（从工作目录向上到仓库根都会扫描） | 要求 `SKILL.md` 有 `name` 和 `description`；初始列表占上下文的 2%（窗口未知时 8,000 字符），空间不够时先截短描述，再丢弃部分 Skill；`$electron-debug` 可显式调用。见 [Codex Skills 文档](https://learn.chatgpt.com/docs/build-skills) |
+
+本 Skill 的 `SKILL.md` 里有 Claude Code 专用的 `when_to_use` 字段。Codex 对未知字段的处理在文档里没有说明，本仓库也没有验证过；如果 Codex 报 frontmatter 错误，先删掉这一行，`description` 本身已经包含主要触发条件。
+
+不同宿主的 MCP 配置位置不同，见下一节。
+
 当前仓库没有跨宿主的 Skill 安装器或自动注册机制。安装完成后，Agent 仍必须单独配置 MCP，并通过 `initialize`、`tools/list` 或宿主等价界面确认 10 个工具可见（attach、status、targets、logs、evaluate、wait_for、screenshot、dom_snapshot、click、type）。
 
 ## Agent 宿主接入
@@ -42,6 +55,16 @@ node <absolute-skill-directory>/runtime/launch.cjs --verify
   }
 }
 ```
+
+Codex 的 MCP 配置写在 `~/.codex/config.toml`，同一个入口写成 TOML：
+
+```toml
+[mcp_servers.electron-agent-debug]
+command = "node"
+args = ["<absolute-skill-directory>/runtime/launch.cjs"]
+```
+
+仓库里的 host-e2e 对 Codex 用同样的 `command` 和 `args`，通过命令行覆盖传入。它把 `SKILL.md` 内容直接放进提示词，没有验证 Codex 自己从 `~/.agents/skills` 发现并触发这个 Skill；本机也没有安装 Codex 命令行，这一节没有在本机验证。
 
 具体配置文件名、字段名和入口由 Agent 宿主决定。任何支持本地 stdio MCP 的宿主在协议层都可以按这个契约接入；本项目不依赖某个宿主的专用 API。上面的 JSON 只是配置概念示意，不能直接假设适用于所有宿主，也不代表每个宿主都已经完成专门的端到端验证。
 
