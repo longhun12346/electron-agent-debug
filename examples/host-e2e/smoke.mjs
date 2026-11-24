@@ -9,8 +9,11 @@ import { stopChild } from "../fixture/test-support.mjs";
 import { startFixture } from "./fixture-launch.mjs";
 import { allTools, callsFromTraffic, scenarioNames, scenarios } from "./scenarios.mjs";
 
-const usage = `usage: node examples/host-e2e/smoke.mjs <codex|claude> [absolute-host-executable] [--scenario <${scenarioNames.join("|")}|all>]`;
+const usage = `usage: node examples/host-e2e/smoke.mjs <codex|claude> [absolute-host-executable] [--scenario <${scenarioNames.join("|")}|all>] [--no-skill]`;
 const argv = process.argv.slice(2);
+const noSkillAt = argv.indexOf("--no-skill");
+const withoutSkill = noSkillAt !== -1;
+if (withoutSkill) argv.splice(noSkillAt, 1);
 const flag = argv.indexOf("--scenario");
 const requested = flag === -1 ? "ipc" : argv[flag + 1];
 if (flag !== -1) argv.splice(flag, 2);
@@ -53,7 +56,8 @@ async function runScenario(name) {
         } : {}),
       },
     };
-    const prompt = `${scenario.prompt}\nThe following is the installed Skill supplied explicitly for this test:\n\n${skill}`;
+    const prompt = withoutSkill ? scenario.prompt
+      : `${scenario.prompt}\nThe following is the installed Skill supplied explicitly for this test:\n\n${skill}`;
     let args;
     if (host === "claude") {
       const config = path.join(temporary, "mcp-config.json");
@@ -91,7 +95,11 @@ async function runScenario(name) {
     const traffic = (await readFile(trace, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
     const calls = callsFromTraffic(traffic);
     scenario.verify(calls);
-    console.log(JSON.stringify({ host, version, scenario: name, tools: [...new Set(calls.map((call) => call.name))], result: "PASS" }));
+    // Informational only: the verdict the host reported. Passing is judged on the MCP traffic, never on this text.
+    const finalText = output.split(/\r?\n/u).map((line) => { try { return JSON.parse(line); } catch { return undefined; } })
+      .findLast((message) => message?.type === "result")?.result ?? "";
+    const verdict = /\b(PASS|FAIL|BLOCKED)\b/u.exec(String(finalText))?.[1];
+    console.log(JSON.stringify({ host, version, scenario: name, verdict, tools: [...new Set(calls.map((call) => call.name))], skill: !withoutSkill, result: "PASS" }));
     succeeded = true;
   } catch (error) {
     // Preserve test artifacts for diagnosing a host failure, without printing credential-bearing host logs.

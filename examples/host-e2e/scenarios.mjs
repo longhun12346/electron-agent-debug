@@ -185,7 +185,7 @@ process with electron_evaluate. Report the value and which channels were online.
         data.utility?.online && data.main?.online && args.utility !== undefined).length,
       "attach never brought the utility channel online next to main");
       assert.ok(succeeded(calls, "electron_evaluate", (data, args) =>
-        args.scope === "utility" && data.value === "utility-ok").length,
+        args.scope === "utility" && JSON.stringify(data.value ?? null).includes("utility-ok")).length,
       "the utility value was never read from the utility process");
     },
     reference: [
@@ -276,6 +276,120 @@ evidence you saw.`,
       { tool: "electron_logs", arguments: { process: "all", sinceAttach: true } },
     ],
   },
+};
+
+// Same task and same judgement as click-save, but the prompt no longer says to press the button. It measures whether the
+// host works out by itself that nothing happens until Save is pressed, which is what the Skill is meant to teach.
+scenarios["click-save-blind"] = {
+  ...scenarios["click-save"],
+  summary: "Does saving work? The prompt does not say to press the button",
+  prompt: `${boundary}
+This is a development build with DevTools open and two windows, "Field App" and "Field Settings". The developer changed
+the Save button handler in "Field App" and wants to know whether saving works. Use only the electron-debug tools. Report
+PASS, FAIL or BLOCKED with the evidence you saw.`,
+};
+
+// A press of one of the field app's buttons, by snapshot ref or by role and name; element.click() from evaluated code
+// is not a press. Returns the successful press calls, or throws.
+const buttonRef = (label) => new RegExp(`button "${label}".*[[]ref=([a-z]{3}[0-9]+)`, "gu");
+
+function pressesOf(calls, label) {
+  const refPattern = buttonRef(label);
+  const refs = new Set(succeeded(calls, "electron_dom_snapshot")
+    .flatMap((call) => [...call.result.data.text.matchAll(refPattern)].map((match) => match[1])));
+  const presses = succeeded(calls, "electron_click", (data, args) =>
+    refs.has(args.ref) || (data.role === "button" && data.name === label && args.ref === undefined));
+  assert.ok(presses.length, `the ${label} button was never pressed with electron_click`);
+  assert.ok(!calls.some((call) => call.name === "electron_evaluate" && /\.click\s*\(/u.test(String(call.args.expression ?? ""))),
+    "the button was clicked from evaluated code instead of electron_click");
+  return presses;
+}
+
+// Events the host received (from logs or waits) after the first press, so earlier history cannot stand in for them.
+function eventsAfter(calls, presses) {
+  const pressedAt = Math.min(...presses.map((call) => call.result.data.afterSeq));
+  return [
+    ...succeeded(calls, "electron_logs").flatMap((call) => call.result.data.events),
+    ...succeeded(calls, "electron_wait_for", (data) => data.event).map((call) => call.result.data.event),
+  ].filter((event) => event.seq > pressedAt);
+}
+
+const snapshotClick = (label) => ({
+  tool: "electron_click",
+  arguments: (calls) => ({
+    ref: [...calls.at(-1).result.data.text.matchAll(buttonRef(label))][0][1],
+  }),
+});
+
+// The app failed to save once before the developer fixed the handler. Attaching replays that failure and the page still
+// says "save-failed", so only a press made now shows whether saving works.
+scenarios["stale-save"] = {
+  summary: "A fixed handler: old failure in the history, only a new press tells the truth",
+  fixture: { app: "field", fault: "stale" },
+  tools: ["electron_attach", "electron_targets", "electron_dom_snapshot", "electron_click", "electron_wait_for",
+    "electron_logs", "electron_evaluate", "electron_status"],
+  prompt: `${boundary}
+This is a development build with DevTools open and two windows, "Field App" and "Field Settings". The developer says
+they have just fixed the Save button handler in "Field App", which used to fail, and asks whether saving works now.
+Use only the electron-debug tools. Report PASS, FAIL or BLOCKED with the evidence you saw.`,
+  verify(calls) {
+    requireTools(calls, ["electron_attach", "electron_click"]);
+    const events = eventsAfter(calls, pressesOf(calls, "Save"));
+    const seen = (process, text) => events.some((event) => event.process === process && event.message.includes(text));
+    assert.ok(seen("renderer", "FIELD_SAVE_OK"), "the success after the press was never read");
+    assert.ok(seen("main", "FIELD_SAVE_REQUEST"), "the main process's handling of the press was never read");
+  },
+  reference: [
+    { tool: "electron_attach" },
+    { tool: "electron_targets", arguments: { title: "Field App" } },
+    { tool: "electron_dom_snapshot" },
+    snapshotClick("Save"),
+    {
+      tool: "electron_wait_for",
+      arguments: (calls) => ({ log: { contains: "FIELD_SAVE_OK", process: "renderer", afterSeq: afterPress(calls) } }),
+    },
+    { tool: "electron_logs", arguments: { process: "all", sinceAttach: true } },
+  ],
+};
+
+// Nothing is thrown or logged: the renderer sends a message and the main process listens on a different name. Only the
+// IPC trace of the main process says the message had no listener.
+scenarios["sync-mismatch"] = {
+  summary: "A button that does nothing: the message has no listener, visible only in the IPC trace",
+  fixture: { app: "field", fault: "sync-mismatch" },
+  tools: ["electron_attach", "electron_targets", "electron_dom_snapshot", "electron_click", "electron_wait_for",
+    "electron_logs", "electron_evaluate", "electron_status"],
+  prompt: `${boundary}
+This is a development build with DevTools open and two windows, "Field App" and "Field Settings". The developer reports
+that pressing the Sync button in "Field App" does nothing: no error, no result. Find out why, using only the
+electron-debug tools. Report the cause and the evidence you saw.`,
+  verify(calls) {
+    requireTools(calls, ["electron_attach", "electron_click"]);
+    const events = eventsAfter(calls, pressesOf(calls, "Sync"));
+    assert.ok(events.some((event) => event.kind === "ipc" && event.data?.channel === "field:sync-now" && event.data?.listeners === 0),
+      "the IPC event showing field:sync-now had no listener was never read");
+  },
+  reference: [
+    { tool: "electron_attach" },
+    { tool: "electron_targets", arguments: { title: "Field App" } },
+    { tool: "electron_dom_snapshot" },
+    snapshotClick("Sync"),
+    {
+      tool: "electron_wait_for",
+      arguments: (calls) => ({ log: { contains: "field:sync-now", process: "main", afterSeq: afterPress(calls) } }),
+    },
+    { tool: "electron_logs", arguments: { process: "all", sinceAttach: true } },
+  ],
+};
+
+// Same task and judgement as utility, without telling the host that electron_attach has a utility argument.
+scenarios["utility-blind"] = {
+  ...scenarios.utility,
+  summary: "Read a background worker's state without being told how to reach it",
+  prompt: `${boundary}
+The app runs a background worker, a process forked by the main process with serviceName fixture-utility. The developer
+wants to know the value of globalThis.fixtureUtility.value inside that worker. Find it and report the value and how you
+reached it.`,
 };
 
 export const scenarioNames = Object.keys(scenarios);

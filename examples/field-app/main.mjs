@@ -14,13 +14,22 @@ if (process.env.FIELD_RENDERER_PORT) {
   app.commandLine.appendSwitch("remote-debugging-port", process.env.FIELD_RENDERER_PORT);
 }
 
+// Fault "stale": the first save fails, as it did before the developer fixed the handler; later saves work.
+let saves = 0;
 ipcMain.handle("field:save", async (_event, payload) => {
+  saves += 1;
   console.log("FIELD_SAVE_REQUEST", run, payload?.name ?? "");
-  if (fault === "save") {
+  if (fault === "save" || (fault === "stale" && saves === 1)) {
     console.error("FIELD_SAVE_HANDLER_FAILURE");
     throw new Error("field save handler failure");
   }
   return { saved: true };
+});
+
+// Fault "sync-mismatch": the renderer sends `field:sync-now`, but the main process listens on another name. Nothing is
+// thrown or logged anywhere; only the IPC trace shows that the message had no listener.
+ipcMain.on(fault === "sync-mismatch" ? "field:sync-start" : "field:sync-now", () => {
+  console.log("FIELD_SYNC_STARTED", run);
 });
 
 function createWindow(file, bounds) {

@@ -32,4 +32,13 @@ document.querySelector("#save").addEventListener("click", async () => {
   }
 });
 
+document.querySelector("#sync").addEventListener("click", () => {
+  window.fieldApi.sync();
+  status.textContent = "sync-requested";
+});
+
+// Fault "stale": the page saves once on load while the first save is still failing, so its history and the status text
+// both show a failure that no longer reflects the code.
+if (params.get("fault") === "stale") document.querySelector("#save").click();
+
 setTimeout(() => console.log("FIELD_RENDERER_READY", run), 300);
