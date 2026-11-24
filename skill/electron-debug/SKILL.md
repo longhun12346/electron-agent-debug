@@ -1,6 +1,7 @@
 ---
 name: electron-debug
-description: Use when validating Electron main-process, BrowserWindow, renderer, preload, or IPC changes, or investigating a blank window, crash, or runtime error in a local Electron app. Attach to the running app, then collect logs, evaluate in main/renderer, screenshot, and accessibility snapshot through the bundled MCP runtime for Agent-led verification.
+description: "Use when verifying or diagnosing a local Electron app at runtime: main-process, BrowserWindow, preload, contextBridge or IPC changes, a blank or white window, a crash, or a runtime error. Attaches to the running dev app to read main, renderer and utility logs, evaluate code, take screenshots and accessibility snapshots, and click or type in the real window."
+when_to_use: "Use it whenever the project is an Electron app (electron, electron-vite or Electron Forge in package.json) and the user asks whether the app or a page still works, wants runtime or console errors checked, or wants a screenshot of the running app, even if they never say 'Electron' and even if the project has its own tests. Examples: '窗口一片白', '改了 preload 帮我确认还能用', '确认页面有没有运行时报错并截图', 'the app crashes on startup'. Not for packaged apps or for pure type and build errors."
 license: MIT
 ---
 
@@ -23,65 +24,33 @@ MCP 提供能力，Skill 只给建议。MCP 连接已运行的应用并返回运
 
 失败的结果保留底层报错（`message`），并尽量附带 `hint`：下一步该查什么。attach 和 targets 的结果另有 `warnings`：不妨碍连接，但证据可能不是来自要验证的窗口或应用，处理前先读。
 
-## 使用建议
+## 工作流
 
-1. **自行启动应用并暴露所需端口**：用项目已有的启动命令，按需加上 `--inspect=<主进程端口>`（主进程）和/或 `--remote-debugging-port=<renderer 端口>`（renderer）（端口自选空闲回环端口），再用 `electron_attach` 传入对应的 `http://127.0.0.1:<端口>`。两个通道可以只连一个：只排查主进程问题就只连主进程，只排查页面问题就只连 renderer；preload / IPC 才需要两个都连。对没连接的一侧调用工具会返回 `SESSION_DISCONNECTED`，不影响已连接的一侧。不改项目脚本。参数怎么传进 Electron 取决于启动方式，见下面的「启动参数」，并以 `electron_attach` 返回的通道状态确认是否生效。参数含义见 Electron 官方文档：[调试主进程](https://www.electronjs.org/docs/latest/tutorial/debugging-main-process)、[命令行开关](https://www.electronjs.org/docs/latest/api/command-line-switches)。
-2. 用 `electron_wait_for` 等待明确的就绪信号（日志或表达式），不要用固定 sleep。需要两个通道的证据时（如 IPC 的 renderer 调用和 main 处理），分别等每个通道的信号：各通道走各自的连接，先发生的事件可能后到，等到一侧就读全部日志会漏掉另一侧。attach 前应用可能还没打开端口，失败时稍后重试。信号只应在目标状态下为真：任务轮询取终态（如 `state === 'completed'`）而不是字段存在，页面就绪取业务元素出现而不是只比较路由。`elapsedMs` 为 0 说明条件在等待前已经为真，先怀疑条件太宽；可在触发操作前用 `electron_evaluate` 跑一次同一条件，确认此时为假。log 条件默认也匹配 attach 时重放的应用历史，同一步骤上一轮留下的同名日志会立即命中，结果带 `beforeAttach: true`，不能当作本次操作的证据：等某个操作的结果时传操作返回的 `afterSeq`，或传 `sinceAttach: true`。
-3. 改动生效优先交给项目自带的热更新或自动重启，不要重复手动操作（各项目工具行为不同，本 Skill 未统一验证，以 `electron_status` 和日志实际观察为准）：renderer 改动等热更新完成；主进程、preload 改动若被开发工具自动重启，原连接随进程失效，需重新 `electron_attach`，并用 `electron_status` 确认重启后的进程仍带有 `--inspect` 和 `--remote-debugging-port`（是否沿用取决于项目的启动工具）。项目没有热更新时，才由 Agent 重启应用，或对 renderer 用 `location.reload()`（`electron_evaluate`；eval 被禁用时改用项目已有的刷新方式）。无论哪种方式，都先用 `electron_wait_for` 等到就绪信号再取证据。
-4. `electron_evaluate` 和表达式型 `electron_wait_for` 默认可用；宿主设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 后返回 `EVALUATION_NOT_ALLOWED`，此时仍可用 attach、targets、日志、状态、截图和 `electron_dom_snapshot`。表达式可修改应用状态，只用于验证。顶层的 `let`、`const` 可以在多次调用中重复声明，但与已有声明重名时本次改在块内执行，声明不保留到下一次调用；需要跨调用保留的值挂到 `globalThis`。主进程求值的全局作用域没有 `require`（ESM 主进程也一样），用 `process.mainModule.require('electron')` 或 `process.getBuiltinModule('fs')`；主进程的求值不支持动态 `import()`。顶层 `await` 可以直接写；`await (…)` 只在它前面没有其他语句时才会被自动按顶层 await 重试，前面有语句时报错里会提示把操作数放进变量再 await，或包进 `(async () => { … })()`。
-5. 会弹出原生对话框或菜单的步骤，提示用户人工操作，等用户确认后再继续；不要等待自动化完成。`electron_status` 的 `dialogs` 列出正在等用户操作的对话框：页面的 `alert`/`confirm`/`prompt`，以及主进程通过 `dialog` 模块打开的对话框（需要主进程通道在线且未禁用求值）。`blocking` 为 `true` 时对应进程在对话框关闭前不响应，期间的请求超时会在 `hint` 里说明原因，不要反复重试。
-6. `electron_screenshot` 返回文件路径，用文件读取工具查看。默认按页面的 CSS 尺寸截图，高分屏不会放大；只需确认布局或文字时传 `maxWidth`（如 800）再缩小，读图更省。窗口隐藏或最小化时截图会超时，先显示窗口。
-7. 多窗口应用里，`TARGET_SELECTION_REQUIRED` 时对照 `targets` 的 `title` 和 `url` 选择。窗口被重建（关闭后重开、重新加载到新的 target）时，原来选中的页面消失，重新发现后会自动改选另一个页面并返回 `TARGET_CHANGED` 警告：先确认新页面就是要验证的窗口，有意切换时传 `clearSelection`。
-8. attach 后缓冲区里可能已带有应用启动以来的历史事件（上限默认 500 条），并被重新编号；每个新进程都会重放一遍，`seq` 在不同进程间不可比。只想看本次连接之后的事件时，给 `electron_logs` 传 `sinceAttach: true`：每个通道只返回它最近一次连接之后的事件，不含重放的历史，注册 MCP 和批处理模式都适用。要从某个操作之后开始看，注册 MCP 时先用 `electron_status` 或 `electron_logs` 记下 `lastSeq`，之后用 `afterSeq`；批处理模式每次都是新进程，`seq` 不能跨次使用，同一次执行内用 `sinceAttach`。`electron_logs` 返回的 `gap` 为 `true` 说明缓冲区满过、所请求的范围内可能有事件被丢弃，缩短两次取证的间隔，或在 MCP 配置里调大 `ELECTRON_DEBUG_MAX_LOG_EVENTS`。
-9. 截图不脱敏；`electron_dom_snapshot` 只按常见密钥模式脱敏。两者都可能带出聊天标题、账号等个人内容。汇报只引用必要片段，不整段贴出。
-10. 回归要走界面时（改了按钮的处理、表单、跳转）：先 `electron_dom_snapshot` 找到元素，再 `electron_click` 或 `electron_type`（传 ref，或传快照行里的 `role` 和 `name`，如 `{role: "button", name: "Save"}`），把返回的 `afterSeq` 传给 `electron_wait_for` 的 `log.afterSeq`（或用表达式条件）等结果，最后按证据矩阵在 main 和 renderer 两侧取证。工具本身不等待。批处理模式每次执行都是新进程，上一次执行的 ref 无效，用 role 和 name。页面很长时快照会截断（`truncated`），传 `interactive: true` 只列可交互元素，或直接用 role 和 name，它在整个页面里找。`ELEMENT_AMBIGUOUS` 说明同名元素不止一个，按候选改用 ref。`ELEMENT_COVERED` 说明有弹层或遮罩挡住，先处理它，不要绕过去用 `element.click()`；`REF_STALE` 说明页面重新渲染过，重新取快照。点击和输入会改变应用状态，和求值一样只用于验证，`ELECTRON_DEBUG_ALLOW_EVAL=0` 时一起禁用。
-11. 本工具集不提供网络观察、断点、拖拽悬停快捷键和性能分析，替代做法见下节。
+按顺序做；第 6 步证据不够时回到第 3 步。
 
-## 启动参数
+1. **确认应用**：开发者常已开着 `pnpm dev`。先查进程命令行（Windows：`Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Select CommandLine`；macOS/Linux：`ps -eo args | grep -i electron`）。已带 `--inspect=`、`--remote-debugging-port=` 就直接用其中的端口，不要再启动第二个实例。没带或没在运行，才用项目已有的启动命令加这两个参数重启，端口自选空闲回环端口，不改项目脚本；各启动方式怎么传见 [references/launch.md](references/launch.md)。
+2. **连接**：`electron_attach`，以返回的通道状态确认参数生效。只排查一侧就只连一侧，preload / IPC 才需要主进程和 renderer 两个通道；没连接的一侧返回 `SESSION_DISCONNECTED`，不影响另一侧。多窗口应用里遇到 `TARGET_SELECTION_REQUIRED`，对照 `targets` 的 `title` 和 `url` 选择；`TARGET_CHANGED` 警告说明原来的页面已被替换，先确认新页面就是要验证的窗口。attach 前应用可能还没打开端口，失败时稍后重试，反复失败见 [references/troubleshooting.md](references/troubleshooting.md)。
+3. **触发改动或操作**：
+   - 改了代码：优先交给项目的热更新或自动重启，不要重复手动操作。主进程、preload 改动若被自动重启，原连接随进程失效，需重新 attach，并用 `electron_status` 确认新进程仍带调试端口。
+   - 要走界面（按钮、表单、跳转）：先 `electron_dom_snapshot`，再 `electron_click` 或 `electron_type`（传 ref，或传 `role` 和 `name`；批处理模式里上一次的 ref 无效，用 `role` 和 `name`）。`ELEMENT_COVERED` 说明被弹层挡住，先处理弹层，不要改用 `element.click()`。记下返回的 `afterSeq`。
+   - 弹出原生对话框或菜单的步骤，提示用户人工操作，等用户确认后再继续。`electron_status` 的 `dialogs` 列出正在等用户操作的对话框；`blocking` 为 `true` 时对应进程在关闭前不响应，超时的 `hint` 会说明，不要反复重试。
+4. **等就绪信号**：`electron_wait_for` 等明确的信号（日志或表达式），不要用固定 sleep。信号只应在目标状态下为真：任务取终态（如 `state === 'completed'`）而不是字段存在。`elapsedMs` 为 0 说明条件在等待前已经为真，先怀疑条件太宽。需要两个通道的证据时，分别等每个通道的信号：各通道走各自的连接，先发生的事件可能后到。
+5. **取证**：
+   - 只看本次操作之后的事件：给 `electron_wait_for` 的 `log.afterSeq` 传操作返回的 `afterSeq`，或给 `electron_logs` 传 `sinceAttach: true`。attach 后缓冲区里带有应用启动以来的历史事件（上限默认 500 条），每个新进程都会重放；批处理模式每次都是新进程，`seq` 不能跨次使用，同一次执行内用 `sinceAttach`。
+   - 等待结果带 `beforeAttach: true` 说明命中的是历史事件，不能当作本次操作的证据。`gap` 为 `true` 说明缓冲区满过、有事件被丢弃，缩短取证间隔或调大 `ELECTRON_DEBUG_MAX_LOG_EVENTS`。
+   - 求值：`electron_evaluate` 默认可用；`ELECTRON_DEBUG_ALLOW_EVAL=0` 时返回 `EVALUATION_NOT_ALLOWED`，点击和输入也一起禁用。主进程求值的全局作用域没有 `require`，用 `process.mainModule.require('electron')` 或 `process.getBuiltinModule('fs')`，也不支持动态 `import()`；跨调用保留的值挂到 `globalThis`。其他细节见 [references/evaluate.md](references/evaluate.md)。
+   - 截图用 `electron_screenshot`，返回文件路径，用文件读取工具查看；窗口隐藏或最小化时会超时。
+6. **判定**：对照下面的证据矩阵，按「结论」写报告。证据不够就回到第 3 步，仍取不到所需通道时报告 `BLOCKED`，不要归因于业务代码。
 
-`<I>` 是主进程调试端口，`<R>` 是 renderer 调试端口，都自选空闲端口。命令行参数传不进去时（最后一行），不要靠猜环境变量：`ELECTRON_EXTRA_LAUNCH_ARGS` 对 Electron 没有作用（实测）。
-
-| 项目的启动方式 | 怎么传 |
-| --- | --- |
-| `electron .`，或构建后直接运行 | `electron . --inspect=<I> --remote-debugging-port=<R>` |
-| electron-vite（脚本是 `electron-vite dev`） | `electron-vite dev --inspect <I> --remoteDebuggingPort <R>`；脚本被包了一层时设环境变量 `V8_INSPECTOR_PORT=<I>`、`REMOTE_DEBUGGING_PORT=<R>` 再照常运行（electron-vite 6 源码） |
-| Electron Forge | `electron-forge start --inspect-electron -- --remote-debugging-port=<R>`（官方文档的写法，未实测；主进程端口以 `electron_attach` 的结果为准） |
-| vite-plugin-electron（脚本是 `vite`） | 插件固定用 `electron . --no-sandbox` 启动，命令行参数和 `ELECTRON_EXTRA_LAUNCH_ARGS` 都传不进去。先构建（如 `vite build`），再按第一行用 `electron .` 运行；这样跑的是构建产物，不带开发服务器的热更新 |
-
-## 未提供的能力与替代做法
-
-| 需要 | 替代做法 | 限制 |
-| --- | --- | --- |
-| 看 renderer 发出的请求 | `electron_evaluate` 读 `performance.getEntriesByType('resource')`，含 `name`、`duration`，较新的 Chromium 还有 `responseStatus` | 只有 URL、状态、耗时，没有请求头和响应体；主进程发出的请求不在其中。需要这些字段时在项目代码里加日志 |
-| 调用栈 | 未捕获异常的事件自带栈，直接读 `electron_logs`。要看某处是怎么被调用到的，在该位置加 `console.trace('标记')`，热更新或重启后触发，再读日志 | 栈最多保留 10 帧；`console.log`、`console.error` 等不带栈。不能改代码的位置（依赖库、打包产物）无替代 |
-| 局部变量、中间值 | 在代码里 `console.log` 打印后读取日志；或直接用 `electron_evaluate` 读全局可达的状态 | 函数内部的局部变量只能靠打印 |
-| 断点、单步 | 不提供。`debugger;` 在本工具连接下不会暂停，也不要自行启用调试器，暂停会冻住应用 | 代码改不了（依赖库、打包产物）时无替代 |
-| 下拉选择、快捷键、拖拽、悬停 | 原生 `<select>` 用 `electron_evaluate`(renderer) 设 `value` 后派发 `change`；自定义下拉框用 `electron_click` 先点开再点选项；快捷键、拖拽、悬停用 `dispatchEvent` 模拟 | 模拟事件的 `isTrusted` 为 false；输入法组合输入（composition）也不覆盖，依赖它们的逻辑改用项目已有的测试工具 |
-| 列出窗口 | `electron_evaluate`(main) 用 `process.mainModule.require('electron').BrowserWindow.getAllWindows()` | 只读窗口状态，不用于操作 |
-| 内存 | main 用 `process.memoryUsage()`；renderer 用 `performance.memory`（Chromium 非标准接口） | 只是当前读数，不能做泄漏分析 |
-| utility process 里的代码 | `electron_attach` 传 `utility`（fork 时的 `serviceName`，或 pid）。工具通过已连接的主进程用 `app.getAppMetrics()` 找到该进程，打开调试口并连接，成为独立的第三通道，与 main、renderer 同时在线，之后用 `electron_evaluate`(scope=`utility`) 和 `electron_logs`(process=`utility`) 观察。不需要自己查 pid 或调用 `process._debugProcess`。同名进程有多个时用 pid；一次只连一个 utility，再次 attach 其他 utility 会替换当前连接 | 需要主进程通道在线且未设置 `ELECTRON_DEBUG_ALLOW_EVAL=0`。调试口默认端口 9229，被占用时开口不报错也不会生效，attach 会返回 `UTILITY_INSPECTOR_UNAVAILABLE`；此时（或同时调试多个 utility 时）让 fork 带 `execArgv: ['--inspect-port=<各自空闲端口>']`（只指定端口，不自动开启）。开口用的 `process._debugProcess` 是未公开接口，查端口用 netstat（Windows）或 lsof（macOS/Linux）；已在 Windows、macOS、Linux 上用 fixture 锁定的 Electron 版本实测；CI 另在 Linux、Windows 上对 Electron 43、44 和最新稳定版运行同样的冒烟，其他版本以 attach 结果为准。查端口的命令无法运行时，错误的 `details.portLookupError` 会给出原因 |
-| `<webview>` 里的页面 | 出现在 `targets` 里（`type` 为 `webview`），用 `electron_targets` 传它的 `targetId` 选中后，求值、日志、截图和无障碍树都作用于它；检查完再选回窗口 | 不会被自动选中；一次只连一个页面 |
-| worker、跨域 iframe 里的代码 | 不能直接连接。让它们用 `postMessage` 把值传回页面，再用 `electron_evaluate`(renderer) 读取或打印；同源 iframe 可通过 `iframe.contentDocument` 读取 | 这些目标里的日志和求值不在工具范围内 |
-| 原生对话框、菜单 | 提示用户人工操作 | 见使用建议第 5 条 |
-
-## 连接失败
-
-attach 多次重试仍失败时，先读错误的 `hint`（区分了端口没人监听、端口上不是调试端口、主进程和 renderer 端口传反、端口上是浏览器而不是 Electron 等情况），再排查启动方式，最后判断是否应用本身的问题：
-
-- 环境里设有 `ELECTRON_RUN_AS_NODE=1`（部分终端和 Node 工具链会带上）时，Electron 按 Node 运行，不会创建窗口，renderer 通道不可用。启动应用前取消该变量。
-- 主进程通道失败而 renderer 通道正常时，检查应用是否关闭了 `EnableNodeCliInspectArguments` fuse；关闭后 `--inspect` 会被忽略，需要改用未关闭该 fuse 的开发构建。打包后的应用不在支持范围内，不为它调整方案。
-- 端口被占用或应用已提前退出：核对应用进程的输出和退出码。
-- 应用该退出了但进程还在，输出里有 `Waiting for the debugger to disconnect…`：Node 会等已连接的检查器断开才让进程退出，MCP 的主进程连接就是其中一个（Windows、Electron 43 上用 `app.exit()` 实测）。要退出码或要重启时，直接终止进程，或先结束 MCP 会话，不要等它自己退出。
-
-仍无法取得所需通道时报告 `BLOCKED`，写明缺少哪个通道和已排除的原因，不要归因于业务代码。
+点击、输入和求值都会改变应用状态，只用于验证。截图不脱敏，`electron_dom_snapshot` 只按常见密钥模式脱敏，都可能带出个人内容，汇报只引用必要片段。本工具集不提供网络观察、断点、拖拽悬停快捷键和性能分析，也连不上 worker 和跨域 iframe，替代做法见 [references/alternatives.md](references/alternatives.md)。
 
 ## 证据矩阵
 
 | 修改类型 | 至少需要的证据 |
 | --- | --- |
-| 主进程启动、窗口创建 | `electron_attach` 的 main 通道在线；`electron_logs` 无相关异常；`electron_evaluate`(main) 确认窗口状态 |
+| 主进程启动、窗口创建 | `electron_attach` 的主进程通道在线；`electron_logs` 无相关异常；`electron_evaluate`(main) 确认窗口状态 |
 | renderer 白屏或前端异常 | `electron_dom_snapshot` 或 `electron_screenshot` 显示实际页面；renderer 日志无异常；target 正确 |
-| preload / contextBridge / IPC | main 与 renderer 各一项证据，并有覆盖调用链的回归（例如 renderer 调用后读取 main 的结果）。主进程通道在线且未禁用求值时，时间线自动记录主进程收到的每条 IPC（`kind` 为 `ipc`）：`invoke` 的成功或失败与错误信息，`send`/`sendSync` 没有监听者时为 warn；只有通道名、耗时、结果和参数大小，不含参数值。用 `electron_wait_for` 等 `IPC invoke <通道>` 即可确认调用到达主进程以及结果。main 侧证据可在 renderer 触发调用后，用 `electron_evaluate`(main) 读副作用，如文件是否落盘、状态是否变化（`process.mainModule.require('fs')`） |
+| preload / contextBridge / IPC | 主进程与 renderer 各一项证据，并有覆盖调用链的回归（例如 renderer 调用后读取 main 的结果）。主进程通道在线且未禁用求值时，时间线自动记录主进程收到的每条 IPC（`kind` 为 `ipc`）：`invoke` 的成功或失败与错误信息，`send`/`sendSync` 没有监听者时为 warn；只有通道名、耗时、结果和参数大小，不含参数值。用 `electron_wait_for` 等 `IPC invoke <通道>` 即可确认调用到达主进程以及结果。main 侧证据可在 renderer 触发调用后，用 `electron_evaluate`(main) 读副作用，如文件是否落盘、状态是否变化（`process.mainModule.require('fs')`） |
 | 原生对话框、菜单或 shell 行为 | 由用户人工操作并确认；Agent 用 `electron_logs` 或 `electron_evaluate` 核对结果 |
 | 崩溃或意外退出 | 应用进程的退出码与输出（Agent 启动时自行捕获）、`electron_logs` 中退出前的异常。renderer 页面崩溃时连接不会断：`electron_status` 的 renderer 变为 offline 且 `error.code` 为 `TARGET_CRASHED`，日志里有 `Target crashed` 事件，各个 renderer 工具立即返回 `TARGET_CRASHED`；页面重新加载后同一连接自动恢复，日志出现 `Target reloaded after crash`。主进程崩溃或退出则整个主进程通道断开（`SESSION_DISCONNECTED`） |
 | 仅类型或构建问题 | 项目已有检查，无需启动应用 |
@@ -94,9 +63,21 @@ attach 多次重试仍失败时，先读错误的 `hint`（区分了端口没人
 
 attach 成功、无 console error 或工具返回 `ok` 都不足以判定 `PASS`。报告包含：预期行为、使用的工具与关键证据、target、剩余限制。
 
+## 报告示例
+
+```text
+结论：FAIL
+预期：点击 Save 后保存成功
+操作：electron_click role=button name=Save（afterSeq 41），target 为 Field App
+证据：主进程 `IPC invoke field:save failed: Error: field save handler failure`（seq 42）；
+      renderer `FIELD_SAVE_CALL_FAILURE`（seq 43）；页面状态变为 save-failed
+根因：已确认在主进程的 field:save 处理函数抛出错误
+剩余限制：未验证保存成功后的持久化
+```
+
 ## 接入
 
-随包运行文件见 `runtime/launch.cjs`，需要 Node.js 20+。先执行 `node <absolute-skill-directory>/runtime/launch.cjs --verify`。校验失败或文件缺失时报告 `BLOCKED`，不要下载或在本机构建。之后二选一，两种方式提供同样的 10 个工具：
+随包运行文件见 `runtime/launch.cjs`，需要 Node.js 20+。先执行 `node <absolute-skill-directory>/runtime/launch.cjs --verify`。校验失败或文件缺失时报告 `BLOCKED`，不要下载或在本机构建。之后选一种接入方式，两种提供同样的 10 个工具。默认注册 MCP；宿主不能注册 MCP，或只做一次性检查时用批处理模式：
 
 - **注册 MCP**：把同一入口注册为本地 stdio MCP Server，并确认工具可见。适合需要多轮、跨调用保持连接的诊断。
 - **不注册 MCP**：执行 `node <absolute-skill-directory>/runtime/launch.cjs --run`，在 stdin 传入 JSON 数组 `[{"tool":"electron_attach","arguments":{...}},{"tool":"electron_logs"}]`，同一进程内按顺序执行，stdout 输出 `{ok, results}`。进程退出后连接和日志缓存随之消失，每次执行都要从 `electron_attach` 开始。参数的形状（嵌套对象、枚举值）用 `launch.cjs --tools [工具名 ...]` 查（可以一次传几个名字，不传则列全部），输出每个工具的描述和 JSON Schema，不要猜，例如 `electron_wait_for` 的 `expression` 是 `{scope, expression}` 对象而不是字符串。
