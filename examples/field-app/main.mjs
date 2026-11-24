@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain } from "electron";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,7 +8,10 @@ import { fileURLToPath } from "node:url";
 // a button the user has to press before anything happens. The runner drives faults through the parent IPC channel.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const run = process.env.FIELD_RUN_ID ?? "";
-const fault = process.env.FIELD_FAULT ?? "";
+// The fault comes from the environment, or from a `.fault` file next to the app when a runner prepared a copy for a host
+// to start itself (an environment variable there would be visible to the host and could be unset by it).
+const faultFile = (() => { try { return readFileSync(path.join(here, ".fault"), "utf8").trim(); } catch { return ""; } })();
+const fault = process.env.FIELD_FAULT ?? faultFile;
 const noise = process.env.FIELD_NOISE ?? "800";
 const openDevTools = process.env.FIELD_DEVTOOLS !== "false";
 if (process.env.FIELD_RENDERER_PORT) {

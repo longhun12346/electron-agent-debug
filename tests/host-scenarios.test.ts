@@ -109,3 +109,34 @@ test("callsFromTraffic pairs each tools/call with its structured result", () => 
   assert.equal(calls[0].result.ok, true);
   assert.equal(calls[1].result, undefined, "a call without a response has no result");
 });
+
+test("launch-attach needs an attach with endpoints the host supplied, then the same evidence as click-save", () => {
+  const verify = scenarios["launch-attach"].verify;
+  const online = { main: { online: true }, renderer: { online: true } };
+  const supplied = ok("electron_attach", { mainUrl: "http://127.0.0.1:1", rendererUrl: "http://127.0.0.1:2" }, online);
+  const bare = ok("electron_attach", {}, online);
+  const snapshot = ok("electron_dom_snapshot", {}, { text: 'button "Save" [invalid=false] [ref=abc2]' });
+  const press = ok("electron_click", { ref: "abc2" }, { ref: "abc2", afterSeq: 10 });
+  const at = (seq: number, process: string, message: string) => ({ ...event(process, message), seq });
+  const evidence = ok("electron_logs", {}, {
+    events: [at(11, "renderer", "FIELD_SAVE_CALL_FAILURE Error"), at(12, "main", "FIELD_SAVE_HANDLER_FAILURE")],
+  });
+  verify([supplied, snapshot, press, evidence]);
+  assert.throws(() => verify([bare, snapshot, press, evidence]), assert.AssertionError, "an attach without endpoints cannot have worked");
+  assert.throws(() => verify([supplied, snapshot, evidence]), assert.AssertionError, "the button must still be pressed");
+});
+
+test("the shell guard lets a host look at processes and start the app, and refuses to stop or delete anything", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const decide = (command: string) => JSON.parse(execFileSync(process.execPath, ["examples/host-e2e/shell-guard.mjs"], {
+    input: JSON.stringify({ tool_input: { command } }), encoding: "utf8",
+  })).hookSpecificOutput.permissionDecision as string;
+  for (const command of ["ps -eo args | grep -i electron", "Get-CimInstance Win32_Process | Select CommandLine",
+    '"C:/app/electron.exe" "C:/dev app" --inspect=9333 --remote-debugging-port=9444 2>&1', "netstat -ano > /dev/null"]) {
+    assert.equal(decide(command), "allow", command);
+  }
+  for (const command of ["taskkill /PID 12 /F", "Stop-Process -Id 12", "kill -9 12", "pkill electron", "rm -rf node_modules",
+    "echo x > notes.txt", "git reset --hard", "npm install"]) {
+    assert.equal(decide(command), "deny", command);
+  }
+});

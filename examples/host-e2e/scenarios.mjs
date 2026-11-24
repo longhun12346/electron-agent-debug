@@ -226,6 +226,7 @@ main process how many BrowserWindow instances exist. Report the heading, the cou
 
   "click-save": {
     summary: "Nothing happens until a button is pressed: press it and read what happens on both sides",
+    expectedVerdict: "FAIL",
     fixture: { app: "field", fault: "save" },
     tools: ["electron_attach", "electron_targets", "electron_dom_snapshot", "electron_click", "electron_wait_for",
       "electron_logs", "electron_evaluate", "electron_status"],
@@ -325,6 +326,7 @@ const snapshotClick = (label) => ({
 // says "save-failed", so only a press made now shows whether saving works.
 scenarios["stale-save"] = {
   summary: "A fixed handler: old failure in the history, only a new press tells the truth",
+  expectedVerdict: "PASS",
   fixture: { app: "field", fault: "stale" },
   tools: ["electron_attach", "electron_targets", "electron_dom_snapshot", "electron_click", "electron_wait_for",
     "electron_logs", "electron_evaluate", "electron_status"],
@@ -390,6 +392,40 @@ scenarios["utility-blind"] = {
 The app runs a background worker, a process forked by the main process with serviceName fixture-utility. The developer
 wants to know the value of globalThis.fixtureUtility.value inside that worker. Find it and report the value and how you
 reached it.`,
+};
+
+// The host has to start the app with debug flags itself. The runner leaves an instance running the way a developer's dev
+// server would, with no debug port, and gives the host the dev command. Attaching therefore needs the host to notice
+// that nothing is listening, start a second instance with `--inspect` and `--remote-debugging-port`, and pass both
+// endpoints to electron_attach. The shell is limited to inspecting processes and starting the app (see shell-guard.mjs).
+const shellBoundary = `This is a bounded host integration test. The electron-debug MCP server is registered but has no endpoint
+configured. You may use the shell only to look at processes and to start the app; starting another instance of it is fine.
+Do not stop or delete anything and do not edit files. Report what you observed, then stop. Do not fix the app.`;
+
+scenarios["launch-attach"] = {
+  ...scenarios["click-save"],
+  summary: "A dev app is already running without debug ports: find out, start it with them, then press Save",
+  fixture: { app: "field", launch: "agent", fault: "save" },
+  shell: true,
+  expectedVerdict: "FAIL",
+  prompt: `${shellBoundary}
+The developer is running their Electron app in dev mode right now. The dev command is {{command}} and the project
+directory is {{appDir}}. The app opens two windows, "Field App" and "Field Settings", plus DevTools. The developer changed
+the Save button handler in "Field App" and wants to know whether saving works. Use the electron-debug tools and the shell.
+Report PASS, FAIL or BLOCKED with the evidence you saw.`,
+  verify(calls) {
+    requireTools(calls, ["electron_attach", "electron_click"]);
+    // The runner passes no endpoint, so a working attach proves the host started the app with debug ports and said where.
+    assert.ok(succeeded(calls, "electron_attach", (data, args) =>
+      (args.mainUrl !== undefined || args.rendererUrl !== undefined) && (data.main?.online || data.renderer?.online)).length,
+    "attach never succeeded with endpoints the host supplied");
+    scenarios["click-save"].verify(calls);
+  },
+  reference: [
+    // `before` runs outside the tools: it plays what the host does in the shell.
+    { tool: "electron_attach", before: (fixture) => fixture.launchWithFlags(), arguments: (calls, context) => context },
+    ...scenarios["click-save"].reference.slice(1),
+  ],
 };
 
 export const scenarioNames = Object.keys(scenarios);
