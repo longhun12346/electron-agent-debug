@@ -44,7 +44,7 @@ GitHub Release 的 Skill ZIP 附带构建来源证明，绑定发布工作流及
 改动 Electron 主进程、preload、IPC，或遇到白屏、崩溃、运行时报错时，用 electron-debug Skill 连接正在运行的应用来验证，不要只读代码推断。
 ```
 
-也可以直接输入 `/electron-debug` 显式调用。触发率的测量方法见 [examples/trigger-eval](examples/trigger-eval/README.md)。
+也可以直接输入 `/electron-debug` 显式调用。
 
 ## MCP 工具
 

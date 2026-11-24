@@ -24,9 +24,7 @@ for (const name of names) {
     const calls = [];
     for (const step of scenario.reference) {
       // A step's arguments may depend on earlier results (a snapshot ref, the afterSeq of a click).
-      // `before` plays what a host does outside the tools (starting the app); its result reaches the arguments.
-      const context = step.before ? await step.before(fixture) : undefined;
-      const args = (typeof step.arguments === "function" ? step.arguments(calls, context) : step.arguments) ?? {};
+      const args = (typeof step.arguments === "function" ? step.arguments(calls) : step.arguments) ?? {};
       const response = await client.request(requestId++, "tools/call", { name: step.tool, arguments: args }, 30_000);
       calls.push({ name: step.tool, args, result: response.result?.structuredContent });
     }

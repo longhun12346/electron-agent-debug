@@ -12,8 +12,6 @@ node examples/host-e2e/smoke.mjs codex <absolute-codex-executable> --scenario al
 node examples/host-e2e/smoke.mjs claude <absolute-claude-executable> --scenario ipc
 ```
 
-加 `--no-skill` 可以不带 Skill 内容，对比有无 Skill；每次运行的输出里有模型报告的结论，场景定义了期望结论时还带 `verdictCorrect`（只做统计，不参与通过判定）。
-
 不传可执行文件路径时从 PATH 查找所选宿主。不传 `--scenario` 时只运行 `ipc`。Linux 无图形环境时，在测试命令前使用 `FIXTURE_ELECTRON_NO_SANDBOX=true xvfb-run -a`。
 
 ## 场景
@@ -29,15 +27,10 @@ node examples/host-e2e/smoke.mjs claude <absolute-claude-executable> --scenario 
 | `utility` | 连接 utility process 读值 | attach 带 `utility`，main 与 utility 同时在线；`scope: utility` 读到 `utility-ok` |
 | `devtools-windows` | 开发构建：DevTools 加两个窗口，选对窗口再读取（field 应用） | 工具连到 `Field App` 窗口而不是 Settings 或 DevTools；无障碍树读到它的标题；向主进程询问了窗口数 |
 | `click-save` | 按钮不按就什么都不会发生：自己按下，再读两侧证据（field 应用，保存会失败） | 用 `electron_click` 点击快照里 Save 的 ref，不能用求值里的 `.click()`；点击之后读到 renderer 的 `FIELD_SAVE_CALL_FAILURE` 和主进程的 `FIELD_SAVE_HANDLER_FAILURE`，通道不能互换 |
-| `click-save-blind` | 同上，但提示词不说要按按钮，只问“保存正常吗” | 与 `click-save` 相同的断言 |
-| `stale-save` | 保存处理已修好，但 attach 会重放一次旧的失败，页面状态也还是失败：只有现在按下才知道真相 | 按下 Save 之后读到 `FIELD_SAVE_OK` 和主进程的保存请求；期望结论 PASS |
-| `sync-mismatch` | 按钮什么都不做，没有报错：消息发到了没人监听的 IPC 通道 | 按下 Sync 之后读到 `IPC send field:sync-now` 没有监听者的 IPC 事件 |
-| `utility-blind` | 读后台 worker 的值，提示词不说 `electron_attach` 有 `utility` 参数 | 与 `utility` 相同的断言 |
-| `launch-attach` | 开发者的应用已在运行但没有调试端口：自己发现、另起带参数的实例、attach，再按 Save（shell 场景，只支持 claude） | 用模型自己提供的 `mainUrl` 或 `rendererUrl` attach 成功，其余断言同 `click-save`；期望结论 FAIL |
 
-前五个场景跑在最小 fixture 上，其余跑在 `examples/field-app`，它的形态更接近真实的开发构建（见该目录的 README）。`tests/host-scenarios.test.ts` 用手工构造的流量检查每个场景的断言：空流量、选错窗口、只有单侧证据、通道互换都必须被拒绝。
+前五个场景跑在最小 fixture 上，后两个跑在 `examples/field-app`，它的形态更接近真实的开发构建（见该目录的 README）。`tests/host-scenarios.test.ts` 用手工构造的流量检查每个场景的断言：空流量、选错窗口、只有单侧证据、通道互换都必须被拒绝。
 
-宿主模型只能使用 electron-debug 的 10 个 MCP 工具，没有 shell 和文件读取，唯一的例外是 shell 场景（`launch-attach`）：它给 Bash，但由 `shell-guard.mjs` 钩子限制，只允许查看进程和启动应用，拒绝结束进程、删除或改写文件、git 与包管理器；清理时只按本次运行专用的目录名找进程并按 pid 结束。所有断言都针对透明 stdio relay 记录的真实 MCP 流量：调用了哪些工具、参数里的通道、服务器返回了什么证据。模型的最终文字不参与判定，所以“说自己成功了”不算通过。
+宿主模型只能使用 electron-debug 的 10 个 MCP 工具，没有 shell 和文件读取。所有断言都针对透明 stdio relay 记录的真实 MCP 流量：调用了哪些工具、参数里的通道、服务器返回了什么证据。模型的最终文字不参与判定，所以“说自己成功了”不算通过。
 
 ## 不用模型的参考解法
 
