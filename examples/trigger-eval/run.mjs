@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { access, cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,6 +14,9 @@ const usage = `usage: node examples/trigger-eval/run.mjs [options]
   --claude <exe>       Claude Code executable (default: claude)
   --variant <name>     current (SKILL.md as it is), off (no skill installed, the baseline), or the name of a file in
                        descriptions/ (without .txt) or a path to a .txt file holding one description (default: current)
+  --install <where>    project (a copy in the throwaway project's .claude/skills, default) or user (a temporary copy in
+                       ~/.claude/skills, loaded with your user settings and the skills you already have; it is removed
+                       afterwards, and the run refuses to start if ~/.claude/skills/electron-debug already exists)
   --reps <n>           runs per request (default 3)
   --parallel <n>       runs at the same time (default 3)
   --split <name>       all, train or validation (default all)
@@ -26,7 +29,7 @@ const usage = `usage: node examples/trigger-eval/run.mjs [options]
   --keep               keep the temporary project`;
 
 const options = {
-  claude: "claude", variant: "current", reps: 3, parallel: 3, split: "all", window: 4, budget: 0.5,
+  claude: "claude", variant: "current", install: "project", reps: 3, parallel: 3, split: "all", window: 4, budget: 0.5,
   earlyStop: true, queries: path.join(here, "queries.json"),
 };
 const argv = process.argv.slice(2);
@@ -38,7 +41,10 @@ for (let index = 0; index < argv.length; index += 1) {
   };
   if (flag === "--claude") options.claude = value();
   else if (flag === "--variant") options.variant = value();
-  else if (flag === "--reps") options.reps = Number(value());
+  else if (flag === "--install") {
+    options.install = value();
+    if (!["project", "user"].includes(options.install)) throw new Error(`--install is project or user\n${usage}`);
+  } else if (flag === "--reps") options.reps = Number(value());
   else if (flag === "--parallel") options.parallel = Number(value());
   else if (flag === "--split") options.split = value();
   else if (flag === "--only") options.only = value().split(",");
@@ -67,18 +73,32 @@ async function prepareProject(description) {
   const workspace = await mkdtemp(path.join(tmpdir(), "trigger eval "));
   const app = path.join(workspace, "app");
   await cp(path.join(root, "examples/field-app"), app, { recursive: true });
+  let installed;
   if (options.variant !== "off") {
-    const target = path.join(app, ".claude/skills/electron-debug");
-    await cp(path.join(root, "skill/electron-debug"), target, { recursive: true });
-    if (description !== undefined) {
-      const file = path.join(target, "SKILL.md");
-      const text = await readFile(file, "utf8");
-      const next = text.replace(/^description:.*$/mu, () => `description: ${JSON.stringify(description)}`);
-      if (next === text) throw new Error("could not replace the description in SKILL.md");
-      await writeFile(file, next);
+    const user = options.install === "user";
+    const target = user ? path.join(homedir(), ".claude/skills/electron-debug") : path.join(app, ".claude/skills/electron-debug");
+    if (user) {
+      // Never overwrite or delete something the user put there: refuse, and only remove what this run created.
+      if (await access(target).then(() => true, () => false)) {
+        throw new Error(`${target} already exists; remove it first or use --install project`);
+      }
+      installed = target;
+    }
+    try {
+      await cp(path.join(root, "skill/electron-debug"), target, { recursive: true });
+      if (description !== undefined) {
+        const file = path.join(target, "SKILL.md");
+        const text = await readFile(file, "utf8");
+        const next = text.replace(/^description:.*$/mu, () => `description: ${JSON.stringify(description)}`);
+        if (next === text) throw new Error("could not replace the description in SKILL.md");
+        await writeFile(file, next);
+      }
+    } catch (error) {
+      if (installed) await rm(installed, { recursive: true, force: true });
+      throw error;
     }
   }
-  return { workspace, app };
+  return { workspace, app, installed };
 }
 
 // The desktop app's own session variables make a nested host fail with "Not logged in"; ANTHROPIC_* stays.
@@ -94,7 +114,7 @@ function runOne(project, query, repetition) {
   return new Promise((resolve) => {
     const args = [
       "--print", "--verbose", "--output-format", "stream-json", "--no-session-persistence",
-      "--setting-sources", "project", "--tools", "Skill,Read,Glob,Grep", "--allowedTools", "Skill,Read,Glob,Grep",
+      "--setting-sources", options.install === "user" ? "user,project" : "project", "--tools", "Skill,Read,Glob,Grep", "--allowedTools", "Skill,Read,Glob,Grep",
       "--max-budget-usd", String(options.budget), ...(options.model ? ["--model", options.model] : []), query.text,
     ];
     const child = spawn(options.claude, args, { cwd: project.app, env: hostEnvironment(), stdio: ["ignore", "pipe", "pipe"] });
@@ -145,6 +165,8 @@ function runOne(project, query, repetition) {
       if (buffer.trim()) handle(buffer);
       if (run.model === undefined && !run.error) run.error = `the host never started: ${stderr.trim().slice(0, 200)}`;
       run.triggered = run.triggeredAt >= 0 && run.triggeredAt < options.window;
+      // Reading SKILL.md also puts the Skill in front of the host, so "used" counts it next to the Skill tool.
+      run.used = run.triggered || (run.readAt >= 0 && run.readAt < options.window);
       resolve(run);
     });
   });
@@ -152,6 +174,10 @@ function runOne(project, query, repetition) {
 
 const description = await resolveDescription();
 const project = await prepareProject(description);
+const removeInstalled = async () => {
+  if (project.installed) await rm(project.installed, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+};
+process.once("SIGINT", async () => { await removeInstalled(); process.exit(130); });
 const jobs = queries.flatMap((query) => Array.from({ length: options.reps }, (_, repetition) => ({ query, repetition })));
 const results = [];
 let next = 0;
@@ -166,12 +192,14 @@ try {
   }));
 } finally {
   process.stderr.write("\n");
+  await removeInstalled();
   if (!options.keep) await rm(project.workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
 }
 
 const valid = results.filter((run) => !run.error);
 const byId = new Map(queries.map((query) => [query.id, query]));
 const rate = (runs) => (runs.length === 0 ? null : runs.filter((run) => run.triggered).length / runs.length);
+const share = (runs, field) => (runs.length === 0 ? null : runs.filter((run) => run[field]).length / runs.length);
 const percent = (value) => (value === null ? "n/a" : `${Math.round(value * 100)}%`);
 const rows = queries.map((query) => {
   const runs = valid.filter((run) => run.id === query.id);
@@ -190,6 +218,7 @@ const summary = {
   window: options.window, repetitions: options.reps, runs: results.length, failedRuns: results.length - valid.length,
   skillListed: valid.filter((run) => run.listed === true).length,
   triggerRateOnShouldTrigger: rate(positives), falseTriggerRateOnShouldNot: rate(negatives),
+  useRateOnShouldTrigger: share(positives, "used"), falseUseRateOnShouldNot: share(negatives, "used"),
   bySplit: Object.fromEntries(["train", "validation"].map((split) => [split, {
     shouldTrigger: rate(positives.filter((run) => byId.get(run.id).split === split)),
     shouldNot: rate(negatives.filter((run) => byId.get(run.id).split === split)),
@@ -203,6 +232,7 @@ for (const row of rows) {
   console.log(`${verdict} ${row.id.padEnd(4)} ${row.split.padEnd(10)} ${percent(row.rate).padStart(4)} (${row.runs} runs, read SKILL.md instead: ${row.readSkillMd}) first calls: ${row.firstCalls}${row.otherSkills.length ? `  other skills: ${row.otherSkills.join("; ")}` : ""}`);
 }
 console.log(`should trigger: ${percent(summary.triggerRateOnShouldTrigger)}   should not: ${percent(summary.falseTriggerRateOnShouldNot)}` +
+  `   (used incl. SKILL.md read: ${percent(summary.useRateOnShouldTrigger)} / ${percent(summary.falseUseRateOnShouldNot)})` +
   `   train ${percent(summary.bySplit.train.shouldTrigger)}/${percent(summary.bySplit.train.shouldNot)}` +
   `   validation ${percent(summary.bySplit.validation.shouldTrigger)}/${percent(summary.bySplit.validation.shouldNot)}` +
   `   cost ${summary.totalCostUsd ?? "n/a (early stop)"}`);

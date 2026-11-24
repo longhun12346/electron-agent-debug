@@ -9,7 +9,7 @@
 - 项目是 `examples/field-app` 的副本，看起来是 Electron 项目，除了被测的 Skill 没有别的项目级 Skill；被测 Skill 是 `skill/electron-debug` 的副本，只允许读取类工具（`Skill`、`Read`、`Glob`、`Grep`），不能改文件也不能跑命令。
 - 只加载项目级设置（`--setting-sources project`），所以宿主自带的内置 Skill（`run`、`verify`、`debug` 等）仍然在场，它们会和被测 Skill 竞争，这是真实环境的一部分。
 - 看宿主的前 N 次工具调用（默认 4）里有没有 `Skill` 调用了 `electron-debug`；一旦调用就停止，没有调用也在 N 次之后停止，所以每次运行只花一小部分真实任务的开销。
-- 宿主没有调用 Skill 工具，而是自己去读 `electron-debug` 的 `SKILL.md`，会单独统计为“改读了 SKILL.md”，不算触发。
+- 宿主没有调用 Skill 工具，而是自己去读 `electron-debug` 的 `SKILL.md`，会单独统计为“改读了 SKILL.md”，不算触发，但算入“使用率”（汇总行括号里的 used）：内容已经进入上下文。注意项目级安装时宿主能 Glob 到 `.claude/skills`，用户级安装不一定能，两者要分别测（`--install user`）。
 
 请求在 `queries.json`：10 条该触发、10 条近似但不该触发（打包、纯类型、重命名、写测试、概念问答、打包后的应用等），中英文各有，60% 标为 `train`，40% 标为 `validation`。按 agentskills.io 的建议，调描述时只看 `train`，最后用 `validation` 检查有没有过拟合。通过线按官方的 0.5：该触发的请求触发率达到 50%，不该触发的请求触发率为 0。
 
@@ -26,6 +26,7 @@ node examples/trigger-eval/run.mjs --claude <absolute-claude-executable> [option
 | `--variant current` | 用 `SKILL.md` 现在的描述（默认） |
 | `--variant proposed` | 用 `descriptions/proposed.txt` 里的描述替换，不改仓库里的 `SKILL.md` |
 | `--variant off` | 不装 Skill，作为基线：看看宿主自己会不会做出同样的事 |
+| `--install user` | 把 Skill 临时装到 `~/.claude/skills/electron-debug`（用户级），并加载你的用户设置和已装的其他 Skill，更接近真实使用；结束后删除。`~/.claude/skills/electron-debug` 已存在时拒绝运行，不会覆盖。默认 `project`：装在临时项目的 `.claude/skills` 下 |
 | `--split train` | 只跑调参集 |
 | `--reps 3` | 每个请求跑几次，默认 3 |
 | `--only p1,n2` | 只跑指定请求 |
