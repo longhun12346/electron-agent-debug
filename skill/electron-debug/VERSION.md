@@ -6,7 +6,7 @@
 - invoke 依赖 Electron 的私有字段 `ipcMain._invokeHandlers`，在 Electron 45 上实测；字段不存在的版本只追踪 send/sendSync 并写警告。CI 在 Electron 43、44 和最新稳定版上运行同一冒烟。
 - 定位写入 requirements 0.1 节：重点投入主进程、utility 和跨进程诊断，renderer 保留最小集，深入的 renderer 分析与 chrome-devtools-mcp 并用。
 - fixture 的 preload 新增仅供测试的 `fixtureIpc`，只允许 `fixture:` 通道。
-- SKILL.md 从约 18KB 拆到约 10KB，只留每次诊断都会用到的流程、证据矩阵和结论；启动参数、求值细节、不提供的能力与替代做法、连接失败排查移到 `references/`（launch、evaluate、alternatives、troubleshooting）。依据：真实模型在 6 个场景里带不带 Skill 结果相同，工具描述与返回的 `hint` 已承担大部分引导；官方建议正文保持精简、细节按需读取。使用建议改写为按顺序的 6 步工作流，补一个报告示例，统一术语（主进程、renderer、通道、target），接入方式指定默认注册 MCP。
+- SKILL.md 从约 18KB 精简到约 6KB，只留每次诊断都会用到的流程、证据矩阵和结论；启动参数、求值细节、不提供的能力与替代做法、连接失败排查移到 `references/`（launch、evaluate、evidence、alternatives、troubleshooting）。依据：官方 Skill 写作建议（正文保持精简、细节放进按需读取的文件、`when_to_use` 放触发语境、描述前置关键用途并控制在 1,536 字符内）。使用建议改写为按顺序的 5 步工作流，补一个报告示例，统一术语（主进程、renderer、通道、target），接入方式指定默认注册 MCP。
 - 验证范围：`utility` 参数依赖的 `process._debugProcess` 在 Windows、macOS、Linux 上用 fixture 锁定的 Electron 版本实测，CI 另在 Linux、Windows 上对 Electron 43、44 和最新稳定版运行同样的冒烟；electron-vite 的参数写法依据其 6 版源码；应用退出时 Node 等检查器断开的现象在 Windows、Electron 43 上实测。
 - 工作流第 1 步新增：先查应用是否已在运行、是否已带调试端口，再决定要不要重启。
 
