@@ -4,26 +4,27 @@ import { errorResult, toDiagnosticError } from "../errors.js";
 import { defineTool, toolResult } from "./definition.js";
 
 const attachSchema = z.object({
-  mainUrl: z.string().optional(),
-  rendererUrl: z.string().optional(),
-  utility: z.union([z.string().min(1), z.number().int().positive()]).optional(),
-  targetId: z.string().optional(),
-  url: z.string().optional(),
-  title: z.string().optional(),
+  mainUrl: z.string().max(2048).optional(),
+  rendererUrl: z.string().max(2048).optional(),
+  utility: z.union([z.string().min(1).max(256), z.number().int().positive()]).optional(),
+  targetId: z.string().max(256).optional(),
+  url: z.string().max(4096).optional(),
+  title: z.string().max(1024).optional(),
   clearSelection: z.boolean().optional(),
+  instrument: z.array(z.enum(["ipc", "dialogs"])).max(2).optional(),
 });
 
 const targetsSchema = z.object({
-  rendererUrl: z.string().optional(),
-  targetId: z.string().optional(),
-  url: z.string().optional(),
-  title: z.string().optional(),
+  rendererUrl: z.string().max(2048).optional(),
+  targetId: z.string().max(256).optional(),
+  url: z.string().max(4096).optional(),
+  title: z.string().max(1024).optional(),
   clearSelection: z.boolean().optional(),
 });
 
 const logsSchema = z.object({
   process: z.enum(["main", "renderer", "utility", "all"]).optional(),
-  level: z.string().optional(),
+  level: z.string().max(32).optional(),
   limit: z.number().int().min(1).max(10_000).optional(),
   since: z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
     message: "since 必须是有效的日期时间字符串",
@@ -39,7 +40,8 @@ export const coreTools = [
     title: "Attach to Electron diagnostics",
     description:
       "连接 Agent 提供的本地主进程 Inspector 和/或 renderer CDP endpoint；不启动 Electron；应用由 Agent 用项目已有命令启动（加 --inspect 和 --remote-debugging-port）。" +
-      "utility 传 utility process 的名字（fork 的 serviceName）或 pid：工具通过已连接的主进程找到它并打开调试口，作为独立的第三通道，与主进程、renderer 同时在线；需要主进程在线且允许执行代码。",
+      "utility 传 utility process 的名字（fork 的 serviceName）或 pid：工具通过已连接的主进程找到它并打开调试口，作为独立的第三通道，与主进程、renderer 同时在线；需要主进程在线且允许执行代码。" +
+      "允许执行代码时，attach 默认在主进程里装上 IPC 追踪和原生对话框追踪的包装（应用重启前不会移除）；instrument 传 [\"ipc\"]、[\"dialogs\"] 或 [] 可以只装一部分或都不装，不传沿用上一次的选择，结果的 instrumented 列出实际装了什么。",
     inputSchema: attachSchema,
     handler: async (manager, input) => {
       const parsed = parseAttachInput(input);

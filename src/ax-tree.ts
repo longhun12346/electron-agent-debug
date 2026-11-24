@@ -1,4 +1,3 @@
-import { redact } from "./redact.js";
 
 interface AxValue {
   value?: unknown;
@@ -41,23 +40,17 @@ const passThroughRoles = new Set([
 const shownProperties = new Set([
   "disabled", "checked", "expanded", "selected", "focused", "required", "invalid", "level", "url",
 ]);
-const textLimit = 120;
+const defaultTextLimit = 120;
 
-function clean(value: unknown): string {
+function clean(value: unknown, limit = defaultTextLimit): string {
   if (value === undefined || value === null) {
     return "";
   }
   const text = String(value).replace(/\s+/g, " ").trim();
-  return text.length > textLimit ? `${text.slice(0, textLimit)}...` : text;
+  return text.length > limit ? `${text.slice(0, limit)}...` : text;
 }
 
-// A long query string (dev builds often carry a session or run id there) repeats on every link; the hash is kept.
-function shortUrl(value: string): string {
-  const query = /\?[^#]*/u.exec(value);
-  return query && query[0].length > 30 ? value.replace(query[0], "?…") : value;
-}
-
-function propertyLabels(node: AxNode): string {
+function propertyLabels(node: AxNode, limit: number): string {
   const labels: string[] = [];
   for (const property of node.properties ?? []) {
     if (!shownProperties.has(property.name)) {
@@ -68,8 +61,7 @@ function propertyLabels(node: AxNode): string {
       labels.push(`[${property.name}]`);
     } else if ((value === false && ["checked", "expanded"].includes(property.name)) ||
         typeof value === "string" || typeof value === "number") {
-      const text = property.name === "url" && typeof value === "string" ? shortUrl(value) : value;
-      labels.push(`[${property.name}=${clean(text)}]`);
+      labels.push(`[${property.name}=${clean(value, limit)}]`);
     }
   }
   return labels.length ? ` ${labels.join("")}` : "";
@@ -78,6 +70,8 @@ function propertyLabels(node: AxNode): string {
 export interface RenderOptions {
   /** Keep only nodes that get a ref, plus headings for orientation. */
   interactive?: boolean;
+  /** Longest name, value or property shown before it is cut with `...` (default 120). */
+  maxText?: number;
 }
 
 // Headings stay in an interactive rendering so the elements can be told apart by the section they are in.
@@ -89,6 +83,7 @@ export function renderAxTree(
   assignRef?: RefAssigner,
   options: RenderOptions = {},
 ): AxRendering {
+  const limit = options.maxText ?? defaultTextLimit;
   const byId = new Map(nodes.map((node) => [node.nodeId, node]));
   const roots = nodes.filter((node) => !node.parentId || !byId.has(node.parentId));
   const lines: string[] = [];
@@ -101,7 +96,7 @@ export function renderAxTree(
   while (stack.length) {
     const { node, depth, parentName } = stack.pop()!;
     const role = clean(node.role?.value) || "unknown";
-    const name = clean(node.name?.value);
+    const name = clean(node.name?.value, limit);
     // Text already in the name of its parent (a link or button usually names itself after its text) adds nothing.
     const passThrough = node.ignored === true || passThroughRoles.has(role) ||
       (role === "StaticText" && name !== "" && parentName.includes(name)) ||
@@ -114,13 +109,13 @@ export function renderAxTree(
         truncated = true;
         break;
       }
-      const value = clean(node.value?.value);
+      const value = clean(node.value?.value, limit);
       const label = `${role}${name ? ` "${name}"` : ""}${value ? ` value="${value}"` : ""}`;
       const ref = assignRef && interactiveRoles.has(role) && node.backendDOMNodeId !== undefined
         ? assignRef(node, role, name)
         : undefined;
       if (ref !== undefined) refCount += 1;
-      lines.push(`${"  ".repeat(depth)}${label}${propertyLabels(node)}${ref !== undefined ? ` [ref=${ref}]` : ""}`);
+      lines.push(`${"  ".repeat(depth)}${label}${propertyLabels(node, limit)}${ref !== undefined ? ` [ref=${ref}]` : ""}`);
       childDepth = depth + 1;
       childParentName = name;
     } else if (name !== "" && !passThroughRoles.has(role) && node.ignored !== true) {
@@ -135,7 +130,7 @@ export function renderAxTree(
     }
   }
   return {
-    text: redact(lines.join("\n")),
+    text: lines.join("\n"),
     nodeCount: lines.length,
     truncated,
     ...(assignRef ? { refCount } : {}),

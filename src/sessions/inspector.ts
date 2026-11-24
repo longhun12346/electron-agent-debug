@@ -25,6 +25,8 @@ export interface InspectorDependencies {
   /** Whether the event is older than its channel's latest connection (replayed history or an earlier connection). */
   isBeforeAttach(event: DiagnosticEvent): boolean;
   lastSeq(): number;
+  /** Whether events the wait asks about may have been evicted from a full buffer. */
+  logGap(process: LogsInput["process"], afterSeq: number | undefined): boolean;
 }
 
 export interface EvaluateInput {
@@ -183,6 +185,30 @@ export class Inspector {
     }
   }
 
+  /** What a timed-out log wait can say about why nothing matched: a channel that is offline, or evicted events. */
+  private logWaitDetails(condition: Extract<WaitCondition, { kind: "log" }>): Record<string, unknown> {
+    const scope = condition.process ?? "all";
+    const sessions: Array<[ProcessScope, DiagnosticSession]> = [
+      ["main", this.deps.main], ["renderer", this.deps.renderer], ["utility", this.deps.utility],
+    ];
+    const offlineChannels = sessions
+      .filter(([name]) => scope === "all" || scope === name)
+      .filter(([, session]) => {
+        const snapshot = session.snapshot();
+        return snapshot.configured && !snapshot.online;
+      })
+      .map(([name]) => name);
+    const gap = this.deps.logGap(condition.process, condition.afterSeq);
+    if (offlineChannels.length === 0 && !gap) return {};
+    return {
+      ...(offlineChannels.length > 0 ? { offlineChannels } : {}),
+      ...(gap ? { gap: true } : {}),
+      hint: "日志条件没有命中，但" + (offlineChannels.length > 0 ? `通道 ${offlineChannels.join("、")} 已离线（先用 electron_status 看原因）` : "") +
+        (offlineChannels.length > 0 && gap ? "，且" : "") +
+        (gap ? "缓冲区满过、所请求范围内的事件可能已被丢弃（缩短取证间隔，或调大 ELECTRON_DEBUG_MAX_LOG_EVENTS）" : "") + "。",
+    };
+  }
+
   async waitFor(input: WaitInput): Promise<Result<Record<string, unknown>>> {
     const timeoutMs = clamp(input.timeoutMs, defaultWaitTimeoutMs, 100, maxWaitTimeoutMs);
     const intervalMs = clamp(input.intervalMs, 200, 50, 5_000);
@@ -242,10 +268,13 @@ export class Inspector {
           code: "WAIT_TIMEOUT",
           message: `等待条件未在 ${timeoutMs}ms 内满足`,
           retryable: true,
-          details: { condition: condition.kind, elapsedMs: Date.now() - startedAt, lastSeq: this.deps.lastSeq(), lastError },
+          details: {
+            condition: condition.kind, elapsedMs: Date.now() - startedAt, lastSeq: this.deps.lastSeq(), lastError,
+            ...(condition.kind === "log" ? this.logWaitDetails(condition) : {}),
+          },
         });
       }
-      await sleep(intervalMs);
+      await sleep(Math.max(1, Math.min(intervalMs, timeoutMs - (Date.now() - startedAt))));
     }
   }
 
@@ -269,7 +298,9 @@ export class Inspector {
         `screenshot-${Date.now()}-${randomBytes(3).toString("hex")}.${format === "jpeg" ? "jpg" : "png"}`,
       );
       await writeFile(file, image, { mode: 0o600 });
-      await this.pruneScreenshots(directory);
+      // Clearing old files is housekeeping: a file that is busy (a viewer holds it open on Windows) must not turn a
+      // screenshot that was taken into a failure.
+      await this.pruneScreenshots(directory).catch(() => undefined);
       const target = this.deps.renderer.snapshot().selectedTarget;
       return {
         ok: true,
@@ -295,7 +326,7 @@ export class Inspector {
     }
   }
 
-  async domSnapshot(input: { maxNodes?: number; interactive?: boolean }): Promise<Result<Record<string, unknown>>> {
+  async domSnapshot(input: { maxNodes?: number; interactive?: boolean; maxText?: number }): Promise<Result<Record<string, unknown>>> {
     try {
       const response = await this.deps.renderer.request(
         "Accessibility.getFullAXTree",
@@ -306,6 +337,7 @@ export class Inspector {
       const assignRef = target ? this.refs.begin(target.id) : undefined;
       const rendering = renderAxTree(response.nodes ?? [], clamp(input.maxNodes, 400, 1, 2_000), assignRef, {
         interactive: input.interactive === true,
+        maxText: clamp(input.maxText, 120, 20, 2_000),
       });
       return { ok: true, data: { targetId: target?.id, url: await this.currentUrl(), ...rendering } };
     } catch (error) {

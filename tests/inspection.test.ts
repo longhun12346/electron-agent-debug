@@ -9,7 +9,6 @@ import { fileURLToPath } from "node:url";
 import { renderAxTree } from "../src/ax-tree.js";
 import type { RuntimeConfig } from "../src/config.js";
 import { DiagnosticException } from "../src/errors.js";
-import { redact } from "../src/redact.js";
 import { SessionManager } from "../src/sessions/session-manager.js";
 
 const fakeApp = path.join(path.dirname(fileURLToPath(import.meta.url)), "helpers", "fake-electron-app.cjs");
@@ -86,7 +85,7 @@ test("evaluate runs in both processes and shapes results", { timeout: 20_000 }, 
 
     const thrown = await manager.inspector.evaluate({ scope: "main", expression: "throw" });
     assert.equal(thrown.ok ? "" : thrown.error.code, "EVALUATION_FAILED");
-    assert.equal(JSON.stringify(thrown).includes("hunter2hunter2"), false);
+    assert.equal(thrown.ok ? "" : thrown.error.message, "Error: boom password=hunter2hunter2");
 
     const big = await manager.inspector.evaluate({ scope: "main", expression: "big", maxResultBytes: 256 });
     assert.ok(big.ok);
@@ -105,7 +104,7 @@ test("evaluate runs in both processes and shapes results", { timeout: 20_000 }, 
 
     const secret = await manager.inspector.evaluate({ scope: "main", expression: "secret" });
     assert.ok(secret.ok);
-    assert.deepEqual(secret.data.value, { token: "[REDACTED]", ok: true });
+    assert.deepEqual(secret.data.value, { token: "abc12345678", ok: true });
 
     const nan = await manager.inspector.evaluate({ scope: "main", expression: "nan" });
     assert.ok(nan.ok);
@@ -146,6 +145,12 @@ test("evaluate retries any compile-time SyntaxError in repl mode but never re-ru
     const runtime = await manager.inspector.evaluate({ scope: "main", expression: "runtime-syntax-error" });
     assert.equal(runtime.ok, false);
     assert.equal(await runsOf("runtime-syntax-error"), 1);
+
+    // The "already been declared" wording alone does not make an error a compile error: this one came from running
+    // code, so it is reported once and not run again in repl mode or in a block.
+    const redeclared = await manager.inspector.evaluate({ scope: "main", expression: "runtime-redeclared" });
+    assert.equal(redeclared.ok, false);
+    assert.equal(await runsOf("runtime-redeclared"), 1);
 
     // `await (…)` is a call of a variable named await and fails at run time. When nothing precedes it nothing has run,
     // so it is retried; after other statements earlier code may have run, so it is not, and the error says what to write.
@@ -264,7 +269,7 @@ test("dom snapshot renders the accessibility tree compactly and within the node 
     assert.equal(snapshot.data.text, [
       'RootWebArea "Fixture"',
       '  button "Save" [disabled]',
-      '  textbox "Name" value="token=[REDACTED]"',
+      '  textbox "Name" value="token=abcdef123456"',
       '  heading "Settings" [level=2]',
     ].join("\n"));
   });
@@ -277,50 +282,54 @@ test("dom snapshot renders the accessibility tree compactly and within the node 
   assert.equal(limited.truncated, true);
 });
 
-test("redact masks common secrets and leaves ordinary text alone", () => {
-  assert.equal(redact("Authorization: Bearer abc.def-ghi_jkl123"), "Authorization: [REDACTED]");
-  assert.equal(redact('{"access_token":"abc123","name":"x"}'), '{"access_token":"[REDACTED]","name":"x"}');
-  assert.equal(redact("password=hunter2 &x=1"), "password=[REDACTED] &x=1");
-  const nested = (value: string) => JSON.stringify({ log: JSON.stringify({ password: value, name: "x" }) });
-  assert.equal(redact(nested("hunter2")), nested("[REDACTED]"));
-  assert.equal(redact("window created in 120ms"), "window created in 120ms");
-});
+test("attach installs the wrappers the agent asks for, remembers the choice, and reports what is installed", { timeout: 20_000 }, async () => {
+  const mainPort = await freePort();
+  const rendererPort = await freePort();
+  const child: ChildProcess = spawn(process.execPath, [
+    fakeApp, `--inspect=${mainPort}`, `--remote-debugging-port=${rendererPort}`,
+  ], { stdio: "ignore" });
+  const endpoints = { mainUrl: `http://127.0.0.1:${mainPort}`, rendererUrl: `http://127.0.0.1:${rendererPort}` };
+  const wrapperWarnings = (manager: SessionManager) => manager.logs({ process: "main", limit: 100 }).events
+    .filter((event) => event.kind === "protocol" && /追踪|对话框监测/u.test(event.message)).map((event) => event.message);
+  try {
+    const none = new SessionManager(config());
+    try {
+      let result = await none.attach({ ...endpoints, instrument: [] });
+      for (let attempt = 0; attempt < 50 && !(result.ok && result.data.main.online); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        result = await none.attach({ ...endpoints, instrument: [] });
+      }
+      assert.ok(result.ok && result.data.main.online);
+      assert.deepEqual(result.data.instrumented, []);
+      assert.deepEqual(wrapperWarnings(none), [], "nothing was installed, so nothing could fail to install");
+      // The choice is remembered: a later attach without the option does not install what was left out.
+      const again = await none.attach(endpoints);
+      assert.ok(again.ok);
+      assert.deepEqual(wrapperWarnings(none), []);
+    } finally {
+      await none.close();
+    }
 
-test("redact masks secrets recognised by shape when no key name is present", () => {
-  const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
-  assert.equal(redact(`session ${jwt} ok`), "session [REDACTED] ok");
-  for (const secret of [
-    `ghp_${"a1B2".repeat(9)}`,
-    `github_pat_${"a1B2_".repeat(8)}`,
-    "sk-ant-api03-abcdefghij0123456789ABCDEF",
-    "xoxb-123456789012-abcdefghij",
-    `npm_${"a1B2".repeat(9)}`,
-    "AKIAIOSFODNN7EXAMPLE",
-    `AIza${"a1B2".repeat(9)}xyz`,
-  ]) {
-    assert.equal(redact(`key is ${secret}.`), "key is [REDACTED].", secret);
+    const defaults = new SessionManager(config());
+    try {
+      const result = await defaults.attach(endpoints);
+      assert.ok(result.ok && result.data.main.online);
+      assert.ok(wrapperWarnings(defaults).length > 0, "by default both wrappers are tried (the fake app cannot take them)");
+    } finally {
+      await defaults.close();
+    }
+  } finally {
+    child.kill();
   }
-  assert.equal(redact("connect postgres://admin:s3cr3t-pw@db.local:5432/app"), "connect postgres://admin:[REDACTED]@db.local:5432/app");
-  assert.equal(redact("http://localhost:3000/path"), "http://localhost:3000/path");
 });
 
-test("redact masks private key blocks, including escaped and truncated ones", () => {
-  const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnzj4p4WGeKLs1Pt8Qu\n-----END RSA PRIVATE KEY-----";
-  assert.equal(redact(`before\n${pem}\nafter`), "before\n[REDACTED]\nafter");
-  assert.equal(redact(JSON.stringify({ key: pem, name: "x" })), JSON.stringify({ key: "[REDACTED]", name: "x" }));
-  const cut = JSON.stringify({ key: pem.slice(0, 90), name: "x" });
-  assert.equal(redact(cut), JSON.stringify({ key: "[REDACTED]", name: "x" }));
-});
-
-test("redact leaves identifiers, hashes and ordinary kebab-case names alone", () => {
-  for (const text of [
-    "sk-fade-in-out-animation-class",
-    "task-management-service-name-long",
-    "0b4e7a2f-3c1d-4e8a-9f60-1a2b3c4d5e6f",
-    "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-    "eyJ is a prefix but not a token",
-    "ghp_short",
-  ]) {
-    assert.equal(redact(text), text);
-  }
+test("a message cut to the length limit says so, with its original length", () => {
+  const manager = new SessionManager(config());
+  manager.main.events.add({
+    process: "main", message: "x".repeat(9_000), observedAt: "2026-01-01T00:00:00.000Z", level: "log", kind: "console",
+    data: { type: "log" },
+  });
+  const [stored] = manager.logs({ process: "main" }).events;
+  assert.equal(stored?.message.length, 8_192);
+  assert.deepEqual(stored?.data, { type: "log", messageTruncatedFrom: 9_000 });
 });

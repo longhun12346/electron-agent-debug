@@ -1,4 +1,3 @@
-import { redact } from "./redact.js";
 import type { OpenDialog, ProcessScope } from "./types.js";
 
 /**
@@ -71,8 +70,7 @@ export const instrumentDialogsScript = `(async () => {
 
 function text(value: unknown): string | undefined {
   if (typeof value !== "string" || value === "") return undefined;
-  const clean = redact(value);
-  return clean.length > maxText ? `${clean.slice(0, maxText)}…` : clean;
+  return value.length > maxText ? `${value.slice(0, maxText)}…` : value;
 }
 
 /** Tracks the dialogs of one channel. Keys are the app's own ids for native dialogs and `js` for the page's dialog. */
@@ -122,6 +120,7 @@ export class DialogTracker {
     } catch {
       return undefined;
     }
+    if (typeof record !== "object" || record === null || Array.isArray(record)) return undefined;
     const id = `native-${String(record.id)}`;
     if (record.event === "close") {
       const dialog = this.open.get(id);

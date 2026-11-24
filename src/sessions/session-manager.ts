@@ -13,6 +13,7 @@ import type {
   DiagnosticError,
   DiagnosticEvent,
   EndpointConfig,
+  Instrument,
   LogsInput,
   OpenDialog,
   StatusResult,
@@ -32,6 +33,9 @@ export class SessionManager {
   private mainEndpoint?: EndpointConfig;
   private rendererEndpoint?: EndpointConfig;
   private rendererTargets: TargetInfo[] = [];
+  private selectorChangedThisCall = false;
+  // What the agent last chose to have installed in the app; everything until it says otherwise.
+  private instrumentChoice: Instrument[] = ["ipc", "dialogs"];
   private selector: TargetSelector = {};
   // The page the renderer session last inspected. The session forgets its target when the page closes; this does not,
   // so a later automatic selection of a different page is reported instead of happening silently.
@@ -75,6 +79,7 @@ export class SessionManager {
       listEvents: (input) => this.collectEvents(input),
       isBeforeAttach: (event) => this.isBeforeAttach(event),
       lastSeq: () => this.sequence.last,
+      logGap: (process, afterSeq) => this.buffersFor(process).some((buffer) => buffer.droppedThroughSeq > (afterSeq ?? 0)),
     });
   }
 
@@ -87,6 +92,7 @@ export class SessionManager {
   ): Promise<{ ok: true; data: AttachResult } | { ok: false; error: DiagnosticError }> {
     const errors: DiagnosticError[] = [];
     const warnings: DiagnosticError[] = [];
+    if (input.instrument !== undefined) this.instrumentChoice = [...new Set(input.instrument)];
     const resolved = this.resolveEndpoints(input, errors);
     if (!resolved.main && !resolved.renderer && input.utility === undefined) {
       return errorResult(
@@ -103,7 +109,9 @@ export class SessionManager {
       this.lastSelected = undefined;
       this.renderer.clearTargetSelection();
     }
+    this.selectorChangedThisCall = false;
     if (input.targetId !== undefined || input.url !== undefined || input.title !== undefined) {
+      this.selectorChangedThisCall = true;
       this.selector = {
         targetId: input.targetId,
         url: input.url,
@@ -124,8 +132,8 @@ export class SessionManager {
         });
         await this.main.connect(resolved.main, discovered.websocketUrl as string);
         if (this.config.allowEval !== false) {
-          await this.main.instrumentDialogs();
-          await this.main.instrumentIpc();
+          if (this.instrumentChoice.includes("dialogs")) await this.main.instrumentDialogs();
+          if (this.instrumentChoice.includes("ipc")) await this.main.instrumentIpc();
         }
       } catch (error) {
         const diagnostic = toDiagnosticError(error, "MAIN_INSPECTOR_UNAVAILABLE");
@@ -167,6 +175,7 @@ export class SessionManager {
         utility: this.utility.snapshot(),
         targets: this.rendererTargets,
         selectedTarget: this.renderer.snapshot().selectedTarget,
+        instrumented: this.main.instrumented(),
         errors,
         warnings,
       },
@@ -206,7 +215,9 @@ export class SessionManager {
       this.lastSelected = undefined;
       this.renderer.clearTargetSelection();
     }
+    this.selectorChangedThisCall = false;
     if (input.targetId !== undefined || input.url !== undefined || input.title !== undefined) {
+      this.selectorChangedThisCall = true;
       this.selector = {
         targetId: input.targetId,
         url: input.url,
@@ -325,8 +336,13 @@ export class SessionManager {
     const gap = buffers.some((buffer) => buffer.droppedThroughSeq > (this.afterSeqFor(buffer, input) ?? 0));
 
     if (clear) {
+      // A filter narrows what is returned, and clear must not delete what the caller did not get back.
+      const filtered = input.level !== undefined || input.since !== undefined || input.afterSeq !== undefined ||
+        input.limit !== undefined || input.sinceAttach === true;
+      const returned = new Set(events.flatMap((event) => (event.seq === undefined ? [] : [event.seq])));
       for (const buffer of buffers) {
-        buffer.clear();
+        if (filtered) buffer.remove(returned);
+        else buffer.clear();
       }
     }
     return { events, cleared: clear, lastSeq, droppedThroughSeq, gap };
@@ -459,7 +475,24 @@ export class SessionManager {
         : previousStillExists
           ? { targetId: previous.id }
           : {};
-      const selected = selectTarget(this.rendererTargets, selector);
+      let selected: TargetInfo | undefined;
+      try {
+        selected = selectTarget(this.rendererTargets, selector);
+      } catch (selectionError) {
+        // A selector remembered from an earlier call (a title that has since changed) must not take down a working
+        // connection: keep the page that is already selected and say why the selector no longer matches.
+        const kept = hasExplicitSelector && !this.selectorChangedThisCall && previousStillExists
+          ? this.rendererTargets.find((candidate) => candidate.id === previous?.id) : undefined;
+        if (!kept) throw selectionError;
+        selected = kept;
+        warnings.push({
+          code: "TARGET_SELECTOR_STALE",
+          message: "之前传入的 title、url 或 targetId 已不再匹配任何页面，仍沿用当前已选中的页面",
+          retryable: false,
+          hint: "页面可能改了标题或跳转了地址。确认它仍是要验证的窗口；要换页面就重新传 title、url 或 targetId，或传 clearSelection。",
+          details: { selected: { id: kept.id, title: kept.title, url: kept.url } },
+        });
+      }
       if (!selected) {
         throw new DiagnosticException("TARGET_NOT_FOUND", "没有选中的 target", { retryable: true });
       }

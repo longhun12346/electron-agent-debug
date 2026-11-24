@@ -6,6 +6,7 @@ import { JsonRpcConnection, type JsonRpcEvent } from "../protocol/json-rpc-conne
 import type {
   DiagnosticEvent,
   EndpointConfig,
+  Instrument,
   ProcessScope,
   PublicSessionStatus,
   SessionSnapshot,
@@ -156,6 +157,10 @@ function eventFromProtocol(process: ProcessScope, event: JsonRpcEvent): Diagnost
 
 export class DiagnosticSession {
   private connection?: JsonRpcConnection;
+  // The connection each main-process wrapper was reported for: attaching again on the same connection must not report
+  // the same open dialog or the same warning twice, while a new connection to a running app starts from scratch.
+  private dialogsInstrumentedOn?: JsonRpcConnection;
+  private ipcInstrumentedOn?: JsonRpcConnection;
   private websocketUrl?: string;
   private endpoint?: EndpointConfig;
   private selectedTarget?: TargetInfo;
@@ -216,6 +221,8 @@ export class DiagnosticSession {
       this.websocketUrl === websocketUrl
     ) {
       this.endpoint = endpoint;
+      // The page may have been retitled or navigated since it was selected; keep what discovery just reported.
+      if (target) this.selectedTarget = target;
       this.status = "online";
       this.error = undefined;
       return;
@@ -323,7 +330,7 @@ export class DiagnosticSession {
    */
   async instrumentDialogs(): Promise<void> {
     const connection = this.connection;
-    if (!connection?.isOpen) return;
+    if (!connection?.isOpen || this.dialogsInstrumentedOn === connection) return;
     try {
       await connection.request("Runtime.addBinding", { name: dialogBinding });
       const response = await connection.request("Runtime.evaluate", {
@@ -339,6 +346,7 @@ export class DiagnosticSession {
       for (const entry of state.open ?? []) {
         this.recordDialog(this.dialogs.native(JSON.stringify({ ...(entry as object), event: "open" })));
       }
+      this.dialogsInstrumentedOn = connection;
     } catch (error) {
       if (!connection.isOpen) return;
       this.events.add({
@@ -358,7 +366,7 @@ export class DiagnosticSession {
    */
   async instrumentIpc(): Promise<void> {
     const connection = this.connection;
-    if (!connection?.isOpen) return;
+    if (!connection?.isOpen || this.ipcInstrumentedOn === connection) return;
     try {
       await connection.request("Runtime.addBinding", { name: ipcBinding });
       const response = await connection.request("Runtime.evaluate", {
@@ -379,6 +387,7 @@ export class DiagnosticSession {
           message: "IPC 追踪只覆盖 send/sendSync：这个 Electron 版本的 ipcMain 没有可包装的 invoke 处理表，invoke 不会出现在时间线里",
         });
       }
+      this.ipcInstrumentedOn = connection;
     } catch (error) {
       if (!connection.isOpen) return;
       this.events.add({
@@ -390,6 +399,15 @@ export class DiagnosticSession {
         data: toDiagnosticError(error),
       });
     }
+  }
+
+  /** The wrappers installed in the app on the current connection. */
+  instrumented(): Instrument[] {
+    const current = this.connection;
+    return [
+      ...(current && this.ipcInstrumentedOn === current ? ["ipc" as const] : []),
+      ...(current && this.dialogsInstrumentedOn === current ? ["dialogs" as const] : []),
+    ];
   }
 
   snapshot(): SessionSnapshot {

@@ -131,6 +131,17 @@ function answer(scope, socket, message) {
         },
       });
     }
+    // The same words as a redeclaration, but thrown by code that already ran (a stack is attached): never run it again.
+    if (expression === "runtime-redeclared") {
+      return reply({
+        result: { type: "object", subtype: "error" },
+        exceptionDetails: {
+          text: "Uncaught", lineNumber: 0, columnNumber: 0,
+          stackTrace: { callFrames: [{ functionName: "", url: "", lineNumber: 0, columnNumber: 0 }] },
+          exception: { description: "SyntaxError: Identifier 'q' has already been declared" },
+        },
+      });
+    }
     // `await (…)` is a ReferenceError at run time; with nothing before it nothing has run, so repl mode is tried.
     if (expression === "await-call" || expression === "x = 1; await-call") {
       if (expression === "await-call" && message.params.replMode) return reply({ result: { type: "number", value: 1 } });

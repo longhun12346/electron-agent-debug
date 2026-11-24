@@ -219,7 +219,7 @@ test("typing checks that the element is editable and inserts the text", async ()
   });
   await withPage({ state: { editable: true, password: true } }, async (manager, _calls, ref) => {
     const result = await manager.inspector.type({ ref, text: "hunter2" });
-    assert.ok(result.ok && result.data.value === "[REDACTED]");
+    assert.ok(result.ok && result.data.value === "[password field]");
   });
 });
 
@@ -284,7 +284,9 @@ test("an interactive snapshot keeps refs and headings, and text repeated in a na
   const full = renderAxTree(nodes, 100, new RefRegistry("abc").begin("page")).text;
   assert.doesNotMatch(full, /StaticText "Chat 1"/u, "text inside the link name is not repeated");
   assert.match(full, /StaticText "status text"/u);
-  assert.match(full, /\[url=file:\/\/\/app\/index\.html\?…#c1\]/u, "a long query string is shortened, the hash kept");
+  assert.ok(full.includes(`[url=file:///app/index.html?run=${"x".repeat(40)}#c1]`), "link addresses are printed in full");
+  const narrow = renderAxTree(nodes, 100, new RefRegistry("abc").begin("page"), { maxText: 30 }).text;
+  assert.ok(narrow.includes("[url=file:///app/index.html?run=xxx...]"), "maxText cuts what it must and marks it");
 
   const interactive = renderAxTree(nodes, 100, new RefRegistry("abc").begin("page"), { interactive: true });
   assert.deepEqual(interactive.text.split("\n").map((line) => line.trim().split(" [")[0]),

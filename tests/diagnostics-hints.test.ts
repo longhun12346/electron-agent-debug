@@ -276,7 +276,6 @@ test("a JavaScript dialog is reported in status and explains the timeouts it cau
     assert.equal(dialog?.kind, "javascript");
     assert.equal(dialog?.type, "confirm");
     assert.equal(dialog?.blocking, true);
-    assert.doesNotMatch(dialog?.message ?? "", /abc123secret/u, "dialog text is redacted");
     assert.ok(manager.status().renderer.dialogs?.length === 1);
 
     const evaluated = await manager.inspector.evaluate({ scope: "renderer", expression: "1", timeoutMs: 200 });

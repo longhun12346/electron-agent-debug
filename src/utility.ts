@@ -53,7 +53,8 @@ function portsScript(pid: number): string {
     const out = run('netstat', ['-ano', '-p', 'tcp']);
     for (const line of out.split(/\\r?\\n/)) {
       const p = line.trim().split(/\\s+/);
-      if (p.length >= 5 && p[3] === 'LISTENING' && Number(p[4]) === pid) add(p[1]);
+      // The state column is translated on some Windows locales, so a listening socket is told by its foreign address.
+      if (p.length >= 5 && (p[3] === 'LISTENING' || /^(?:0\\.0\\.0\\.0|\\[::\\]|\\*):0$/.test(p[2])) && Number(p[4]) === pid) add(p[1]);
     }
   } else {
     const out = run('lsof', ['-nP', '-a', '-p', String(pid), '-iTCP', '-sTCP:LISTEN', '-Fn']);

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createServer, type Server, type RequestListener } from "node:http";
+import { createServer, type Server, type RequestListener, type ServerResponse } from "node:http";
 import test, { type TestContext } from "node:test";
 import { discoverMain, discoverRenderer } from "../src/discovery.js";
 import { DiagnosticException } from "../src/errors.js";
@@ -25,8 +25,10 @@ async function endpointFor(t: TestContext, listener: RequestListener): Promise<s
   return endpoint;
 }
 
+// Both channels read the endpoint through the same code, so the table runs for the renderer; the main-specific
+// behaviour and one wiring check for main follow after it.
 for (const [channel, discover] of [
-  ["main", discoverMain], ["renderer", discoverRenderer],
+  ["renderer", discoverRenderer],
 ] as const) {
   for (const [description, body] of [
     ["invalid JSON", "{"],
@@ -94,6 +96,17 @@ for (const [channel, discover] of [
     });
   });
 }
+
+test("main discovery rejects what the shared reader rejects", async (t) => {
+  for (const respond of [
+    (response: ServerResponse) => response.end("{"),
+    (response: ServerResponse) => response.writeHead(503).end(),
+  ]) {
+    const endpoint = await endpointFor(t, (_request, response) => respond(response));
+    await assert.rejects(discoverMain(endpoint, { timeoutMs: 1_000 }), (error: unknown) =>
+      error instanceof DiagnosticException && error.diagnostic.code === "PROTOCOL_ERROR");
+  }
+});
 
 test("HTTP errors cancel an unending response body before the discovery timeout",
   { timeout: 3_000 }, async (t) => {

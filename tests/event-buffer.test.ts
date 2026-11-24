@@ -60,17 +60,13 @@ test("truncates long console messages and rejects unserializable data", () => {
   assert.equal(buffer.list()[0]?.message.length, 8_192);
 });
 
-test("redacts secrets in event data as well as in the message", () => {
+test("stores the message and the data as the application produced them, without masking anything", () => {
   const buffer = new EventBuffer(10, 100_000);
-  buffer.add({
-    ...event("password=hunter2hunter2"),
-    data: { text: "token=abcdef123456 ok", nested: [{ authorization: "Bearer abc.def-ghi_jkl123" }], line: 3 },
-  });
+  const data = { text: "token=abcdef123456 ok", nested: [{ authorization: "Bearer abc.def-ghi_jkl123" }], line: 3 };
+  buffer.add({ ...event("password=hunter2hunter2"), data });
   const stored = buffer.list()[0]!;
-  assert.equal(JSON.stringify(stored).includes("hunter2hunter2"), false);
-  assert.deepEqual(stored.data, {
-    text: "token=[REDACTED] ok", nested: [{ authorization: "[REDACTED]" }], line: 3,
-  });
+  assert.equal(stored.message, "password=hunter2hunter2");
+  assert.deepEqual(stored.data, data);
 });
 
 test("tracks the highest evicted or refused seq and resets it on clear", () => {
@@ -114,4 +110,17 @@ test("rejects an invalid since timestamp", () => {
       error instanceof DiagnosticException &&
       error.diagnostic.code === "INVALID_ARGUMENT",
   );
+});
+
+test("an EventBuffer removes only the events it is told to and keeps its size accounting", () => {
+  const buffer = new EventBuffer(100, 100_000);
+  for (const message of ["a", "b", "c"]) {
+    buffer.add({ process: "main", message, observedAt: "2026-01-01T00:00:00.000Z", level: "log", kind: "console" });
+  }
+  const [first, second, third] = buffer.list();
+  buffer.remove(new Set([second!.seq as number]));
+  assert.deepEqual(buffer.list().map((event) => event.message), ["a", "c"]);
+  assert.equal(buffer.size, 2);
+  assert.equal(buffer.list()[0]?.seq, first!.seq);
+  assert.equal(buffer.list()[1]?.seq, third!.seq);
 });

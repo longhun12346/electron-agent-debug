@@ -1,5 +1,4 @@
 import { DiagnosticException } from "../errors.js";
-import { redact } from "../redact.js";
 import type { DiagnosticEvent, LogsInput, ProcessScope } from "../types.js";
 
 function byteSize(value: unknown): number {
@@ -10,22 +9,13 @@ function byteSize(value: unknown): number {
   }
 }
 
-// Unserializable data is returned untouched so the size check below rejects the event.
-function redactData(data: unknown): unknown {
-  let serialized: string | undefined;
+// Event data is kept as plain JSON. Unserializable data is returned untouched so the size check below rejects the event.
+function plainData(data: unknown): unknown {
   try {
-    serialized = JSON.stringify(data);
+    const serialized = JSON.stringify(data);
+    return serialized === undefined ? undefined : JSON.parse(serialized) as unknown;
   } catch {
     return data;
-  }
-  if (serialized === undefined) {
-    return undefined;
-  }
-  const safe = redact(serialized);
-  try {
-    return JSON.parse(safe) as unknown;
-  } catch {
-    return safe;
   }
 }
 
@@ -41,6 +31,8 @@ export class EventSequence {
     return this.value;
   }
 }
+
+const maxMessageChars = 8_192;
 
 export const sessionConnectedMessage = "Session connected";
 
@@ -61,9 +53,16 @@ export class EventBuffer {
     const normalized: DiagnosticEvent = {
       ...event,
       seq: this.sequence.next(),
-      message: redact(event.message.slice(0, 8_192)),
-      ...(event.data === undefined ? {} : { data: redactData(event.data) }),
+      message: event.message.slice(0, maxMessageChars),
+      ...(event.data === undefined ? {} : { data: plainData(event.data) }),
     };
+    // A message cut to the limit says so, with its original length, instead of looking complete.
+    if (event.message.length > maxMessageChars) {
+      const data = normalized.data;
+      if (data === undefined || (typeof data === "object" && data !== null && !Array.isArray(data))) {
+        normalized.data = { ...(data as Record<string, unknown> | undefined), messageTruncatedFrom: event.message.length };
+      }
+    }
     if (normalized.kind === "connection" && normalized.message === sessionConnectedMessage) {
       this.connectedSeq = normalized.seq ?? this.connectedSeq;
     }
@@ -113,6 +112,22 @@ export class EventBuffer {
       .filter((event) => since === undefined || Date.parse(event.observedAt) >= since)
       .filter((event) => input.afterSeq === undefined || (event.seq ?? 0) > input.afterSeq)
       .slice(-limit);
+  }
+
+  /** Removes the events with these seq numbers and keeps the rest, without touching the eviction bookkeeping. */
+  remove(seqs: ReadonlySet<number>): void {
+    const keep: DiagnosticEvent[] = [];
+    const keepSizes: number[] = [];
+    this.events.forEach((event, index) => {
+      if (event.seq !== undefined && seqs.has(event.seq)) return;
+      keep.push(event);
+      keepSizes.push(this.sizes[index] ?? byteSize(event));
+    });
+    this.events.length = 0;
+    this.events.push(...keep);
+    this.sizes.length = 0;
+    this.sizes.push(...keepSizes);
+    this.bytes = keepSizes.reduce((sum, size) => sum + size, 0);
   }
 
   clear(): void {

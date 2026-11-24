@@ -123,8 +123,9 @@ function runtimeConfig(mainUrl?: string, rendererUrl?: string): RuntimeConfig {
   };
 }
 
+test("manager logs are filtered by process, level and time before the limit is applied, for every scope", () => {
 for (const scope of ["main", "renderer", "all", undefined] as const) {
-  test(`filters manager logs for ${scope ?? "default"} before applying limit`, () => {
+  {
     const manager = new SessionManager(runtimeConfig());
     for (const [process, message, observedAt, level] of [
       ["main", "old-main", "2026-01-01T00:00:00.000Z", "error"],
@@ -142,9 +143,13 @@ for (const scope of ["main", "renderer", "all", undefined] as const) {
     }).events;
     assert.deepEqual(events.map((event) => event.message),
       scope === "main" ? ["new-main"] : ["renderer-error"]);
-  });
+  }
+}
+});
 
-  test(`clears only requested log scope ${scope ?? "default"}`, () => {
+test("clear removes only the requested log scope, for every scope", () => {
+for (const scope of ["main", "renderer", "all", undefined] as const) {
+  {
     const manager = new SessionManager(runtimeConfig());
     for (const process of ["main", "renderer"] as const) {
       manager[process].events.add({
@@ -158,8 +163,9 @@ for (const scope of ["main", "renderer", "all", undefined] as const) {
       scope && scope !== "all" ? [scope] : ["main", "renderer"]);
     assert.equal(manager.main.events.size, scope === "renderer" ? 1 : 0);
     assert.equal(manager.renderer.events.size, scope === "main" ? 1 : 0);
-  });
+  }
 }
+});
 
 test("reports evicted events through droppedThroughSeq and gap, scoped to the requested process", () => {
   const manager = new SessionManager({ ...runtimeConfig(), maxLogEvents: 2 });
@@ -411,7 +417,7 @@ test("invalid log timestamp cannot clear existing evidence", () => {
   assert.equal(manager.main.events.size, 1);
 });
 
-test("renders exceptions and traces as readable text with compact, redacted data", async () => {
+test("renders exceptions and traces as readable text with compact data", async () => {
   const renderer = await startMockDebugger([
     { id: "window-a", type: "page", title: "Window A", url: "app://a" },
   ]);
@@ -472,11 +478,9 @@ test("renders exceptions and traces as readable text with compact, redacted data
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     const events = manager.logs({ afterSeq: lastSeq }).events;
-    assert.equal(JSON.stringify(events).includes("hunter2hunter2"), false);
-    assert.equal(JSON.stringify(events).includes("abcdef123456"), false);
     assert.deepEqual(events.map((event) => [event.kind, event.level, event.message, event.data]), [
       ["exception", "error",
-        "Uncaught Error: save failed password=[REDACTED]\n    at save (app://a/app.js:10:11)",
+        "Uncaught Error: save failed password=hunter2hunter2\n    at save (app://a/app.js:10:11)",
         { url: "app://a/app.js", line: 10, column: 11 }],
       ["exception", "error",
         "Uncaught (in promise) plain rejection\n    at load (app://a/app.js:3:5)\n    at <anonymous> (app://a/app.js:31:5)",
@@ -487,7 +491,7 @@ test("renders exceptions and traces as readable text with compact, redacted data
           "    … 4 more frames"].join("\n"),
         { type: "trace" }],
       ["console", "log", "plain", { type: "log" }],
-      ["console", "error", "Failed to load token=[REDACTED]",
+      ["console", "error", "Failed to load token=abcdef123456",
         { source: "network", url: "https://example.test/api" }],
     ]);
   } finally {
@@ -1041,5 +1045,87 @@ test("clears a stale target selector when requested", async () => {
     assert.equal(refreshed.data.selectedTarget, undefined);
   } finally {
     await renderer.close();
+  }
+});
+
+test("a remembered selector that stops matching keeps the working page and says so, and selectedTarget follows the page", async () => {
+  const renderer = await startMockDebugger([
+    { id: "window-a", type: "page", title: "Inbox", url: "app://a" },
+    { id: "window-b", type: "page", title: "Settings", url: "app://b" },
+  ]);
+  const manager = new SessionManager(runtimeConfig());
+
+  try {
+    const first = await manager.attach({ rendererUrl: renderer.endpoint, title: "Inbox" });
+    assert.equal(first.ok, true);
+    assert.equal(first.ok && first.data.selectedTarget?.id, "window-a");
+
+    // The page retitles itself; the title remembered from the first call no longer matches anything.
+    renderer.setTargets([
+      { id: "window-a", type: "page", title: "Inbox (3)", url: "app://a" },
+      { id: "window-b", type: "page", title: "Settings", url: "app://b" },
+    ]);
+    const second = await manager.attach({ rendererUrl: renderer.endpoint });
+    assert.equal(second.ok, true);
+    if (!second.ok) return;
+    assert.equal(second.data.renderer.status, "online", "a working connection is not torn down by a stale title");
+    assert.equal(second.data.selectedTarget?.id, "window-a");
+    assert.equal(second.data.selectedTarget?.title, "Inbox (3)", "selectedTarget shows what discovery just reported");
+    assert.ok(second.data.warnings?.some((warning) => warning.code === "TARGET_SELECTOR_STALE"));
+
+    // A selector passed in this very call that matches nothing is still an error.
+    const third = await manager.attach({ rendererUrl: renderer.endpoint, title: "Nothing like this" });
+    assert.ok(third.ok === false || third.data.renderer.status !== "online");
+  } finally {
+    await renderer.close();
+  }
+});
+
+test("clear with a filter deletes only the events that were returned, and clear alone still empties the scope", () => {
+  const manager = new SessionManager(runtimeConfig());
+  for (const [message, level] of [["boom", "error"], ["fine", "log"], ["later", "log"]] as const) {
+    manager.main.events.add({
+      process: "main", message, observedAt: "2026-01-01T00:00:00.000Z", level, kind: "console",
+    });
+  }
+  const filtered = manager.logs({ process: "main", level: "error", clear: true });
+  assert.deepEqual(filtered.events.map((event) => event.message), ["boom"]);
+  assert.deepEqual(manager.logs({ process: "main" }).events.map((event) => event.message), ["fine", "later"]);
+
+  const limited = manager.logs({ process: "main", limit: 1, clear: true });
+  assert.deepEqual(limited.events.map((event) => event.message), ["later"]);
+  assert.deepEqual(manager.logs({ process: "main" }).events.map((event) => event.message), ["fine"]);
+
+  manager.logs({ process: "main", clear: true });
+  assert.equal(manager.main.events.size, 0);
+});
+
+test("a log wait does not sleep past its timeout when the poll interval is longer", async () => {
+  const manager = new SessionManager(runtimeConfig());
+  const started = Date.now();
+  const result = await manager.inspector.waitFor({
+    condition: { kind: "log", contains: "never appears" },
+    timeoutMs: 300,
+    intervalMs: 5_000,
+  });
+  assert.equal(result.ok, false);
+  assert.ok(Date.now() - started < 2_000, `waited ${Date.now() - started}ms for a 300ms timeout`);
+  if (!result.ok) assert.equal(result.error.code, "WAIT_TIMEOUT");
+});
+
+test("a timed-out log wait says when events may have been evicted", async () => {
+  const manager = new SessionManager({ ...runtimeConfig(), maxLogEvents: 2 });
+  for (const message of ["one", "two", "three", "four"]) {
+    manager.main.events.add({ process: "main", message, observedAt: "2026-01-01T00:00:00.000Z", level: "log", kind: "console" });
+  }
+  const result = await manager.inspector.waitFor({
+    condition: { kind: "log", contains: "one", process: "main" },
+    timeoutMs: 300,
+    intervalMs: 50,
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.details?.gap, true);
+    assert.match(String(result.error.details?.hint), /缓冲区满过/u);
   }
 });

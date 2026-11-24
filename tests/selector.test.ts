@@ -89,8 +89,9 @@ test("explains when an explicitly selected page is not attachable", () => {
   );
 });
 
+test("requires targetId when multiple connectable windows share a url or a title", () => {
 for (const field of ["url", "title"] as const) {
-  test(`requires targetId when multiple connectable windows share ${field}`, () => {
+  {
     const first = page("first", "Shared");
     const second = { ...page("second", "Shared"), url: first.url };
     assert.equal(
@@ -101,21 +102,30 @@ for (const field of ["url", "title"] as const) {
       selectTarget([first, second], { targetId: "second", [field]: first[field] })?.id,
       "second",
     );
-  });
+  }
+}
+});
 
-  test(`ignores unconnectable ${field} matches when there is one connectable match`, () => {
+test("ignores unconnectable url and title matches when there is one connectable match", () => {
+for (const field of ["url", "title"] as const) {
+  {
     const available = page("available", "Shared");
     const unavailable = { ...available, id: "unavailable", webSocketDebuggerUrl: undefined };
     assert.equal(
       selectTarget([unavailable, available], { [field]: available[field] })?.id,
       "available",
     );
-  });
+  }
+}
+});
 
-  test(`returns not found for a missing explicit ${field}`, () => {
+test("returns not found for a missing explicit url or title", () => {
+for (const field of ["url", "title"] as const) {
+  {
     assert.equal(
       codeOf(() => selectTarget([page("one", "One")], { [field]: "missing" })),
       "TARGET_NOT_FOUND",
     );
-  });
+  }
 }
+});

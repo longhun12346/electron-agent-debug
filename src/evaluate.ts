@@ -1,5 +1,4 @@
 import { DiagnosticException } from "./errors.js";
-import { redact } from "./redact.js";
 import type { DiagnosticSession } from "./sessions/diagnostic-session.js";
 
 export interface EvaluateOptions {
@@ -61,7 +60,7 @@ function exceptionMessage(details: NonNullable<EvaluateResponse["exceptionDetail
   const text = exception?.description ??
     (exception?.value === undefined ? undefined : String(exception.value)) ??
     details.text ?? "表达式执行失败";
-  const message = redact(text).slice(0, 2_000);
+  const message = text.slice(0, 2_000);
   return /^ReferenceError: await is not defined/u.test(message) ? `${message}${awaitAsCallHint}` : message;
 }
 
@@ -110,11 +109,14 @@ export async function evaluateExpression(
       response.exceptionDetails !== undefined && pattern.test(exceptionMessage(response.exceptionDetails));
     const failsToCompile = (expression: string) =>
       response.exceptionDetails !== undefined && ranNothing(response.exceptionDetails, expression);
+    // A redeclaration error counts only when it is a compile error: the same words can come from code that already ran
+    // (`eval("let q; let q")` throws at run time, with a stack), and running that again would repeat its side effects.
+    const redeclared = (expression: string) => failsWith(redeclarationError) && failsToCompile(expression);
     response = await run(options.expression, false);
-    if (failsToCompile(options.expression) || failsWith(redeclarationError)) {
+    if (failsToCompile(options.expression) || redeclared(options.expression)) {
       response = await run(options.expression, true);
     }
-    if (failsWith(redeclarationError)) {
+    if (redeclared(options.expression)) {
       const block = `{${options.expression}\n}`;
       response = await run(block, false);
       if (failsToCompile(block)) {
@@ -143,11 +145,12 @@ export async function evaluateExpression(
   const object = response.result ?? {};
   const type = object.subtype ? `${object.type}:${object.subtype}` : object.type ?? "undefined";
   if (object.unserializableValue !== undefined) {
+    const bytes = Buffer.byteLength(object.unserializableValue, "utf8");
     return {
       type,
-      text: object.unserializableValue,
-      truncated: false,
-      bytes: object.unserializableValue.length,
+      text: truncateUtf8(object.unserializableValue, options.maxResultBytes),
+      truncated: bytes > options.maxResultBytes,
+      bytes,
     };
   }
   if (object.value === undefined) {
@@ -156,7 +159,7 @@ export async function evaluateExpression(
 
   const serialized = JSON.stringify(object.value) ?? "";
   const bytes = Buffer.byteLength(serialized, "utf8");
-  const safe = redact(serialized);
+  const safe = serialized;
   if (bytes > options.maxResultBytes) {
     return { type, text: truncateUtf8(safe, options.maxResultBytes), truncated: true, bytes };
   }

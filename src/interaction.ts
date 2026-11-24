@@ -1,6 +1,5 @@
 import { randomInt } from "node:crypto";
 import { DiagnosticException } from "./errors.js";
-import { redact } from "./redact.js";
 import type { AxNode } from "./ax-tree.js";
 import type { DiagnosticSession } from "./sessions/diagnostic-session.js";
 
@@ -341,7 +340,7 @@ export async function clickRef(session: DiagnosticSession, refs: RefRegistry, in
         const coveredBy = hitId !== undefined ? await callOn<Record<string, unknown>>(session, hitId, describeElement) : undefined;
         throw new DiagnosticException("ELEMENT_COVERED", `ref ${entry.ref} 对应的元素被其他元素挡住，没有点击`, {
           hint: "元素中心被遮罩、弹层或悬浮元素挡住了；先关闭挡住它的东西，或等动画结束后重新取快照再点。",
-          details: { ...describeEntry(entry), coveredBy: coveredBy ? JSON.parse(redact(JSON.stringify(coveredBy))) : undefined },
+          details: { ...describeEntry(entry), coveredBy },
         });
       }
     }
@@ -412,7 +411,7 @@ export async function typeRef(session: DiagnosticSession, refs: RefRegistry, inp
     let value: string | undefined;
     try {
       const raw = await callOn<string>(session, objectId, readValue);
-      value = state.password ? "[REDACTED]" : redact(raw.length > 500 ? `${raw.slice(0, 500)}…` : raw);
+      value = state.password ? "[password field]" : (raw.length > 500 ? `${raw.slice(0, 500)}…` : raw);
     } catch {
       value = undefined;
     }

@@ -38,6 +38,7 @@ const screenshotSchema = z.object({
 const snapshotSchema = z.object({
   maxNodes: z.number().int().min(1).max(2_000).optional(),
   interactive: z.boolean().optional(),
+  maxText: z.number().int().min(20).max(2_000).optional(),
 });
 
 export const inspectionTools = [
@@ -46,7 +47,7 @@ export const inspectionTools = [
     title: "Evaluate JavaScript in the main, renderer or utility process",
     description:
       "在主进程 Inspector、当前选中的 renderer target 或已连接的 utility process 中执行一段 JavaScript（Runtime.evaluate，默认 await Promise，支持顶层 await，默认超时 3s；顶层 let/const 与之前调用的声明重名时改在块内执行，声明不保留）。" +
-      "结果按值返回，超过 maxResultBytes 时截断，并对常见密钥字段做脱敏。主进程全局没有 require，请用 process.mainModule.require('electron')。" +
+      "结果按值返回，超过 maxResultBytes 时截断，不做脱敏。主进程全局没有 require，请用 process.mainModule.require('electron')。" +
       "默认开启，宿主可在 MCP 配置的 env 中设置 ELECTRON_DEBUG_ALLOW_EVAL=0 禁用（此时返回 EVALUATION_NOT_ALLOWED）。表达式可修改应用状态，只用于验证。",
     inputSchema: evaluateSchema,
     handler: async (manager, input) => {
@@ -102,7 +103,8 @@ export const inspectionTools = [
       "不在页面中执行脚本，可用于附加模式。可点击或可输入的元素带 [ref=kqx12] 标记，传给 electron_click、electron_type；" +
       "同一元素在同一页面的多次快照里 ref 不变，只有最近一次快照里的 ref 可用；ref 只在本进程内有效（批处理每次执行都是新进程）。" +
       "页面很长（如几百条的列表）时默认 400 行会被截断（truncated 为 true），后面的元素拿不到 ref：" +
-      "传 interactive: true 只列可交互元素和标题，或直接用 role 和 name 调用 electron_click、electron_type。",
+      "传 interactive: true 只列可交互元素和标题，或直接用 role 和 name 调用 electron_click、electron_type。" +
+      "名字、值和状态超过 120 个字符会以 ... 截断，传 maxText（20 到 2000）调整；链接地址原样输出。",
     inputSchema: snapshotSchema,
     handler: async (manager, input) => {
       const result = await manager.inspector.domSnapshot(input);

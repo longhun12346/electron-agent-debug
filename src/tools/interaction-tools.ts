@@ -65,7 +65,7 @@ export const interactionTools = [
     description:
       "向文本框、textarea 或 contenteditable 输入文字。" + locating + "聚焦后默认全选已有内容并替换" +
       "（clear 为 false 时追加到末尾），用 Input.insertText 写入，产生真实的 input 事件，支持中文，受控组件（如 React）也能收到。" +
-      "submit 为 true 时最后按 Enter。不是可编辑元素时立即返回 ELEMENT_NOT_EDITABLE。返回输入后的 value（密码框脱敏）。" +
+      "submit 为 true 时最后按 Enter。不是可编辑元素时立即返回 ELEMENT_NOT_EDITABLE。返回输入后的 value（密码框不回显）。" +
       "不产生输入法组合事件（composition）。" + afterAction,
     inputSchema: typeSchema,
     handler: async (manager, input) => {

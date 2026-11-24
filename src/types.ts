@@ -6,6 +6,9 @@ export type PublicSessionStatus = "unconfigured" | "offline" | "online";
 
 export type EndpointSource = "attach_input" | "environment" | "session" | "discovered";
 
+/** What attach may install in the main process of the app: IPC tracing and native dialog tracking. */
+export type Instrument = "ipc" | "dialogs";
+
 export interface AttachInput {
   mainUrl?: string;
   rendererUrl?: string;
@@ -14,6 +17,8 @@ export interface AttachInput {
   url?: string;
   title?: string;
   clearSelection?: boolean;
+  /** Which wrappers attach installs in the app. Left out: all of them, or what an earlier attach chose. */
+  instrument?: Instrument[];
 }
 
 export interface EndpointConfig {
@@ -86,6 +91,8 @@ export interface AttachResult {
   utility: SessionSnapshot;
   targets: TargetInfo[];
   selectedTarget?: TargetInfo;
+  /** The wrappers installed in the app's main process on the current connection. */
+  instrumented: Instrument[];
   errors: DiagnosticError[];
   /** Things that did not stop the attach but may mean the evidence is not from the intended window or app. */
   warnings: DiagnosticError[];

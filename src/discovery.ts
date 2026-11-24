@@ -181,8 +181,22 @@ async function fetchUserAgent(endpoint: string, timeoutMs: number): Promise<stri
       await response.body?.cancel().catch(() => undefined);
       return undefined;
     }
-    const text = await response.text();
-    if (text.length > 65_536) return undefined;
+    // Read at most 64 KiB: a body that keeps coming must not be buffered whole.
+    const reader = response.body?.getReader();
+    if (!reader) return undefined;
+    const parts: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > 65_536) {
+        await reader.cancel().catch(() => undefined);
+        return undefined;
+      }
+      parts.push(value);
+    }
+    const text = Buffer.concat(parts).toString("utf8");
     const body = JSON.parse(text) as Record<string, unknown>;
     return typeof body["User-Agent"] === "string" ? body["User-Agent"] : undefined;
   } catch {

@@ -75,7 +75,7 @@ try {
     log: { contains: `FIXTURE_RENDERER_READY ${run}`, process: "renderer" }, timeoutMs: 10_000,
   });
 
-  // evaluate against real V8: promises, top-level await, redeclaration, errors, limits and redaction.
+  // evaluate against real V8: promises, top-level await, redeclaration, errors and limits.
   assert.equal((await evaluate("renderer", "document.title")).value, "Electron Agent Debug Fixture");
   assert.equal((await evaluate("renderer", "Promise.resolve(7)")).value, 7);
   assert.equal((await evaluate("renderer", "await Promise.resolve(41) + 1")).value, 42);
@@ -94,7 +94,7 @@ try {
   )).value, 1);
   assert.equal((await evaluate("renderer", "0/0")).text, "NaN");
   assert.deepEqual((await evaluate("renderer", "({ token: 'abc12345678', ok: true })")).value,
-    { token: "[REDACTED]", ok: true });
+    { token: "abc12345678", ok: true });
   const wide = await evaluate("renderer", "'中'.repeat(2000)", { maxResultBytes: 256 });
   assert.equal(wide.truncated, true);
   assert.equal(wide.text, `"${"中".repeat(85)}`);
@@ -246,6 +246,19 @@ try {
     "info IPC sendSync fixture:sync ok",
     "warn IPC send fixture:nobody: no listener in the main process",
   ], JSON.stringify(traced));
+
+  // A listener on webContents.ipc hears a message too, so it is not reported as unheard, and a binary argument is
+  // sized by its length instead of being serialized.
+  await evaluate("main", `(() => {
+    const { BrowserWindow } = process.mainModule.require('electron');
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.ipc.on('fixture:wc-only', () => {});
+    return true;
+  })()`);
+  ({ lastSeq } = await call("electron_logs", {}));
+  await evaluate("renderer", "fixtureIpc.send('fixture:wc-only', new Uint8Array(200000)); true");
+  const heard = await eventAfter(lastSeq, "main", "IPC send fixture:wc-only");
+  assert.ok(!heard.message.includes("no listener"), heard.message);
+  assert.equal(heard.data.argBytes, 200000, JSON.stringify(heard.data));
 
   // Dialogs: a page's alert blocks its scripts, and a native dialog waits for the user. Both are reported in status
   // and the timeline, and a request that times out behind a blocking dialog says why.

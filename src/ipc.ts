@@ -1,4 +1,3 @@
-import { redact } from "./redact.js";
 import type { DiagnosticEvent, ProcessScope } from "./types.js";
 
 /**
@@ -31,17 +30,30 @@ export const instrumentIpcScript = `(async () => {
   globalThis[key] = state;
   const internal = (channel) => typeof channel !== 'string' || channel === 'error' ||
     /^(ELECTRON_|IMPORT_SHARED_TEXTURE)/.test(channel);
-  const size = (args) => { try { return JSON.stringify(args)?.length ?? 0; } catch { return undefined; } };
-  const notify = (record) => {
+  const size = (args) => {
+    try {
+      let total = 0;
+      for (const arg of args) {
+        total += ArrayBuffer.isView(arg) || arg instanceof ArrayBuffer ? arg.byteLength : (JSON.stringify(arg)?.length ?? 0);
+      }
+      return total;
+    } catch { return undefined; }
+  };
+  const notify = (record, args) => {
     const second = Math.floor(Date.now() / 1000);
     let window = state.windows.get(record.channel);
     if (!window || window.second !== second) {
       window = { second, count: 0, skipped: window?.skipped ?? 0 };
+      // Channel names made per request would otherwise grow this table forever: drop entries from earlier seconds.
+      if (state.windows.size > 500) {
+        for (const [name, other] of state.windows) if (other.second !== second && !other.skipped) state.windows.delete(name);
+      }
       state.windows.set(record.channel, window);
     }
     window.count += 1;
     if (window.count > ${perSecond}) { window.skipped += 1; return; }
     if (window.skipped) { record.skipped = window.skipped; window.skipped = 0; }
+    record.argBytes = size(args);
     try {
       if (typeof globalThis.${ipcBinding} === 'function') globalThis.${ipcBinding}(JSON.stringify(record));
     } catch {}
@@ -49,6 +61,10 @@ export const instrumentIpcScript = `(async () => {
   const sender = (event) => {
     try { return { senderId: event?.sender?.id, senderUrl: event?.senderFrame?.url ?? event?.sender?.getURL?.() }; }
     catch { return {}; }
+  };
+  // Listeners on webContents.ipc or a frame's ipc hear a message too; ipcMain alone would call it unheard.
+  const heard = (emitter, channel) => {
+    try { return typeof emitter?.listenerCount === 'function' ? emitter.listenerCount(channel) : 0; } catch { return 0; }
   };
   const failure = (error) => String(error && error.stack ? String(error.stack).split('\\n')[0] : error);
 
@@ -58,19 +74,19 @@ export const instrumentIpcScript = `(async () => {
       if (typeof handler !== 'function' || handler.__electronAgentDebug) return handler;
       const wrapped = function (event, ...args) {
         const started = Date.now();
-        const base = { type: 'invoke', channel, argBytes: size(args), ...sender(event) };
+        const base = { type: 'invoke', channel, ...sender(event) };
         let result;
         try {
           result = handler.call(this, event, ...args);
         } catch (error) {
-          notify({ ...base, ok: false, ms: Date.now() - started, error: failure(error) });
+          notify({ ...base, ok: false, ms: Date.now() - started, error: failure(error) }, args);
           throw error;
         }
         if (result && typeof result.then === 'function') {
-          result.then(() => notify({ ...base, ok: true, ms: Date.now() - started }),
-            (error) => notify({ ...base, ok: false, ms: Date.now() - started, error: failure(error) }));
+          result.then(() => notify({ ...base, ok: true, ms: Date.now() - started }, args),
+            (error) => notify({ ...base, ok: false, ms: Date.now() - started, error: failure(error) }, args));
         } else {
-          notify({ ...base, ok: true, ms: Date.now() - started });
+          notify({ ...base, ok: true, ms: Date.now() - started }, args);
         }
         return result;
       };
@@ -95,13 +111,14 @@ export const instrumentIpcScript = `(async () => {
     // Only a sendSync event has an own returnValue the renderer waits for. _replyChannel is no guide: Electron 43 sets
     // it only for sendSync, Electron 45 for every message (both measured).
     const base = { type: event && Object.prototype.hasOwnProperty.call(event, 'returnValue') ? 'sendSync' : 'send',
-      channel, argBytes: size(args), listeners: this.listenerCount(channel), ...sender(event) };
+      channel, listeners: this.listenerCount(channel) + heard(event?.sender?.ipc, channel) + heard(event?.senderFrame?.ipc, channel),
+      ...sender(event) };
     try {
       const handled = emit.call(this, channel, ...rest);
-      notify({ ...base, ok: true, ms: Date.now() - started });
+      notify({ ...base, ok: true, ms: Date.now() - started }, args);
       return handled;
     } catch (error) {
-      notify({ ...base, ok: false, ms: Date.now() - started, error: failure(error) });
+      notify({ ...base, ok: false, ms: Date.now() - started, error: failure(error) }, args);
       throw error;
     }
   };
@@ -124,8 +141,7 @@ interface IpcRecord {
 
 function text(value: unknown): string | undefined {
   if (typeof value !== "string" || value === "") return undefined;
-  const clean = redact(value);
-  return clean.length > maxText ? `${clean.slice(0, maxText)}…` : clean;
+  return value.length > maxText ? `${value.slice(0, maxText)}…` : value;
 }
 
 const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
@@ -138,6 +154,7 @@ export function ipcEvent(process: ProcessScope, payload: unknown): DiagnosticEve
   } catch {
     return undefined;
   }
+  if (typeof record !== "object" || record === null || Array.isArray(record)) return undefined;
   const channel = text(record.channel);
   if (channel === undefined) return undefined;
   const type = record.type === "invoke" || record.type === "sendSync" ? record.type : "send";

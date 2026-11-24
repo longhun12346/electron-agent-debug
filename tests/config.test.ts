@@ -54,11 +54,12 @@ test("builds the discovery path without changing an explicit json list path", ()
   assert.equal(discoveryUrl("http://127.0.0.1/json/list"), "http://127.0.0.1/json/list");
 });
 
-test("evaluation is allowed by default and disabled only by an explicit 0 or false", () => {
-  assert.equal(readRuntimeConfig({}).allowEval, true);
-  assert.equal(readRuntimeConfig({ ELECTRON_DEBUG_ALLOW_EVAL: "1" }).allowEval, true);
-  for (const value of ["0", "false", " FALSE "]) {
-    assert.equal(readRuntimeConfig({ ELECTRON_DEBUG_ALLOW_EVAL: value }).allowEval, false);
+test("evaluation is disabled by 0, false, off, no and disabled, and only those", () => {
+  for (const value of ["0", "false", "off", "no", "disabled", " OFF "]) {
+    assert.equal(readRuntimeConfig({ ELECTRON_DEBUG_ALLOW_EVAL: value }).allowEval, false, value);
+  }
+  for (const value of ["", "1", "true", "on", "yes"]) {
+    assert.equal(readRuntimeConfig({ ELECTRON_DEBUG_ALLOW_EVAL: value }).allowEval, true, value);
   }
 });
 
@@ -82,6 +83,7 @@ test("reads a bounded protocol message limit", () => {
   );
 });
 
+test("every bounded setting validates both bounds, invalid numbers and a blank fallback", () => {
 for (const [name, key, minimum, maximum] of [
   ["ELECTRON_DEBUG_REQUEST_TIMEOUT_MS", "requestTimeoutMs", 100, 30_000],
   ["ELECTRON_DEBUG_DISCOVERY_TIMEOUT_MS", "discoveryTimeoutMs", 100, 30_000],
@@ -89,7 +91,7 @@ for (const [name, key, minimum, maximum] of [
   ["ELECTRON_DEBUG_MAX_LOG_BYTES", "maxLogBytes", 4_096, 16_777_216],
   ["ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES", "maxProtocolMessageBytes", 4_096, 268_435_456],
 ] as const) {
-  test(`${name} validates both bounds, invalid numbers and blank fallback`, () => {
+  {
     for (const value of [minimum, maximum]) {
       assert.equal(readRuntimeConfig({ [name]: String(value) })[key], value);
     }
@@ -98,8 +100,9 @@ for (const [name, key, minimum, maximum] of [
         error instanceof DiagnosticException && error.diagnostic.code === "ENDPOINT_CONFIG_INVALID");
     }
     assert.equal(readRuntimeConfig({ [name]: " " })[key], readRuntimeConfig({})[key]);
-  });
+  }
 }
+});
 
 test("resolves each endpoint fallback and rejects invalid explicit input without silent fallback", () => {
   const environment = "http://127.0.0.1/environment";
@@ -112,16 +115,20 @@ test("resolves each endpoint fallback and rejects invalid explicit input without
   assert.throws(() => resolveEndpoint("invalid", environment, session, "mainUrl"));
 });
 
+test("loopback hosts are accepted in discovery and debugger URLs", () => {
 for (const host of ["127.0.0.1", "localhost", "[::1]"]) {
-  test(`accepts loopback host ${host} in discovery and debugger URL`, () => {
+  {
     assert.doesNotThrow(() => validateDiscoveryUrl(`http://${host}:12345`, "mainUrl"));
     assert.doesNotThrow(() => validateDebuggerWebSocketUrl(`ws://${host}:12345/a`));
-  });
+  }
 }
+});
 
+test("credentials, queries and fragments are rejected in both URL kinds", () => {
 for (const suffix of ["user:secret@127.0.0.1/a", "127.0.0.1/a?token=secret", "127.0.0.1/a#fragment"]) {
-  test(`rejects credentials, queries and fragments in both URL kinds: ${suffix}`, () => {
+  {
     assert.throws(() => validateDiscoveryUrl(`http://${suffix}`, "mainUrl"));
     assert.throws(() => validateDebuggerWebSocketUrl(`ws://${suffix}`));
-  });
+  }
 }
+});

@@ -10,6 +10,7 @@ const attachInputSchema = z.object({
   url: z.string().optional(),
   title: z.string().optional(),
   clearSelection: z.boolean().optional(),
+  instrument: z.array(z.enum(["ipc", "dialogs"])).max(2).optional(),
 });
 
 export const environmentNames = {
@@ -69,7 +70,7 @@ export function readRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
       4_096,
       268_435_456,
     ),
-    allowEval: !["0", "false"].includes((env.ELECTRON_DEBUG_ALLOW_EVAL ?? "").trim().toLowerCase()),
+    allowEval: !["0", "false", "off", "no", "disabled"].includes((env.ELECTRON_DEBUG_ALLOW_EVAL ?? "").trim().toLowerCase()),
     outputDir: env.ELECTRON_DEBUG_OUTPUT_DIR?.trim() || undefined,
   };
 }
