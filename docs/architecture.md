@@ -44,7 +44,7 @@ electron-agent-debug MCP Server
     ├── Utility Session（可选）
     │     └── WebSocket → 经主进程定位的 utility process 调试口
     ├── Event Buffer（main / renderer / utility 共享递增 seq 的统一时间线）
-    ├── Inspector (evaluate / wait_for / screenshot / dom_snapshot)
+    ├── Inspector (evaluate / wait_for / screenshot / dom_snapshot / click / type)
     ├── Diagnostic State
     └── Tool Router
 
@@ -197,6 +197,16 @@ evaluate 在代码没有开始执行时才换模式重试：编译期的 `Syntax
 - `WAIT_TIMEOUT`
 - `SCREENSHOT_FAILED`、`SNAPSHOT_FAILED`
 
+交互能力（点击、输入）增加以下错误码：
+
+- `REF_STALE`、`REF_NOT_FOUND`
+- `ELEMENT_AMBIGUOUS`、`ELEMENT_NOT_FOUND`、`ELEMENT_COVERED`、`ELEMENT_DISABLED`、`ELEMENT_NOT_VISIBLE`、`ELEMENT_NOT_EDITABLE`
+- `INTERACTION_NOT_ALLOWED`、`INTERACTION_FAILED`
+
+attach 和 targets 的 `warnings` 使用这些码：`TARGET_CHANGED`（原来选中的页面已被替换）、`TARGET_SELECTOR_STALE`（之前传入的 title、url 或 targetId 不再匹配，沿用已选中的页面）、`RENDERER_NOT_ELECTRON`（renderer 端口上的不是 Electron）。
+
+允许求值时，主进程 attach 会在应用里装上记录用的包装：`ipcMain.emit`、`ipcMain` 的 invoke 处理表（IPC 追踪，事件 `kind` 为 `ipc`）和 `dialog` 的各个函数，另有两个 `Runtime.addBinding`；它们不读取参数值，应用重启前不会移除。renderer Session 除 `Runtime`、`Log` 外还启用 `Inspector`（崩溃检测）和 `Page`（对话框、截图）域。
+
 `OUTPUT_TOO_LARGE` 当前只用于拒绝过大的 discovery 响应；日志事件使用 Session 自己的缓存上限，evaluate 结果超过 `maxResultBytes` 时在成功结果中标记 `truncated`，文本按 UTF-8 字节截断且不拆开多字节字符。
 
 ## 6. Skill 与 MCP 的边界
@@ -231,7 +241,7 @@ MCP 工具的 `ok` 只表示本次工具调用是否成功，不表示用户代�
 - HTTP discovery 返回的 WebSocket 地址也必须重新校验。
 - 表达式执行（`electron_evaluate`、expression 型 `wait_for`）默认开启（只连接回环地址）；宿主可在 MCP 配置的 `env` 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用，此时返回 `EVALUATION_NOT_ALLOWED`。执行有超时（默认 3 秒，上限 30 秒）和结果大小限制（默认 64 KiB，上限 1 MiB）。
 - 截图写入 `ELECTRON_DEBUG_OUTPUT_DIR`（默认系统临时目录下的 `electron-agent-debug`），目录权限 0700、文件权限 0600，文件名由工具生成，只保留最近 50 张；不返回图像内容。
-- 日志事件（`message` 和 `data`）、异常和 evaluate 结果都经过脱敏（token、secret、password、api key、authorization、cookie 等键值和 Bearer 令牌；以及不带键名但形态明确的 JWT、GitHub / Slack / npm / AWS / Google 前缀令牌、`sk-` 密钥、PEM 私钥块和 URL 中的密码），并有大小上限。
+- 日志事件（`message` 和 `data`）、异常和 evaluate 结果都有大小上限，但**不做脱敏**：它们可能带出令牌、密码、cookie 等凭据，是否遮挡由 Agent 判断（见 requirements 第 6 节）。
 - 异常事件渲染为 `Uncaught <描述>` 加调用栈的文本；`console.trace`、`console.assert` 附带调用栈（最多 10 帧）。事件的 `data` 只保留定位所需的少量字段，不透传协议原始对象。
 - MCP 不托管应用进程：应用的 stdout、stderr 和退出码由启动它的 Agent 自行捕获，不进入时间线。
 - stdout 只用于 MCP 协议，诊断日志写 stderr。

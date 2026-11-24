@@ -1,6 +1,6 @@
 # 实施方案与调研结论
 
-> 状态说明：本文第 1-11 节记录 Phase 0-2 的 attach 基线（4 个诊断工具）的调研和设计。项目随后转为“能力优先”方向（Skill 只提供指导，提供能力才最重要），已在 Phase 3 增加运行时检查（`electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`），共 8 个工具（曾实现的 `electron_launch`/`electron_stop`/`electron_restart` 已移除：各项目启动方式不同，启动应用交给 Agent）。当前契约见 [requirements.md](requirements.md) 第 4 节和 [architecture.md](architecture.md)；下文中与此冲突的“不启动应用”“当前未实现”等表述属于基线阶段的历史记录。
+> 状态说明：本文第 1-11 节记录 Phase 0-2 的 attach 基线（4 个诊断工具，当前共 10 个）的调研和设计。项目随后转为“能力优先”方向（Skill 只提供指导，提供能力才最重要），已在 Phase 3 增加运行时检查（`electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`）和最小交互（`electron_click`、`electron_type`），共 10 个工具（曾实现的 `electron_launch`/`electron_stop`/`electron_restart` 已移除：各项目启动方式不同，启动应用交给 Agent）。当前契约见 [requirements.md](requirements.md) 第 4 节和 [architecture.md](architecture.md)；下文中与此冲突的“不启动应用”“当前未实现”等表述属于基线阶段的历史记录。
 
 ## 1. 最终目标
 
@@ -194,7 +194,7 @@ endpoint 来源按以下顺序解析：
 
 ### `electron_evaluate`（已实现，契约见 requirements.md）
 
-基线阶段的设计草案如下，已实现版本的差异：门控改为“默认开启，宿主可用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用”，结果上限默认 64 KiB 且最多 1 MiB，结果会脱敏。
+基线阶段的设计草案如下，已实现版本的差异：门控改为“默认开启，宿主可用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用”，结果上限默认 64 KiB 且最多 1 MiB，结果不做脱敏（后来的决定，见 requirements 第 6 节）。
 
 作用：执行一次受控诊断表达式。
 
@@ -413,7 +413,7 @@ Skill 只提供指导和建议，提供能力才最重要。已实现：
 - 统一 `seq` 时间线和 `afterSeq`/`lastSeq` 续读。
 - 薄 Skill（证据矩阵）。
 
-暂缓：与 MCP 共享核心的 CLI 入口（需要常驻进程）。仍未承诺：IPC trace、调试断点、调用栈、source map、原生对话框和菜单替身。
+暂缓：与 MCP 共享核心的 CLI 入口（需要常驻进程）。IPC trace 已作为自动记录实现（不是独立工具）。仍未承诺：调试断点、调用栈、source map、原生对话框和菜单替身。
 
 ## 9. 风险与处理
 
@@ -433,7 +433,7 @@ Skill 只能规定 Agent 在修改后执行验证。真正的自动触发由 Age
 
 采用方案 A：自建轻量诊断适配层。基线阶段（Phase 0-2）实现了 4 个诊断工具、fixture 和 Skill；随后按“Skill 只是指导，能力才最重要”的方向，由工具直接拥有运行时检查能力（应用由 Agent 启动，工具只 attach）。项目完成的判断标准是“Agent 能通过 MCP 获得典型问题所需的运行时事实”，而不是“项目替 Agent 完成业务验收”或“支持尽可能多的 DevTools 命令”。
 
-轻量性由以下可检查条件约束：单个 Server 只服务一个 Agent 会话、只管理一个应用；只处理当前 page target；不扫描端口、不持续轮询、不无限期重连；输出结构化、有界、脱敏、仅限回环；不含项目专属逻辑；不做通用桌面自动化或完整调试器。
+轻量性由以下可检查条件约束：单个 Server 只服务一个 Agent 会话、只管理一个应用；只处理当前 page target；不扫描端口、不持续轮询、不无限期重连；输出结构化、有界、仅限回环；不含项目专属逻辑；不做通用桌面自动化或完整调试器。
 
 ## 11. 边界审查
 
@@ -444,7 +444,7 @@ Skill 只能规定 Agent 在修改后执行验证。真正的自动触发由 Age
 | 主进程/渲染进程 | 提供两个独立 Session | 决定检查单个进程还是联合检查 |
 | preload/IPC | 返回两边的观察结果 | 结合主进程和 renderer 证据判断问题 |
 | target | 发现和选择当前 page target | 指定目标窗口和确认目标是否正确 |
-| 表达式执行 | 对本工具启动的应用提供带超时、大小限制和脱敏的 evaluate；外部应用需宿主开启 | 决定是否需要执行以及如何解释结果 |
+| 表达式执行 | 对本工具启动的应用提供带超时和大小限制的 evaluate；外部应用需宿主开启 | 决定是否需要执行以及如何解释结果 |
 | 日志 | 采集并返回受控证据（含应用输出和统一 seq 时间线） | 判断证据是否证明用户目标已经满足 |
 | 截图与 DOM 快照 | 提供截图文件和无障碍树文本 | 判断它们是否有助于证明用户目标 |
 | fixture | 不启动、不注入故障 | 启动测试应用、设置故障态和预期结果 |
@@ -453,7 +453,7 @@ Skill 只能规定 Agent 在修改后执行验证。真正的自动触发由 Age
 ### 11.1 数据边界
 
 - 事件只保留在有上限的内存缓存中；日志类工具不主动写文件，唯一写文件的是截图（`ELECTRON_DEBUG_OUTPUT_DIR`，仅当前用户可读写，保留最近 50 张）。
-- 原始 console 参数、异常对象、应用输出和 evaluate 结果必须经过大小限制、可序列化处理和常见密钥脱敏。
+- 原始 console 参数、异常对象、应用输出和 evaluate 结果必须经过大小限制、可序列化处理；不做脱敏，是否遮挡由 Agent 判断。
 - MCP Server 不把完整日志自动写入项目目录。
 - 截图只写入输出目录，文件名由工具生成，并返回文件路径和元数据。
 - 工具错误可以包含诊断细节，但不能回显环境变量中的敏感值。

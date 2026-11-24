@@ -20,7 +20,7 @@
 
 应用必须由测试脚本启动，并开放主进程 Inspector 和渲染进程 CDP。MCP Server 本身不负责启动或停止 fixture。
 
-fixture 的核心验收依赖 attach、status、targets 和 logs 收集运行时事实，再由测试脚本或 Agent 根据预期行为判断故障态和修复态。DOM、截图、业务交互和断点不属于当前 MCP fixture 的核心范围。
+fixture 的核心验收依赖 attach、status、targets 和 logs 收集运行时事实，再由测试脚本或 Agent 根据预期行为判断故障态和修复态。DOM、截图、点击输入等检查类能力由 `inspection-smoke.mjs`、`interaction-smoke.mjs` 单独验收，断点不属于当前范围。
 
 `fixture/` 提供最小 Electron 应用。启动时由 Agent 或测试脚本自行注入 Inspector/CDP 参数。
 

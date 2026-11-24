@@ -28,7 +28,7 @@ node <absolute-skill-directory>/runtime/launch.cjs --verify
 
 ## 来源与完整性边界
 
-同包哈希可检测文件不一致，不能独立证明发布者身份，也不能证明代码没有漏洞。来源信任由用户或组织认可的安装渠道、平台扫描及发布证明建立，不能仅凭包自称可信。
+同包哈希可检测文件不一致，不能独立证明发布者身份，也不能证明代码没有漏洞。哈希只覆盖 `runtime/` 里的文件；`SKILL.md` 和 `references/` 是 Agent 要照做的指引，不在其中，同样要从可信渠道获得。来源信任由用户或组织认可的安装渠道、平台扫描及发布证明建立，不能仅凭包自称可信。
 
 GitHub Release 的 ZIP 可提供构建来源 attestation。需要核对来源时，在执行包内代码前，使用可信的 GitHub CLI 对原始 Release ZIP 验证预期仓库和工作流身份：
 
@@ -114,8 +114,20 @@ ELECTRON_DEBUG_MAX_LOG_EVENTS=<optional-event-limit>
 ELECTRON_DEBUG_MAX_LOG_BYTES=<optional-byte-limit>
 ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES=<optional-protocol-message-limit>
 ELECTRON_DEBUG_OUTPUT_DIR=<optional-screenshot-directory>
-ELECTRON_DEBUG_ALLOW_EVAL=<optional, 0 or false to disable evaluation>
+ELECTRON_DEBUG_ALLOW_EVAL=<optional, 0, false, off, no or disabled to disable evaluation>
 ```
+
+默认值和允许范围（超出范围会返回 `ENDPOINT_CONFIG_INVALID`）：
+
+| 变量 | 默认 | 范围 |
+| --- | --- | --- |
+| `ELECTRON_DEBUG_REQUEST_TIMEOUT_MS` | 3000 | 100 到 30000 |
+| `ELECTRON_DEBUG_DISCOVERY_TIMEOUT_MS` | 3000 | 100 到 30000 |
+| `ELECTRON_DEBUG_MAX_LOG_EVENTS` | 500 | 10 到 10000 |
+| `ELECTRON_DEBUG_MAX_LOG_BYTES` | 1 MiB | 4096 字节到 16 MiB |
+| `ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES` | 256 MiB | 4096 字节到 256 MiB |
+
+`ELECTRON_DEBUG_ALLOW_EVAL` 是宿主在启动 Server 时设置的开关，批处理模式（`launch.cjs --run`）下由运行它的人设置：能自己执行命令的 Agent 可以不带这个变量运行，所以它约束的是宿主配置的 MCP Server，不是一道对 Agent 的强制边界。
 
 `ELECTRON_DEBUG_OUTPUT_DIR` 指定截图目录，默认系统临时目录下的 `electron-agent-debug`，仅保留最近 50 张。`electron_evaluate` 和表达式型 `electron_wait_for` 默认开启（endpoint 只允许回环地址）；宿主在 `env` 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 可禁用，此时返回 `EVALUATION_NOT_ALLOWED`。单条协议消息上限默认 256 MiB，与 Puppeteer、Playwright 一致；可用 `ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES` 调小。
 

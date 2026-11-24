@@ -120,7 +120,7 @@ ELECTRON_DEBUG_ALLOW_EVAL=<optional, 0 or false to disable evaluation>
 - 项目已有的测试、检查命令或回归操作。
 - 多窗口场景下的 target 选择条件。
 
-如果这些前提缺失，Agent 应报告 `BLOCKED` 或先补齐前提。MCP Server 不猜测项目入口、不扫描端口，只执行 Agent 明确给出的启动命令，也不替 Agent 执行业务回归。
+如果这些前提缺失，Agent 应报告 `BLOCKED` 或先补齐前提。MCP Server 不猜测项目入口、不扫描端口，不启动也不停止应用，只 attach 到 Agent 已启动的应用，也不替 Agent 执行业务回归。
 
 ## 诊断范围
 

@@ -6,7 +6,12 @@
 
 ## 改动生效
 
-各项目工具行为不同，本 Skill 未统一验证，以 `electron_status` 和日志实际观察为准。renderer 改动等热更新完成。主进程、preload 改动若被开发工具自动重启，原连接随进程失效，需重新 `electron_attach`，并确认重启后的进程仍带有 `--inspect` 和 `--remote-debugging-port`（是否沿用取决于项目的启动工具）。项目没有热更新时，才由 Agent 重启应用，或对 renderer 用 `location.reload()`（`electron_evaluate`；eval 被禁用时改用项目已有的刷新方式）。
+各项目工具行为不同，本 Skill 未统一验证，以 `electron_status` 和日志实际观察为准。按这个顺序处理：
+
+1. 项目有热更新或自动重启，就等它完成，不要重复手动操作。主进程、preload 的改动若被开发工具自动重启，原连接随进程失效，需重新 `electron_attach`，并确认重启后的进程仍带有 `--inspect` 和 `--remote-debugging-port`（是否沿用取决于项目的启动工具）。
+2. 没有热更新：renderer 改动用 `electron_evaluate`（scope 为 renderer）执行 `location.reload()`；`ELECTRON_DEBUG_ALLOW_EVAL=0` 时求值不可用，改用项目已有的刷新方式。
+3. 主进程改动必须重启应用。preload 改动至少要 reload 页面才会重新加载，拿不准就重启。
+4. 无论哪种方式，都先用 `electron_wait_for` 等到就绪信号再取证据。
 
 ## 启动参数
 

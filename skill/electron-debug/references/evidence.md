@@ -14,4 +14,23 @@ renderer 页面崩溃时连接不会断：`electron_status` 的 renderer 变为 
 
 - `ELECTRON_DEBUG_ALLOW_EVAL=0` 时 `electron_evaluate` 和表达式型等待返回 `EVALUATION_NOT_ALLOWED`，点击和输入也一起禁用；attach、targets、日志、状态、截图和快照仍可用。
 - `electron_logs` 的 `gap` 为 `true` 说明缓冲区满过、有事件被丢弃，缩短取证间隔，或调大 `ELECTRON_DEBUG_MAX_LOG_EVENTS`。
-- `electron_status` 的 `dialogs` 列出正在等用户操作的对话框；`blocking` 为 `true` 时对应进程在关闭前不响应，超时的 `hint` 会说明，不要反复重试。
+
+## IPC 追踪的边界
+
+下面这些情况下时间线里**不会**出现对应的 `ipc` 事件，不能把"没有事件"当成"没有调用"：
+
+- 没有注册处理函数的 `invoke` 不被追踪，Electron 自己会在主进程日志里打印 `No handler registered for '<通道>'`，没等到 `IPC invoke <通道>` 时先查主进程日志。
+- 每个通道每秒最多记录 20 条，超出的用后一条记录里的 `skipped` 计数；Electron 自己用的内部通道不记录。
+- 通过 `webContents.ipc` 或会话级注册的 `invoke` 处理函数不被追踪；`send` 类消息只要 `ipcMain`、`webContents.ipc` 或所在 frame 的 `ipc` 有监听者，就不会报"没有监听者"。
+- `electron_wait_for` 的 `contains` 同时匹配成功和失败（`IPC invoke X ok in…` 与 `IPC invoke X failed after…`），要看返回事件的 `level` 或 `data.ok`。
+- 追踪依赖 Electron 的私有字段 `ipcMain._invokeHandlers`；字段不存在的版本只追踪 `send` / `sendSync`，时间线里会有一条 warn 说明。
+
+## attach 会在应用里装什么
+
+`ELECTRON_DEBUG_ALLOW_EVAL` 没有关闭时，attach 主进程会在应用里装上记录用的包装：`ipcMain.emit`、`ipcMain` 的 invoke 处理表和 `dialog` 的各个函数，另有两个 `Runtime.addBinding`。它们不读取参数值，应用重启前不会移除。utility 连接还会在应用里调用未公开的 `process._debugProcess`。不想让工具改动应用：只想少装一部分，给 `electron_attach` 传 `instrument`（`["ipc"]`、`["dialogs"]` 或 `[]`，不传沿用上一次的选择，结果的 `instrumented` 列出实际装了什么）；要连求值、点击输入、utility 一起关掉，就设 `ELECTRON_DEBUG_ALLOW_EVAL=0`。已经装上的包装在应用重启前不会移除。
+
+## 点击、输入和对话框
+
+- 点击被弹层挡住（`ELEMENT_COVERED`）时，一般先处理弹层。`element.click()` 不是真实点击（`isTrusted` 为 false），只在你清楚后果时当退路。
+- 只有最近一次快照里的 ref 可用，页面重新渲染后换 ref 或改用 `role` 加 `name`；批处理每次执行都是新进程，上一次的 ref 无效。
+- 原生对话框和菜单提示用户人工操作；`electron_status` 的 `dialogs` 列出正在等用户的对话框，`blocking` 为 `true` 时对应进程在关闭前不响应，不要反复重试。

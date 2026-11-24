@@ -11,7 +11,7 @@
 - 同时观察 Electron 主进程和渲染进程。
 - 把 preload、contextBridge 和 IPC 问题放到两个进程之间联合诊断。
 - 提供能力为先：工具拥有运行时检查能力，应用启动交给 Agent；Skill 只提供指导和建议。
-- 工具输出结构化、有界、脱敏、仅限回环，不含项目专属逻辑。
+- 工具输出结构化、有界、仅限回环，不含项目专属逻辑；不做脱敏，是否遮挡敏感内容由 Agent 判断（见第 6 节安全）。
 - 返回适合 Agent 消化的结构化状态、日志、异常和连接错误；最终诊断结论由 Agent 结合项目回归结果自行判断。
 
 ### 0.1 与浏览器类工具的分工
@@ -64,7 +64,7 @@ Electron 应用的主进程和渲染进程使用不同的调试入口：
 
 以下条件保持工具轻量：
 
-- 不新增与诊断无关的工具；每个工具返回结构化、有界、脱敏的结果。
+- 不新增与诊断无关的工具；每个工具返回结构化、有界的结果。
 - MCP Server 不启动、停止或重启应用，只 attach 到 Agent 已启动的应用；不扫描或猜测应用。
 - 只管理一个 Agent 会话和当前 page target，不递归管理 iframe、worker 或多客户端共享状态；webview 只能作为当前 target 显式选择。
 - 只在工具调用期间进行有限恢复，不运行持续轮询或无限期后台重连。
@@ -139,6 +139,8 @@ endpoint 配置只接受用于 discovery 的本地 HTTP(S) URL；MCP 不接受 A
 {
   "mainUrl": "http://127.0.0.1:<agent-chosen-main-port>",
   "rendererUrl": "http://127.0.0.1:<agent-chosen-renderer-port>",
+  "utility": "<optional-utility-serviceName-or-pid>",
+  "instrument": ["ipc", "dialogs"],
   "targetId": "<optional-target-id>",
   "url": "<optional-target-url>",
   "title": "<optional-target-title>",
@@ -198,7 +200,7 @@ endpoint 解析优先级为：
 
 `since` 必须是可解析的日期时间字符串；格式无效时返回参数错误，不返回空日志作为替代。
 
-`process` 可取 `main`、`renderer`、`utility` 或 `all`。三个通道的事件共享递增的 `seq` 并按其排序；结果返回 `lastSeq`，`afterSeq` 只返回其后的事件，用于续读。应用进程自己的 stdout、stderr 不进入时间线，由启动应用的 Agent 自行捕获。所有事件消息在写入缓存前脱敏。
+`process` 可取 `main`、`renderer`、`utility` 或 `all`。三个通道的事件共享递增的 `seq` 并按其排序；结果返回 `lastSeq`，`afterSeq` 只返回其后的事件，用于续读。应用进程自己的 stdout、stderr 不进入时间线，由启动应用的 Agent 自行捕获。事件消息按原样写入缓存，只做长度截断。
 
 缓冲区满时最旧的事件会被丢弃。结果同时返回 `droppedThroughSeq`（所请求范围内被丢弃的最大 `seq`，没有丢弃时为 0）和 `gap`（`droppedThroughSeq` 大于 `afterSeq`，未传 `afterSeq` 时与 0 比较；为 `true` 表示所请求的范围内可能有事件缺失）。`clear` 会重置对应缓冲区的丢弃记录，Agent 主动清空的事件不算丢失。`electron_status` 也返回当前 `lastSeq`，回归前可直接取得基线，不必先读一次日志。
 
@@ -219,7 +221,7 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 
 - 宿主设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 时返回 `EVALUATION_NOT_ALLOWED`。
 - 默认超时 3 秒（100 毫秒至 30 秒），结果默认最多 64 KiB（256 B 至 1 MiB）；超限时返回截断文本并标记 `truncated`。
-- 返回值按值序列化，不可序列化值（如 `NaN`）转为文本；异常返回 `EVALUATION_FAILED`；结果和错误文本经过脱敏。
+- 返回值按值序列化，不可序列化值（如 `NaN`）转为文本；异常返回 `EVALUATION_FAILED`；结果和错误文本按原样返回，只受大小限制。
 - 主进程全局没有 `require`，使用 `process.mainModule.require('electron')`。
 - 表达式可能修改应用状态，只用于验证；超时或断线必须返回明确错误，不得视为验证成功。
 
@@ -236,9 +238,9 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 
 所有错误保留底层报错作为 `message`，可附可选的 `hint` 说明下一步。attach 失败按原因给出提示：端口没有进程监听（`ECONNREFUSED`，提示启动参数、`ELECTRON_RUN_AS_NODE`、`EnableNodeCliInspectArguments` fuse）、端口不响应、端口有响应但返回的不是调试协议、`mainUrl` 实际是 renderer 端口（返回 page 而没有 node target，不连接）、`rendererUrl` 实际是主进程 Inspector（只有 node target）。
 
-主进程通道在允许求值时还会追踪 IPC：通过 `Runtime.addBinding` 包装 `ipcMain`，把主进程收到的每条消息写入时间线（`kind: "ipc"`）。`invoke` 通过 Electron 的私有处理表 `ipcMain._invokeHandlers`（Map）包装，attach 前后注册的 handler 都覆盖，记录成功、失败和错误信息；表不存在时只追踪 `send`/`sendSync`，并在时间线写一条警告。`send`/`sendSync` 包装 `ipcMain.emit`，没有监听者时为 warn。没有 handler 的 `invoke` 不另记，Electron 自己会在主进程打印 `Error occurred in handler for … No handler registered`。只记录通道名、类型、耗时、结果、错误信息（脱敏）和参数序列化后的大小，不记录参数和返回值；每个通道每秒最多 20 条，超出的条数记在下一条的 `skipped` 里；跳过 Electron 内部通道。`webContents.ipc` 和 session 级 handler 不追踪。实测（Electron 45）：主进程监听者抛出异常时，主进程与之后的请求一起停止响应，追踪仍会在此之前记下这条失败。
+主进程通道在允许求值时还会追踪 IPC：通过 `Runtime.addBinding` 包装 `ipcMain`，把主进程收到的每条消息写入时间线（`kind: "ipc"`）。`invoke` 通过 Electron 的私有处理表 `ipcMain._invokeHandlers`（Map）包装，attach 前后注册的 handler 都覆盖，记录成功、失败和错误信息；表不存在时只追踪 `send`/`sendSync`，并在时间线写一条警告。`send`/`sendSync` 包装 `ipcMain.emit`，没有监听者时为 warn。没有 handler 的 `invoke` 不另记，Electron 自己会在主进程打印 `Error occurred in handler for … No handler registered`。只记录通道名、类型、耗时、结果、错误信息和参数序列化后的大小，不记录参数和返回值；每个通道每秒最多 20 条，超出的条数记在下一条的 `skipped` 里；跳过 Electron 内部通道。`webContents.ipc` 和 session 级 handler 不追踪。实测（Electron 45）：主进程监听者抛出异常时，主进程与之后的请求一起停止响应，追踪仍会在此之前记下这条失败。
 
-`electron_status` 和各通道快照的 `dialogs` 列出等待用户操作的对话框：renderer 通过 `Page.javascriptDialogOpening/Closed` 报告页面的 JavaScript 对话框；允许求值时，主进程在 attach 后包装 `dialog` 模块的函数，通过 `Runtime.addBinding` 报告打开和关闭（Electron 自己为页面 alert 调用的不报告，避免重复）。每项含 `process`、`kind`（`javascript` / `native`）、`type`、`blocking`、脱敏截断后的 `title`/`message` 和 `openedAt`。打开和关闭写入时间线（`kind: "dialog"`）。有阻塞的对话框时请求超时，错误的 `hint` 说明原因，`details.dialog` 给出对话框。页面崩溃时对话框随页面消失，Chromium 不发 Closed 事件，记录在 `Inspector.targetCrashed` 时清除，日志写 `closed (the page crashed)`。alert 打开时 reload 不需要特殊处理：被阻塞的页面要等对话框关闭后才会导航，那时 Closed 事件已经到达（Electron 43 实测）。
+`electron_status` 和各通道快照的 `dialogs` 列出等待用户操作的对话框：renderer 通过 `Page.javascriptDialogOpening/Closed` 报告页面的 JavaScript 对话框；允许求值时，主进程在 attach 后包装 `dialog` 模块的函数，通过 `Runtime.addBinding` 报告打开和关闭（Electron 自己为页面 alert 调用的不报告，避免重复）。每项含 `process`、`kind`（`javascript` / `native`）、`type`、`blocking`、截断后的 `title`/`message` 和 `openedAt`。打开和关闭写入时间线（`kind: "dialog"`）。有阻塞的对话框时请求超时，错误的 `hint` 说明原因，`details.dialog` 给出对话框。页面崩溃时对话框随页面消失，Chromium 不发 Closed 事件，记录在 `Inspector.targetCrashed` 时清除，日志写 `closed (the page crashed)`。alert 打开时 reload 不需要特殊处理：被阻塞的页面要等对话框关闭后才会导航，那时 Closed 事件已经到达（Electron 43 实测）。
 
 #### `electron_screenshot`
 
@@ -246,7 +248,7 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 
 #### `electron_dom_snapshot`
 
-读取当前 renderer 的无障碍树（`Accessibility.getFullAXTree`），渲染为缩进文本（`role "name" value=".." [状态]`），忽略的节点被穿透，已包含在父节点名字里的静态文本不再单独输出，链接 url 里超过 30 个字符的查询串缩写为 `?…`（保留 hash），输入框的值经过脱敏。节点数有上限（默认 400，最多 2000），超限标记 `truncated`。`interactive: true` 只输出带 ref 的节点和标题，长列表页面也能放下全部可交互元素（实测 150 条会话的侧栏：155 行，不截断）。不在页面执行脚本，附加模式也可使用。
+读取当前 renderer 的无障碍树（`Accessibility.getFullAXTree`），渲染为缩进文本（`role "name" value=".." [状态]`），忽略的节点被穿透，已包含在父节点名字里的静态文本不再单独输出，链接 url 里超过 30 个字符的查询串缩写为 `?…`（保留 hash），密码框的值不输出。节点数有上限（默认 400，最多 2000），超限标记 `truncated`。`interactive: true` 只输出带 ref 的节点和标题，长列表页面也能放下全部可交互元素（实测 150 条会话的侧栏：155 行，不截断）。不在页面执行脚本，附加模式也可使用。
 
 可点击或可输入的节点（button、link、checkbox、radio、switch、tab、menuitem、option、treeitem、textbox、searchbox、combobox、spinbutton、slider、listbox 等）且对应 DOM 节点时，行尾带 `[ref=…]`，结果带 `refCount`。ref 由每个进程随机的三个字母前缀加序号组成（如 `kqx12`）。同一页面里同一 DOM 节点的 ref 在多次快照间不变；只接受当前选中页面最近一次快照里的 ref。前缀的作用：批处理每次执行都是新进程，若都从同一编号开始，上一次执行的 ref 在页面变化后会指向另一个元素并被静默点击（实测：Save 的 ref 点到了 Name 输入框，结果为 ok）；有了前缀，这样的 ref 返回 `REF_NOT_FOUND`，`hint` 建议改用 role 和 name。
 
@@ -256,7 +258,7 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 
 #### `electron_type`
 
-元素的指定方式同 `electron_click`，另有 `text`，可选 `clear`（默认 true）、`submit`。目标必须是可编辑的文本输入、textarea 或 contenteditable 且未禁用、非只读，否则 `ELEMENT_NOT_EDITABLE`。聚焦后全选已有内容（`clear: false` 时把光标放到末尾），用 `Input.insertText` 写入，空文本且 clear 时按 Delete；`submit` 时再按 Enter。返回输入后的 `value`（密码框为 `[REDACTED]`，其余脱敏，最多 500 字符）。`insertText` 不产生 composition 事件。
+元素的指定方式同 `electron_click`，另有 `text`，可选 `clear`（默认 true）、`submit`。目标必须是可编辑的文本输入、textarea 或 contenteditable 且未禁用、非只读，否则 `ELEMENT_NOT_EDITABLE`。聚焦后全选已有内容（`clear: false` 时把光标放到末尾），用 `Input.insertText` 写入，空文本且 clear 时按 Delete；`submit` 时再按 Enter。返回输入后的 `value`（密码框为 `[password field]`，其余原样，最多 500 字符）。`insertText` 不产生 composition 事件。
 
 点击和输入都在 `ELECTRON_DEBUG_ALLOW_EVAL=0` 时返回 `INTERACTION_NOT_ALLOWED`。输入事件超时且页面处于 hidden 状态时，`hint` 提示先恢复最小化的窗口。
 
@@ -274,20 +276,20 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 
 #### `ipc_trace`
 
-记录指定 IPC channel 的发送方向、参数摘要、时间和结果。默认不记录完整敏感参数。
+记录 IPC 的方向、通道、时间和结果，默认不记录参数值。**已实现，但不是独立工具**：主进程通道在线且允许求值时，自动把主进程收到的 IPC 写进统一时间线（`kind` 为 `ipc`），见 Phase 3。
 
-P1 不属于当前交付。只有现有工具仍无法提供编码后验证所需的运行时事实时，才评估是否需要接入已有调试能力。
+断点和暂停类的 P1 不属于当前交付。只有现有工具仍无法提供编码后验证所需的运行时事实时，才评估是否需要接入已有调试能力。
 
 ## 5. Skill 需求
 
 Skill 不直接实现协议连接，负责指导 Agent 使用 MCP 工具。
 
-Skill 必须明确以下判断规则：
+Skill 给出以下判断依据，具体怎么做由 Agent 根据情况决定：
 
 - 启动、窗口创建、文件系统、数据库、自动更新、IPC handler 和进程崩溃问题，优先检查主进程。
 - DOM、页面白屏、前端异常、事件绑定、网络请求和视觉问题，优先检查渲染进程。
 - preload、contextBridge 和 IPC 问题必须同时检查主进程与渲染进程。
-- 主进程代码或 preload 修改后必须重启 Electron。
+- 主进程代码修改后需要重启 Electron；preload 修改至少要 reload 页面才会重新加载，拿不准就重启。
 - 渲染进程代码修改后优先 reload 当前 target。
 - 调用 `electron_evaluate` 前先说明目的、执行上下文和预期结果，避免执行破坏性表达式。
 - 先收集日志和状态，再执行表达式；不能一开始就盲目修改运行时状态。
@@ -305,7 +307,8 @@ Skill 必须明确以下判断规则：
 - 不接受 Agent 传入任意远程 WebSocket URL。
 - 主进程或渲染进程执行代码默认开启（仅回环 endpoint），宿主可用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用。
 - 截图写入 `ELECTRON_DEBUG_OUTPUT_DIR`（默认系统临时目录），文件名由工具生成，权限为仅当前用户可读写。
-- 日志、应用输出、异常和表达式结果必须经过大小限制、可序列化处理和常见密钥脱敏，不能无界回显敏感内容。
+- 日志、应用输出、异常和表达式结果必须经过大小限制和可序列化处理，不能无界回显。
+- **不做脱敏。** 日志、报错、求值结果、无障碍树文本、窗口地址和标题可能带出令牌、密码、cookie 等凭据，它们会进入模型上下文并留在会话记录里。是否遮挡由 Agent 自己判断：只读取需要的内容，不用求值去读取凭据，汇报时只引用必要片段并自行遮挡敏感值；只连接本地开发环境，不连接带真实生产凭据的应用。允许求值时 Agent 本来就能读取应用里的任何值，所以脱敏也不能成为一道安全边界。截图同样不处理。
 - 错误信息不得泄露环境变量、完整本地路径以外的敏感内容。
 
 ### 稳定性
@@ -358,7 +361,7 @@ Skill 必须明确以下判断规则：
 
 ### 生命周期与检查能力验收
 
-- `electron_evaluate` 能返回主进程和 renderer 的值；异常、超大结果、不可序列化值和超时都有结构化结果；密钥被脱敏。
+- `electron_evaluate` 能返回主进程和 renderer 的值；异常、超大结果、不可序列化值和超时都有结构化结果；结果按原样返回。
 - evaluate 和 expression 型 wait_for 在宿主设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 时被拒绝（`EVALUATION_NOT_ALLOWED`）；DOM 快照不受限。
 - `electron_screenshot` 生成可打开的 PNG 文件并只保留最近 50 张；窗口隐藏或最小化时超时失败并提示。
 
@@ -440,13 +443,14 @@ Skill 必须明确以下判断规则：
 
 ### Phase 3：能力优先扩展（已实现）
 
-设计取向：Skill 只提供指导和建议，提供能力才是最重要的。工具直接拥有运行时检查能力，输出保持结构化、有界、脱敏、仅限回环，且不含任何项目专属逻辑。
+设计取向：Skill 只提供指导和建议，提供能力才是最重要的。工具直接拥有运行时检查能力，输出保持结构化、有界、仅限回环，且不含任何项目专属逻辑。
 
 - 运行时检查：`electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`。
 - 统一时间线：main、renderer、utility 事件共享递增 `seq`，日志支持 `afterSeq` 续读和 `lastSeq`。
-- Skill 收敛为薄页面：何时使用、按修改类型列出的证据矩阵、工具组合方式。
+- IPC 追踪：不新增工具，自动记录主进程收到的 `invoke`、`send`、`sendSync`（通道、耗时、结果、参数大小，不含参数值），没有监听者的消息为 warn；依赖 Electron 的私有字段，字段缺失时只追踪 `send`/`sendSync`。
+- Skill 收敛为薄页面：5 步工作流、按修改类型列出的证据矩阵、PASS/FAIL/BLOCKED 判定；细节放进按需读取的 `references/`。
 
-仍未实现：断点、暂停、单步、调用栈、IPC trace、source map、原生对话框和菜单替身。与 MCP 共享核心的命令行入口以批处理模式（`launch.cjs --run`）提供，`launch.cjs --tools [工具名 ...]` 打印工具描述和 JSON Schema 作为批处理调用方的 `tools/list`；跨调用保持连接的常驻 CLI 未实现。
+仍未实现：断点、暂停、单步、调用栈、source map、原生对话框和菜单替身。与 MCP 共享核心的命令行入口以批处理模式（`launch.cjs --run`）提供，`launch.cjs --tools [工具名 ...]` 打印工具描述和 JSON Schema 作为批处理调用方的 `tools/list`；跨调用保持连接的常驻 CLI 未实现。
 
 ## 11. 成功标准
 

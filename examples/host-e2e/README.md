@@ -28,7 +28,7 @@ node examples/host-e2e/smoke.mjs claude <absolute-claude-executable> --scenario 
 | `devtools-windows` | 开发构建：DevTools 加两个窗口，选对窗口再读取（field 应用） | 工具连到 `Field App` 窗口而不是 Settings 或 DevTools；无障碍树读到它的标题；向主进程询问了窗口数 |
 | `click-save` | 按钮不按就什么都不会发生：自己按下，再读两侧证据（field 应用，保存会失败） | 用 `electron_click` 点击快照里 Save 的 ref，不能用求值里的 `.click()`；点击之后读到 renderer 的 `FIELD_SAVE_CALL_FAILURE` 和主进程的 `FIELD_SAVE_HANDLER_FAILURE`，通道不能互换 |
 
-前五个场景跑在最小 fixture 上，后两个跑在 `examples/field-app`，它的形态更接近真实的开发构建（见该目录的 README）。`tests/host-scenarios.test.ts` 用手工构造的流量检查每个场景的断言：空流量、选错窗口、只有单侧证据、通道互换都必须被拒绝。
+前五个场景跑在最小 fixture 上，其余跑在 `examples/field-app`，它的形态更接近真实的开发构建（见该目录的 README）。`tests/host-scenarios.test.ts` 检查每个场景都会拒绝空流量、都带参考解法；正确的运行能通过，由下面的参考解法回放保证。
 
 宿主模型只能使用 electron-debug 的 10 个 MCP 工具，没有 shell 和文件读取。所有断言都针对透明 stdio relay 记录的真实 MCP 流量：调用了哪些工具、参数里的通道、服务器返回了什么证据。模型的最终文字不参与判定，所以“说自己成功了”不算通过。
 

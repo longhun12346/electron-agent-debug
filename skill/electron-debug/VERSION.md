@@ -6,8 +6,19 @@
 - invoke 依赖 Electron 的私有字段 `ipcMain._invokeHandlers`，在 Electron 45 上实测；字段不存在的版本只追踪 send/sendSync 并写警告。CI 在 Electron 43、44 和最新稳定版上运行同一冒烟。
 - 定位写入 requirements 0.1 节：重点投入主进程、utility 和跨进程诊断，renderer 保留最小集，深入的 renderer 分析与 chrome-devtools-mcp 并用。
 - fixture 的 preload 新增仅供测试的 `fixtureIpc`，只允许 `fixture:` 通道。
-- SKILL.md 从约 18KB 精简到约 6KB，只留每次诊断都会用到的流程、证据矩阵和结论；启动参数、求值细节、不提供的能力与替代做法、连接失败排查移到 `references/`（launch、evaluate、evidence、alternatives、troubleshooting）。依据：官方 Skill 写作建议（正文保持精简、细节放进按需读取的文件、`when_to_use` 放触发语境、描述前置关键用途并控制在 1,536 字符内）。使用建议改写为按顺序的 5 步工作流，补一个报告示例，统一术语（主进程、renderer、通道、target），接入方式指定默认注册 MCP。
+- 修复（全面 review 的结果）：
+  - 绑定载荷是合法 JSON 但不是对象（如 `null`）时，IPC 和对话框的处理会抛出异常并让整个服务退出，现在忽略。
+  - `electron_logs` 带过滤条件和 `clear` 时只删除返回的事件，不再清空整个缓冲区并报 `gap: false`。
+  - `electron_wait_for` 的轮询间隔不再让等待超过 `timeoutMs`；日志条件超时时，`details` 会带 `offlineChannels` 和 `gap`。
+  - evaluate 只在编译期错误（没有堆栈）时才因“已声明”换模式重试，运行时抛出的同名错误不再重复执行副作用；`unserializableValue` 也受 `maxResultBytes` 限制。
+  - IPC 追踪：参数大小只在通过限速后才计算，二进制参数按字节长度计；通道计数表定期清理；`webContents.ipc` 和 frame 的 `ipc` 上的监听者算作有监听者，不再误报“没有监听者”。
+  - 同一条连接上重复 attach 不再重复报告对话框和 IPC 警告；`selectedTarget` 随重新发现更新；之前传入的 title、url、targetId 不再匹配时保留已连接的页面并给出 `TARGET_SELECTOR_STALE` 警告，不再关闭健康的连接。
+  - `ELECTRON_DEBUG_ALLOW_EVAL` 设为 `off`、`no`、`disabled` 也会关闭求值；attach、targets、logs 的字符串参数加了长度上限；截图清理失败不再让截图失败；`/json/version` 响应最多读取 64 KiB；Windows 上 utility 的端口查找不再依赖英文的 `LISTENING`。
+- 把几项原来由服务端替 Agent 做的决定交还：`electron_attach` 新增 `instrument`（`ipc`、`dialogs`，传 `[]` 都不装，不传沿用上一次选择），结果新增 `instrumented`；无障碍树不再把链接的查询串缩成 `?…`，`electron_dom_snapshot` 新增 `maxText` 调整名字、值、状态的截断长度；被截断的控制台消息在 `data.messageTruncatedFrom` 里带原始长度；Skill 里属于经验判断的规则从“必须、不要”改成建议，由 Agent 判断。
+- 删除全部脱敏（`src/redact.ts` 及各处调用）：规则不完整、会误伤调试需要的值、正则对超长无空白字符串的耗时按平方增长，而且允许求值时 Agent 本来就能读取应用里的任何值，脱敏不是安全边界。改为在 Skill、README、requirements 里写明输出不脱敏、可能带出凭据，是否遮挡由 Agent 判断；密码框的值仍不回显（显示为 `[password field]`）。
+- SKILL.md 从约 18KB 精简到约 6KB，只留每次诊断都会用到的流程、证据矩阵和结论；启动参数、求值细节、不提供的能力与替代做法、连接失败排查移到 `references/`（launch、evaluate、evidence、alternatives、troubleshooting）。依据：官方 Skill 写作建议（正文保持精简、细节放进按需读取的文件、`when_to_use` 放触发语境、描述前置关键用途并控制在 1,536 字符内）。使用建议改写为按顺序的 5 步工作流，统一术语（主进程、renderer、通道、target），接入方式指定默认注册 MCP。
 - 验证范围：`utility` 参数依赖的 `process._debugProcess` 在 Windows、macOS、Linux 上用 fixture 锁定的 Electron 版本实测，CI 另在 Linux、Windows 上对 Electron 43、44 和最新稳定版运行同样的冒烟；electron-vite 的参数写法依据其 6 版源码；应用退出时 Node 等检查器断开的现象在 Windows、Electron 43 上实测。
+- 对照需求第 5 节补回精简时漏掉的规则：先按问题类型判断归属再选通道、先读日志和状态再求值且不执行破坏性表达式、主进程和 preload 改动必须重启而 renderer 优先 reload。
 - 工作流第 1 步新增：先查应用是否已在运行、是否已带调试端口，再决定要不要重启。
 
 ## 1.5.1
