@@ -1,7 +1,7 @@
 ---
 name: electron-debug
-description: "Use when verifying or diagnosing a local Electron app at runtime: main-process, BrowserWindow, preload, contextBridge or IPC changes, a blank or white window, a crash, or a runtime error. Attaches to the running dev app to read main, renderer and utility logs, evaluate code, take screenshots and accessibility snapshots, and click or type in the real window."
-when_to_use: "Use it whenever the project is an Electron app (electron, electron-vite or Electron Forge in package.json) and the user asks whether the app or a page still works, wants runtime or console errors checked, or wants a screenshot of the running app, even if they never say 'Electron' and even if the project has its own tests. Examples: '窗口一片白', '改了 preload 帮我确认还能用', '确认页面有没有运行时报错并截图', 'the app crashes on startup'. Not for packaged apps or for pure type and build errors."
+description: "Verifies or diagnoses a local Electron app at runtime. Use when main-process, BrowserWindow, preload, contextBridge or IPC changes need checking, or for a blank or white window, a crash, a runtime error, or a native-module (koffi, .node) call that returns the wrong result. Attaches to the running dev app to read main, renderer and utility logs, evaluate code, take screenshots and accessibility snapshots, and click or type in the real window; for native code it leaves the JS-side evidence and guides an external native debugger."
+when_to_use: "Use it whenever the project is an Electron app (electron, electron-vite or Electron Forge in package.json) and the user asks whether the app or a page still works, wants runtime or console errors checked, wants a screenshot of the running app, or says a native function called from JS (koffi, .node addon, DLL) returns something unexpected and wants to trace into it, even if they never say 'Electron' and even if the project has its own tests. Examples: '窗口一片白', '改了 preload 帮我确认还能用', '确认页面有没有运行时报错并截图', 'the app crashes on startup', '原生模块函数返回值不对，帮我调试', 'koffi 调用的结果不符合预期'. Not for packaged apps, for pure type and build errors, or for native crashes and hangs (no verified procedure yet)."
 license: MIT
 ---
 
@@ -15,13 +15,25 @@ MCP 连接 Agent 已启动的 Electron 应用，返回主进程、renderer（可
 
 先判断归属再选通道：启动、窗口创建、文件系统、数据库、自动更新、IPC handler、崩溃先查主进程；DOM、白屏、前端异常、事件绑定、网络、视觉先查 renderer；preload、contextBridge、IPC 两个通道都查。
 
-1. **确认应用**：开发者常已开着 `pnpm dev`。先查进程命令行（Windows：`Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Select ProcessId,CommandLine`，在 Git Bash 里要整条放进 `powershell -NoProfile -Command "…"`，管道里的 `$_` 写成 `\$_`；macOS/Linux：`ps -eo args | grep -i electron`）。已带 `--inspect=`、`--remote-debugging-port=` 就用其中的端口；没带的话通常用项目已有的启动命令加这两个参数重启。是否重启、能否停掉用户正在跑的实例由你判断，拿不准就问用户。各启动方式见 [references/launch.md](references/launch.md)。
+1. **确认应用**：开发者常已开着 `pnpm dev`，先查进程命令行再决定。
+   - Windows：`Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | Select ProcessId,CommandLine`；在 Git Bash 里要整条放进 `powershell -NoProfile -Command "…"`，管道里的 `$_` 写成 `\$_`。macOS、Linux：`ps -eo args | grep -i electron`。
+   - 已带 `--inspect=`、`--remote-debugging-port=` 就用其中的端口；没带的话通常用项目已有的启动命令加这两个参数重启。是否重启、能否停掉用户正在跑的实例由你判断，拿不准就问用户。各启动方式见 [references/launch.md](references/launch.md)。
 2. **连接**：`electron_attach`，按返回的通道状态确认。只查一侧就连一侧，preload / IPC 连两侧。多窗口用 `electron_targets` 的 `title`、`url`（要完全相等）选页面，重名用 `targetId`。反复失败见 [references/troubleshooting.md](references/troubleshooting.md)。
-3. **操作**：改了代码先交给热更新或自动重启（附加了原生调试器时，重启会让调试会话失效，见 [references/native.md](references/native.md)）；没有的话，renderer 用 `electron_evaluate` 执行 `location.reload()`，主进程需要重启，preload 至少要 reload，拿不准就重启，重启后重新 attach。走界面先 `electron_dom_snapshot`，再 `electron_click` / `electron_type`（传 ref，或 `role` 加 `name`），记下 `afterSeq`；原生对话框提示用户人工操作。细节见 [references/evidence.md](references/evidence.md)。
-4. **等待与取证**：先读日志和状态，再求值；用 `electron_wait_for` 等明确的信号，不用固定 sleep，两个通道各等各的。只看本次操作之后的事件：`log.afterSeq` 传 `afterSeq`，或 `electron_logs` 传 `sinceAttach: true`；等待结果带 `beforeAttach: true` 的是历史，不能当本次证据。主进程求值没有全局 `require`，用 `process.mainModule.require('electron')`，见 [references/evaluate.md](references/evaluate.md)。
+3. **操作**：
+   - 改了代码先交给热更新或自动重启；没有的话，renderer 用 `electron_evaluate` 执行 `location.reload()`，主进程需要重启，preload 至少要 reload，拿不准就重启，重启后重新 attach。附加了原生调试器时，重启会让调试会话失效，见 [references/native.md](references/native.md)。
+   - 走界面先 `electron_dom_snapshot`，再 `electron_click` / `electron_type`（传 ref，或 `role` 加 `name`），记下 `afterSeq`；原生对话框提示用户人工操作。细节见 [references/evidence.md](references/evidence.md)。
+4. **等待与取证**：
+   - 先读日志和状态，再求值；用 `electron_wait_for` 等明确的信号，不用固定 sleep，两个通道各等各的。
+   - 只看本次操作之后的事件：`log.afterSeq` 传 `afterSeq`，或 `electron_logs` 传 `sinceAttach: true`；等待结果带 `beforeAttach: true` 的是历史，不能当本次证据。
+   - 主进程求值没有全局 `require`，用 `process.mainModule.require('electron')`，见 [references/evaluate.md](references/evaluate.md)。
 5. **判定**：对照证据矩阵写结论；证据不够回到第 3 步，取不到所需通道就报告 `BLOCKED`，不要归因于业务代码。
 
-点击、输入和求值会改变应用状态，只用于验证。允许求值时，attach 会在主进程里装 IPC 和对话框的记录包装，应用重启前移除不了：用 `instrument` 选装哪些，用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 全关（求值、点击输入、utility 一并不可用），见 evidence.md。网络、断点、拖拽悬停、性能分析不提供，替代做法见 [references/alternatives.md](references/alternatives.md)。原生模块（koffi、`.node` 插件）的崩溃、卡死，或要从 JS 调用跟到原生函数里执行，超出本工具范围：先留下 JS 侧证据，再经用户同意安装 WinDbg、LLDB 等外部调试器 MCP 配合；调试函数结果需要原生源码和 PDB，本机找不到就问用户，见 [references/native.md](references/native.md)。
+## 边界
+
+- 点击、输入和求值会改变应用状态，只用于验证。
+- 允许求值时，attach 会在主进程里装 IPC 和对话框的记录包装，应用重启前移除不了：用 `instrument` 选装哪些，用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 全关（求值、点击输入、utility 一并不可用），见 [references/evidence.md](references/evidence.md)。
+- 网络、断点、拖拽悬停、性能分析不提供，替代做法见 [references/alternatives.md](references/alternatives.md)。
+- 原生模块（koffi、`.node` 插件）里要从 JS 调用跟到原生函数执行、定位返回值不对的原因，超出本工具范围：先留下 JS 侧证据，再经用户同意安装 WinDbg、LLDB 等外部调试器 MCP 配合，需要原生源码和 PDB，本机找不到就问用户，见 [references/native.md](references/native.md)；启动期的原生调用见 [references/native-startup.md](references/native-startup.md)。原生崩溃和卡死目前没有验证过的流程。
 
 ## 证据矩阵
 
@@ -42,4 +54,4 @@ MCP 连接 Agent 已启动的 Electron 应用，返回主进程、renderer（可
 
 ## 接入
 
-随包运行文件是 `runtime/launch.cjs`（Node.js 20+）。先执行 `node <absolute-skill-directory>/runtime/launch.cjs --verify`，失败或文件缺失就报告 `BLOCKED`，不要下载或在本机构建。默认注册为本地 stdio MCP Server 并确认 10 个工具可见；宿主不能注册时用批处理模式（`launch.cjs --run`，参数形状用 `launch.cjs --tools` 查）。详见 [references/mcp-setup.md](references/mcp-setup.md)，版本见 [VERSION.md](VERSION.md)。
+随包运行文件是 `runtime/launch.cjs`（Node.js 20+）。先执行 `node <absolute-skill-directory>/runtime/launch.cjs --verify`，失败或文件缺失就报告 `BLOCKED`，不要下载或在本机构建。默认注册为本地 stdio MCP Server 并确认 10 个工具可见；宿主不能注册时用批处理模式（`launch.cjs --run`，参数形状用 `launch.cjs --tools` 查）。详见 [references/mcp-setup.md](references/mcp-setup.md)。当前版本看 `runtime/manifest.json`；`VERSION.md` 是给人读的变更记录，不用加载。
