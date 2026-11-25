@@ -1,5 +1,10 @@
 # 版本记录
 
+## 1.6.1
+
+- 运行文件（MCP 0.7.0）、`SKILL.md` 和 `references/` 与 1.6.0 相同，只有这份版本记录和 manifest 里的 Skill 版本号变化。
+- 重新发布的原因：OneTool 平台上的简要和详细描述已按平台描述规范改写（使用须知、接入与来源、合并后的故障排除、三个经典案例），平台只在包内容变化时才接受描述更新。
+
 ## 1.6.0
 
 - MCP 0.7.0：主进程通道追踪 IPC。依据：preload/IPC 是双通道诊断的核心场景，此前主进程一侧只能靠应用自己打日志或用求值读副作用；社区的浏览器类工具（agent-browser、chrome-devtools-mcp）连不上主进程。attach 后在主进程包装 `ipcMain`，时间线新增 `kind: "ipc"` 事件：`invoke` 的成功、失败与错误信息（attach 前后注册的 handler 都覆盖），`send`/`sendSync` 的处理结果，没有监听者时为 warn。只记录通道、耗时、结果和参数大小，不含参数值；每通道每秒最多 20 条。只在主进程通道在线且未设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 时启用，失败时写警告。

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "skillVersion": "1.6.0",
+  "skillVersion": "1.6.1",
   "mcpVersion": "0.7.0",
   "entry": "server.cjs",
   "sourceDigest": "f42cfc73869f546ddeb2b97e398f457fd475d4dfe629d05f6af0adc68e64b66c",
