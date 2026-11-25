@@ -20,6 +20,6 @@
 | 项目的启动方式 | 怎么传 |
 | --- | --- |
 | `electron .`，或构建后直接运行 | `electron . --inspect=<I> --remote-debugging-port=<R>` |
-| electron-vite（脚本是 `electron-vite dev`） | `electron-vite dev --inspect <I> --remoteDebuggingPort <R>`；脚本被包了一层时设环境变量 `V8_INSPECTOR_PORT=<I>`、`REMOTE_DEBUGGING_PORT=<R>` 再照常运行 |
+| electron-vite（脚本是 `electron-vite dev`） | `electron-vite dev --inspect <I> --remoteDebuggingPort <R>`；脚本被包了一层时设环境变量 `V8_INSPECTOR_PORT=<I>`、`REMOTE_DEBUGGING_PORT=<R>` 再照常运行（已在 pnpm 加 turbo 包了两层的项目上实测：`pnpm dev:desktop` 前设这两个变量，electron 的命令行里出现了 `--inspect` 和 `--remote-debugging-port`；turbo 要带 `--env-mode=loose`，变量才会传下去） |
 | Electron Forge | `electron-forge start --inspect-electron -- --remote-debugging-port=<R>`（官方文档的写法，未实测；主进程端口以 `electron_attach` 的结果为准） |
 | vite-plugin-electron（脚本是 `vite`） | 插件固定用 `electron . --no-sandbox` 启动，命令行参数和 `ELECTRON_EXTRA_LAUNCH_ARGS` 都传不进去。先构建（如 `vite build`），再按第一行用 `electron .` 运行；这样跑的是构建产物，不带开发服务器的热更新 |

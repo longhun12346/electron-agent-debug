@@ -513,4 +513,10 @@ Skill 只能规定 Agent 在修改后执行验证。真正的自动触发由 Age
 - 事件缓存最大条数和字节数。
 - 截图输出路径约束：目录由宿主配置，文件名由工具生成，只保留最近 50 张。
 
-安全上限允许 Agent 在调用时进一步收紧；没有 Agent 提供的任何 endpoint 时，MCP 不猜测、不扫描、不回退到固定值；只提供一个 endpoint 时允许部分诊断。target 选择条件只在存在多个候选时必需。
+安全上限允许 Agent 在调用时进一步收紧；没有 Agent 提供的任何 endpoint 时，MCP 不猜测、不扫描、不回退到固定值；只提供一个 endpoint 时允许部分诊断。
+
+## 12. 待办
+
+- 原生模块崩溃后的 dump 分析：`skill/electron-debug/references/native.md` 的场景三只按官方文档写了流程。需要在真实的原生崩溃上验证三件事：dump 怎么生成（Electron 自带的 crashpad，或 Windows 的 WER LocalDumps、ProcDump）、`open_cdb_dump` 打开后 `!analyze -v` 和 `kn` 能否定位到原生模块、符号怎么配。
+- 原生进程卡死时看所有线程的栈：同一节的 `~*kn` 流程，需要在真实的卡死（原生调用阻塞主线程）上验证，并确认附加和 `qqd` 退出后应用能恢复。
+- 其余没有实测的原生调试内容记在 `skill/electron-debug/VERSION.md` 1.6.2 条目的“没有实测”里（macOS、Linux 的 LLDB 流程、`-y`、`-srcpath`、`-hd` 选项、`sxe ld:`、electron-vite 的 `--inspect-brk` 写法）。target 选择条件只在存在多个候选时必需。

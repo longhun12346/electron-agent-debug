@@ -125,7 +125,7 @@ function failureHint(channel: Channel, error: unknown): string | undefined {
   }
   if (code === "ETIMEDOUT") {
     return channel === "main"
-      ? "端口在但没有及时响应：可能被别的程序占用，或主进程停在 --inspect-brk 断点、被同步原生对话框阻塞。"
+      ? "端口在但没有及时响应：可能被别的程序占用，或主进程停在 --inspect-brk 断点、被同步原生对话框阻塞，或被原生调试器（WinDbg、LLDB）暂停。"
       : "端口在但没有及时响应：可能被别的程序占用，或应用正卡在启动中。";
   }
   if (code === "ECONNRESET") return notDebugPortHint;

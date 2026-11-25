@@ -38,7 +38,7 @@
 
 ## 不适用场景
 - **本地开发环境之外的应用**：打包后的应用（安装包，或已关闭调试开关、fuse 的构建）和远程、非回环地址的应用不在支持范围内；工具只连接已运行的应用，不负责启动、停止或重启
-- **不需要运行时观察，或本工具不提供的能力**：纯类型检查和构建问题用项目已有的检查；断点、拖拽悬停快捷键、网络抓包、性能分析不提供，Skill 的 references/alternatives.md 给出了用日志、求值等替代做法；原生对话框和系统菜单需要用户人工操作
+- **不需要运行时观察，或本工具不提供的能力**：纯类型检查和构建问题用项目已有的检查；断点、拖拽悬停快捷键、网络抓包、性能分析不提供，Skill 的 references/alternatives.md 给出了用日志、求值等替代做法；原生对话框和系统菜单需要用户人工操作；koffi、`.node` 插件等原生代码内部的崩溃、卡死和单步跟踪也不在范围内，Skill 会先留下 JS 侧证据，再指引 Agent 经用户同意安装 WinDbg、LLDB 等外部调试器 MCP 配合，对着原生源码和 PDB 从 JS 调用跟到原生函数
 - **带真实生产凭据的应用**：输出不做脱敏，只应连接本地开发环境的应用（详见“使用须知”）
 
 ## 依赖要求
@@ -80,7 +80,7 @@
 
 被诊断的应用要带 --inspect 和 --remote-debugging-port 启动；electron-vite、Electron Forge 等各启动方式怎么传参，见 Skill 的 references/launch.md。
 
-版本：Skill 1.6.1（MCP 0.7.0），变更记录见包内 VERSION.md；许可证 MIT；源码与发布说明：https://github.com/longhun12346/electron-agent-debug
+版本：Skill 1.6.2（MCP 0.7.0），变更记录见包内 VERSION.md；许可证 MIT；源码与发布说明：https://github.com/longhun12346/electron-agent-debug
 
 ## 故障排除
 ### attach 连不上，或某个通道不可用
