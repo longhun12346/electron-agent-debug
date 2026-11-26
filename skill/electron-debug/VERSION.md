@@ -5,6 +5,7 @@
 - 运行文件（MCP 0.7.0）与 1.6.2 相同，改的是 `SKILL.md` 和 `references/`。
 - 接入：`electron_*` 工具已可见就不再注册；需要注册 MCP 时先问用户，注册后提醒重载，重载前用批处理模式完成本次任务。`mcp-setup.md` 增加 Claude Code、Codex、pi、dsh 的注册方式，Codex、pi、dsh 只依据官方文档，没有实测。批处理小节补充：端口连不上时整批仍是 `ok: true`，上一次执行的 `afterSeq` 和 ref 带不到下一次。
 - 修正：Windows 查进程的命令改成每个进程一行（`Select` 会截断，`Format-List` 会折行，末尾的 `--inspect` 参数可能看不全）；vite-plugin-electron 可以带参数启动；`--inspect-brk` 的开关写法随启动工具而异，没有实测；`electron_logs` 默认只返回最近 100 条；`sinceAttach` 只排除 attach 时重放的历史；IPC 事件带发送方地址；utility 连接会在主进程同步执行 netstat 或 lsof；`ELECTRON_DEBUG_ALLOW_EVAL` 写成无法识别的值时仍是开启；补充调试端口没有认证的提示；性能分析和内存泄漏分析不提供。
+- 原生模块调试放到前面：`SKILL.md` 的 `description` 加上原生函数结果不对的触发和中文例句，正文新增“原生模块调试”一节，边界里不再把它写成超出范围；README 开头和平台描述（简要描述、功能简介、适用场景、依赖要求、使用须知、案例四）同步。
 - 新增：仓库根的 `.claude-plugin/marketplace.json`，Claude Code 可以把本仓库当插件市场，一次装好 Skill 并注册 MCP（只用本地目录验证过，没有从 GitHub 安装过）。
 
 ## 1.6.2

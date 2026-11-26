@@ -1,8 +1,8 @@
 # electron-agent-debug
 
-> Attach-only runtime diagnostics for Electron apps, as an MCP server plus an [Agent Skill](https://agentskills.io). It reads main, renderer and utility logs, evaluates code, takes screenshots and accessibility snapshots, and clicks and types in the real window. When a native call (koffi, `.node`) misbehaves, the Skill leaves the JS-side evidence and guides an external native debugger. Node.js 20+, no install step for the runtime.
+> Attach-only runtime diagnostics for Electron apps, as an MCP server plus an [Agent Skill](https://agentskills.io). It reads main, renderer and utility logs, evaluates code, takes screenshots and accessibility snapshots, and clicks and types in the real window. When a native call (koffi, `.node`) misbehaves, the Skill leaves the JS-side evidence, then guides an external debugger (WinDbg/cdb on Windows) from the JS call into the native function; verified on Windows only. Node.js 20+, no install step for the runtime.
 
-一个面向编码 Agent 的 Electron 运行时诊断能力和使用指南。
+一个面向编码 Agent 的 Electron 运行时诊断能力和使用指南，特色是能从 JS 调用一路调试到 koffi、`.node` 原生函数。
 
 项目提供两类内容：
 
@@ -10,6 +10,8 @@
 2. 通过 Skill 给出使用建议和证据矩阵。Skill 只是指导，能力由 MCP 提供。
 
 项目不替 Agent 判断业务是否正确；业务回归和最终结论由 Agent 完成。
+
+**原生模块调试**：Electron 项目用 koffi 或 `.node` 插件调用原生代码、结果不对时，Skill 指引 Agent 先留下 JS 侧证据，再经你同意安装外部调试器 MCP（Windows 用 mcp-windbg 驱动 cdb），在原生函数上下断点，看参数和变量，对照源码定位问题，改完重新编译部署再验证；应用启动时就执行的原生调用也有对应做法。只在 Windows 上验证过，完整例子见下面的“示例”一节。
 
 项目由两部分组成：
 
