@@ -4,7 +4,7 @@
 
 ## IPC
 
-主进程通道在线且未禁用求值时，时间线自动记录主进程收到的每条 IPC（`kind` 为 `ipc`）：`invoke` 的成功或失败与错误信息，`send` / `sendSync` 没有监听者时为 warn。只记录通道名、耗时、结果、错误信息、参数大小和发送方（`senderId`、`senderUrl`，地址里可能带令牌），不含参数值。用 `electron_wait_for` 等 `IPC invoke <通道>` 即可确认调用到达主进程以及结果。main 侧证据也可以在 renderer 触发调用后，用 `electron_evaluate`(main) 读副作用，如文件是否落盘、状态是否变化。
+attach 时传 `instrument: ["ipc"]` 才会记录主进程收到的 IPC，不传就没有 `ipc` 事件；等 `IPC invoke <通道>` 超时而没有装追踪时，结果的 hint 会说明这一点。装上后（主进程通道在线且未禁用求值），时间线记录每条 IPC（`kind` 为 `ipc`）：`invoke` 的成功或失败与错误信息，`send` / `sendSync` 没有监听者时为 warn。只记录通道名、耗时、结果、错误信息、参数大小和发送方（`senderId`、`senderUrl`，地址里可能带令牌），不含参数值。用 `electron_wait_for` 等 `IPC invoke <通道>` 即可确认调用到达主进程以及结果。main 侧证据也可以在 renderer 触发调用后，用 `electron_evaluate`(main) 读副作用，如文件是否落盘、状态是否变化。
 
 ## 崩溃
 
@@ -27,10 +27,10 @@ renderer 页面崩溃时连接不会断：`electron_status` 的 renderer 变为 
 
 ## attach 会在应用里装什么
 
-`ELECTRON_DEBUG_ALLOW_EVAL` 没有关闭时，attach 主进程会在应用里装上记录用的包装：`ipcMain.emit`、`ipcMain` 的 invoke 处理表和 `dialog` 的各个函数，另有两个 `Runtime.addBinding`。它们不上报参数值（会对参数做 JSON 序列化来计算大小），应用重启前不会移除。utility 连接还会在应用里调用未公开的 `process._debugProcess`，并在主进程里同步执行 `netstat`（Windows）或 `lsof` 查监听端口（每次最多阻塞约 3 秒）。不想让工具改动应用：只想少装一部分，给 `electron_attach` 传 `instrument`（`["ipc"]`、`["dialogs"]` 或 `[]`，不传沿用上一次的选择，结果的 `instrumented` 列出实际装了什么）；要连求值、点击输入、utility 一起关掉，就设 `ELECTRON_DEBUG_ALLOW_EVAL=0`。
+attach 默认不往应用里装任何东西。传 `instrument` 才会在主进程里装记录用的包装（`ELECTRON_DEBUG_ALLOW_EVAL` 没有关闭时）：`["ipc"]` 包装 `ipcMain.emit` 和 `ipcMain` 的 invoke 处理表，`["dialogs"]` 包装 `dialog` 的各个函数，每种各带一个 `Runtime.addBinding`。它们不上报参数值（会对参数做 JSON 序列化来计算大小），应用重启前不会移除。utility 连接还会在应用里调用未公开的 `process._debugProcess`，并在主进程里同步执行 `netstat`（Windows）或 `lsof` 查监听端口（每次最多阻塞约 3 秒）。不传 `instrument` 沿用上一次的选择，第一次是什么都不装；传 `[]` 表示不再装新的，已装上的要重启应用才会移除；结果的 `instrumented` 列出实际装了什么。要连求值、点击输入、utility 一起关掉，就设 `ELECTRON_DEBUG_ALLOW_EVAL=0`。
 
 ## 点击、输入和对话框
 
 - 点击被弹层挡住（`ELEMENT_COVERED`）时，一般先处理弹层。`element.click()` 不是真实点击（`isTrusted` 为 false），只在你清楚后果时当退路。
 - 只有最近一次快照里的 ref 可用，页面重新渲染后换 ref 或改用 `role` 加 `name`；批处理每次执行都是新进程，上一次的 ref 无效。
-- 原生对话框和菜单提示用户人工操作；`electron_status` 的 `dialogs` 列出正在等用户的对话框，`blocking` 为 `true` 时对应进程在关闭前不响应，不要反复重试。
+- 原生对话框和菜单提示用户人工操作；`electron_status` 的 `dialogs` 列出正在等用户的对话框（页面的 JavaScript 对话框总是列出，原生对话框要 attach 时传 `instrument: ["dialogs"]`），`blocking` 为 `true` 时对应进程在关闭前不响应，不要反复重试。

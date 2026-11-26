@@ -148,10 +148,18 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+async function drainStdin(): Promise<void> {
+  try {
+    for await (const _chunk of process.stdin) { /* discarded */ }
+  } catch { /* nothing left to read */ }
+}
+
 export async function runBatchFromStdin(): Promise<void> {
-  const manager = new SessionManager();
+  let manager: SessionManager | undefined;
   let batch: BatchResult;
   try {
+    // Reading the configuration can fail (an invalid value in the environment); that is an answer to give, not a crash.
+    manager = new SessionManager();
     let input: unknown;
     try {
       input = JSON.parse(await readStdin());
@@ -160,12 +168,14 @@ export async function runBatchFromStdin(): Promise<void> {
     }
     batch = await runBatch(input, manager);
   } catch (error) {
+    // A caller that is still writing its input would get EPIPE if the answer came first, so read the rest and discard it.
+    if (manager === undefined) await drainStdin();
     batch = {
       ok: false,
       results: [{ tool: "(batch)", ok: false, result: errorResult(toDiagnosticError(error, "INVALID_ARGUMENT")) }],
     };
   } finally {
-    await manager.close();
+    await manager?.close();
   }
   process.stdout.write(`${JSON.stringify(batch)}\n`);
   process.exitCode = batch.ok ? 0 : 1;

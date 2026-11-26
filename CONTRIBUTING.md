@@ -102,7 +102,7 @@ node examples/host-e2e/smoke.mjs claude <absolute-claude-executable> [--scenario
 | `devtools-windows` | 开发构建：DevTools 加两个窗口，选对窗口再读取（field 应用） | 工具连到 `Field App` 窗口；无障碍树读到它的标题；向主进程询问了窗口数 |
 | `click-save` | 按钮不按就什么都不会发生：自己按下，再读两侧证据（field 应用） | 用 `electron_click` 按下 Save，点击之后读到 renderer 和主进程各自的失败日志 |
 | `stale-save` | 保存处理已修好，但 attach 会重放旧的失败，只有现在按下才知道真相 | 按下 Save 之后读到 `FIELD_SAVE_OK` 和主进程的保存请求 |
-| `sync-mismatch` | 按钮什么都不做，没有报错：消息发到了没人监听的 IPC 通道 | 按下 Sync 之后读到该通道没有监听者的 IPC 事件 |
+| `sync-mismatch` | 按钮什么都不做，没有报错：消息发到了没人监听的 IPC 通道 | 按下 Sync 之后读到该通道没有监听者的 IPC 事件（attach 时要传 `instrument: ["ipc"]`） |
 
 每个场景还带一份脚本化的参考解法。`node examples/host-e2e/reference.mjs [场景名…]` 不调用模型，直接对真实 fixture 回放参考解法并套用同样的断言，已加入 `ci-smoke.mjs`，用来保证场景能用现有工具完成、断言接受正确的运行。新增场景时先写参考解法并让它通过，再让真实宿主跑。
 

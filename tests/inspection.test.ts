@@ -314,9 +314,25 @@ test("attach installs the wrappers the agent asks for, remembers the choice, and
     try {
       const result = await defaults.attach(endpoints);
       assert.ok(result.ok && result.data.main.online);
-      assert.ok(wrapperWarnings(defaults).length > 0, "by default both wrappers are tried (the fake app cannot take them)");
+      assert.deepEqual(result.data.instrumented, []);
+      assert.deepEqual(wrapperWarnings(defaults), [], "a plain attach tries to install nothing");
+      // Waiting for an IPC event that nothing records says so, instead of just timing out.
+      const waited = await defaults.inspector.waitFor({
+        condition: { kind: "log", contains: "IPC invoke notes:save", process: "main" }, timeoutMs: 300,
+      });
+      assert.ok(!waited.ok);
+      assert.match(String((waited.error.details as { hint?: string } | undefined)?.hint), /instrument/u);
     } finally {
       await defaults.close();
+    }
+
+    const asked = new SessionManager(config());
+    try {
+      const result = await asked.attach({ ...endpoints, instrument: ["ipc", "dialogs"] });
+      assert.ok(result.ok && result.data.main.online);
+      assert.ok(wrapperWarnings(asked).length > 0, "when asked, both wrappers are tried (the fake app cannot take them)");
+    } finally {
+      await asked.close();
     }
   } finally {
     child.kill();

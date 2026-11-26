@@ -31,6 +31,7 @@ export interface RuntimeConfig {
 }
 
 function boundedInteger(
+  name: string,
   value: string | undefined,
   fallback: number,
   minimum: number,
@@ -44,33 +45,51 @@ function boundedInteger(
   if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
     throw new DiagnosticException(
       "ENDPOINT_CONFIG_INVALID",
-      "诊断配置中的数值超出允许范围",
-      { details: { minimum, maximum } },
+      `${name} 必须是 ${minimum} 到 ${maximum} 之间的整数`,
+      {
+        hint: `修改宿主 MCP 配置 env 里的 ${name}，或删掉它使用默认值 ${fallback}`,
+        details: { variable: name, minimum, maximum, default: fallback },
+      },
     );
   }
   return parsed;
+}
+
+const evalOff = ["0", "false", "off", "no", "disabled"];
+const evalOn = ["1", "true", "on", "yes", "enabled"];
+
+// A switch that limits what the agent may do must not fall open on a value it does not recognise: a typo such as
+// "none" or "disable" would silently leave evaluation on while the host believes it is off.
+function parseAllowEval(value: string | undefined): boolean {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (normalized === "" || evalOn.includes(normalized)) return true;
+  if (evalOff.includes(normalized)) return false;
+  throw new DiagnosticException(
+    "ENDPOINT_CONFIG_INVALID",
+    "ELECTRON_DEBUG_ALLOW_EVAL 的值无法识别",
+    {
+      hint: `关闭求值写 ${evalOff.join("、")} 之一，开启写 ${evalOn.join("、")} 之一，或删掉这个变量（默认开启）`,
+      details: { variable: "ELECTRON_DEBUG_ALLOW_EVAL", off: evalOff, on: evalOn },
+    },
+  );
 }
 
 export function readRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   return {
     mainUrl: env[environmentNames.mainUrl],
     rendererUrl: env[environmentNames.rendererUrl],
-    requestTimeoutMs: boundedInteger(env.ELECTRON_DEBUG_REQUEST_TIMEOUT_MS, 3_000, 100, 30_000),
-    discoveryTimeoutMs: boundedInteger(
-      env.ELECTRON_DEBUG_DISCOVERY_TIMEOUT_MS,
-      3_000,
-      100,
-      30_000,
-    ),
-    maxLogEvents: boundedInteger(env.ELECTRON_DEBUG_MAX_LOG_EVENTS, 500, 10, 10_000),
-    maxLogBytes: boundedInteger(env.ELECTRON_DEBUG_MAX_LOG_BYTES, 1_048_576, 4_096, 16_777_216),
+    requestTimeoutMs: boundedInteger("ELECTRON_DEBUG_REQUEST_TIMEOUT_MS", env.ELECTRON_DEBUG_REQUEST_TIMEOUT_MS, 3_000, 100, 30_000),
+    discoveryTimeoutMs: boundedInteger("ELECTRON_DEBUG_DISCOVERY_TIMEOUT_MS", env.ELECTRON_DEBUG_DISCOVERY_TIMEOUT_MS, 3_000, 100, 30_000),
+    maxLogEvents: boundedInteger("ELECTRON_DEBUG_MAX_LOG_EVENTS", env.ELECTRON_DEBUG_MAX_LOG_EVENTS, 500, 10, 10_000),
+    maxLogBytes: boundedInteger("ELECTRON_DEBUG_MAX_LOG_BYTES", env.ELECTRON_DEBUG_MAX_LOG_BYTES, 1_048_576, 4_096, 16_777_216),
     maxProtocolMessageBytes: boundedInteger(
+      "ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES",
       env.ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES,
       268_435_456,
       4_096,
       268_435_456,
     ),
-    allowEval: !["0", "false", "off", "no", "disabled"].includes((env.ELECTRON_DEBUG_ALLOW_EVAL ?? "").trim().toLowerCase()),
+    allowEval: parseAllowEval(env.ELECTRON_DEBUG_ALLOW_EVAL),
     outputDir: env.ELECTRON_DEBUG_OUTPUT_DIR?.trim() || undefined,
   };
 }

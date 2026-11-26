@@ -1,5 +1,16 @@
 # 版本记录
 
+## 1.7.0
+
+- MCP 0.8.0，运行文件变了，其中第一条不兼容：
+  - attach 默认不往应用里装任何东西（此前默认装 IPC 和对话框的追踪包装）。要记录主进程收到的 IPC 传 `instrument: ["ipc"]`，要监测原生对话框传 `["dialogs"]`。依据：skills.sh 上 Snyk 把“默认就装包装并允许求值”判为 CRITICAL，装进应用的包装重启前移除不了，应该由 Agent 决定。靠默认拿到 IPC 事件或对话框状态的调用方，要在 attach 时传 `instrument`；等 `IPC invoke` 超时而没有装追踪时，结果的 hint 会说明。
+  - `ELECTRON_DEBUG_ALLOW_EVAL` 写成无法识别的值（如 `none`）不再静默开启求值，而是返回 `ENDPOINT_CONFIG_INVALID`；`1`、`true`、`on`、`yes`、`enabled` 明确开启。
+  - 配置值无效（环境变量越界、`ELECTRON_DEBUG_ALLOW_EVAL` 无法识别）时不再让进程崩溃、stderr 打印上百 KB：MCP 照常启动，每个工具返回 `ENDPOINT_CONFIG_INVALID`，消息写明变量名、允许范围和怎么改；批处理模式输出一行 JSON，退出码为 1。
+  - attach 没有任何通道连上时返回失败（`ok: false`、`isError`），`data.errors` 保留各通道的原因；批处理里这一步失败后停止后续步骤，退出码为 1。至少连上一个通道时仍是成功。
+- 另有几处小修：端点能连上、只是要选页面（`TARGET_SELECTION_REQUIRED`）时 attach 仍是成功；`instrument` 在求值被禁用时返回 `INSTRUMENT_NOT_ALLOWED` 警告；等 `IPC invoke` 超时的提示只对主进程通道上带 IPC 事件名的等待出现，并区分求值被禁用、没有主进程通道和没装追踪三种情况；配置无效时批处理先读完输入再回答，不会让写入方收到 EPIPE；原生对话框相关的说明和主进程超时提示写明要传 `instrument: ["dialogs"]`。
+- `SKILL.md` 和 `references/` 同步：attach 步骤说明按需传 `instrument`，IPC 示例和证据矩阵里的 attach 带 `instrument: ["ipc"]`，`evidence.md`、平台描述、README 和需求文档改成“默认不装”。
+- 没有改的：求值仍默认开启（只连回环地址），它是诊断的核心能力，宿主可以用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 关闭。Snyk 重新审计后评级是否变化没有确认。
+
 ## 1.6.5
 
 - 运行文件（MCP 0.7.0）与 1.6.4 相同，只改 `SKILL.md` 和 `references/`。依据：把官方 Skill 写作清单重新逐条对照了一遍。

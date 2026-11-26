@@ -34,6 +34,9 @@ const logsSchema = z.object({
   clear: z.boolean().optional(),
 });
 
+// The endpoint answered; what is missing is a choice of page, which the caller fixes with a selector. Not a dead connection.
+const selectableCodes = new Set(["TARGET_SELECTION_REQUIRED", "TARGET_NOT_FOUND"]);
+
 export const coreTools = [
   defineTool({
     name: "electron_attach",
@@ -41,11 +44,17 @@ export const coreTools = [
     description:
       "连接 Agent 提供的本地主进程 Inspector 和/或 renderer CDP endpoint；不启动 Electron；应用由 Agent 用项目已有命令启动（加 --inspect 和 --remote-debugging-port）。" +
       "utility 传 utility process 的名字（fork 的 serviceName）或 pid：工具通过已连接的主进程找到它并打开调试口，作为独立的第三通道，与主进程、renderer 同时在线；需要主进程在线且允许执行代码。" +
-      "允许执行代码时，attach 默认在主进程里装上 IPC 追踪和原生对话框追踪的包装（应用重启前不会移除）；instrument 传 [\"ipc\"]、[\"dialogs\"] 或 [] 可以只装一部分或都不装，不传沿用上一次的选择，结果的 instrumented 列出实际装了什么。",
+      "attach 默认什么都不往应用里装。要记录主进程收到的 IPC（`IPC invoke <通道>` 事件）就传 instrument: [\"ipc\"]，要监测原生对话框就传 [\"dialogs\"]，两者都要就都传；包装只在允许执行代码时能装，装进应用后重启前不会移除。不传 instrument 沿用上一次的选择，结果的 instrumented 列出实际装了什么。没有任何通道连上时返回失败（ok 为 false，data.errors 里是各通道的原因）；端点能连上、只是要选页面（TARGET_SELECTION_REQUIRED）时仍是成功，按提示用 title、url 或 targetId 选页面。",
     inputSchema: attachSchema,
     handler: async (manager, input) => {
       const parsed = parseAttachInput(input);
       const result = await manager.attach(parsed);
+      // attach answers ok when it could talk to the app at all and lists per-channel problems in `errors`. When no channel
+      // ended up online that is a failed attach for the caller, not a success with a footnote.
+      const reachable = result.ok && result.data.errors.some((error) => selectableCodes.has(error.code));
+      if (result.ok && !reachable && result.data.errors.length > 0 && !result.data.main.online && !result.data.renderer.online && !result.data.utility.online) {
+        return toolResult({ ok: false as const, error: result.data.errors[0]!, data: result.data }, true);
+      }
       return toolResult(result, !result.ok);
     },
   }),

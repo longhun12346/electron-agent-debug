@@ -199,14 +199,31 @@ export class Inspector {
       })
       .map(([name]) => name);
     const gap = this.deps.logGap(condition.process, condition.afterSeq);
-    if (offlineChannels.length === 0 && !gap) return {};
+    // IPC events exist only when attach installed the tracing; waiting for one without it can never succeed.
+    const ipcNotTraced = (scope === "all" || scope === "main") && /\bIPC (invoke|send|sendSync)\b/u.test(condition.contains)
+      && !this.deps.main.instrumented().includes("ipc");
+    if (offlineChannels.length === 0 && !gap && !ipcNotTraced) return {};
+    const reasons = [
+      ...(offlineChannels.length > 0 ? [`通道 ${offlineChannels.join("、")} 已离线（先用 electron_status 看原因）`] : []),
+      ...(gap ? ["缓冲区满过、所请求范围内的事件可能已被丢弃（缩短取证间隔，或调大 ELECTRON_DEBUG_MAX_LOG_EVENTS）"] : []),
+      ...(ipcNotTraced ? [this.ipcNotTracedReason()] : []),
+    ];
     return {
       ...(offlineChannels.length > 0 ? { offlineChannels } : {}),
       ...(gap ? { gap: true } : {}),
-      hint: "日志条件没有命中，但" + (offlineChannels.length > 0 ? `通道 ${offlineChannels.join("、")} 已离线（先用 electron_status 看原因）` : "") +
-        (offlineChannels.length > 0 && gap ? "，且" : "") +
-        (gap ? "缓冲区满过、所请求范围内的事件可能已被丢弃（缩短取证间隔，或调大 ELECTRON_DEBUG_MAX_LOG_EVENTS）" : "") + "。",
+      ...(ipcNotTraced ? { ipcTraced: false } : {}),
+      hint: `日志条件没有命中，但${reasons.join("；")}。`,
     };
+  }
+
+  private ipcNotTracedReason(): string {
+    if (this.deps.config.allowEval === false) {
+      return "求值被禁用（ELECTRON_DEBUG_ALLOW_EVAL=0），装不了 IPC 追踪，这个条件不会命中";
+    }
+    if (!this.deps.main.snapshot().configured) {
+      return "IPC 追踪需要主进程通道，attach 时要同时传 mainUrl 和 instrument: [\"ipc\"]";
+    }
+    return "没有安装 IPC 追踪，时间线里不会有 IPC 事件（attach 时传 instrument: [\"ipc\"]，再重新触发那次调用）";
   }
 
   async waitFor(input: WaitInput): Promise<Result<Record<string, unknown>>> {

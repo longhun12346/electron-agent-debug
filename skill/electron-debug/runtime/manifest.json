@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "skillVersion": "1.6.5",
-  "mcpVersion": "0.7.0",
+  "skillVersion": "1.7.0",
+  "mcpVersion": "0.8.0",
   "entry": "server.cjs",
-  "sourceDigest": "a6e79ca71ee9549929b3dbbea323f33e437f7c7a879137972f924023a3452448",
+  "sourceDigest": "fbc433a024bd2c4e024e8ec2c8967849e6be3ba7ac1aa76babe3d7c9c9213222",
   "files": {
     "launch.cjs": "ac2968250972cff3e35eab0a2dfddc59bbb5181703ab33df6d4a797a2660cb88",
-    "server.cjs": "fb493d79a025eceb14d139a66f695190e4c4f4777b6a668986daa7fd60a39fb6",
+    "server.cjs": "3869614a633ddc6fd29239c712895af433c11e63bb3ff2f5bd00c45ac6ccaa43",
     "THIRD_PARTY_LICENSES.txt": "3eba090b1b0a71712b84fd092b2f474eb6ab21014a1deafdddc8717f7c3e5ce2"
   }
 }

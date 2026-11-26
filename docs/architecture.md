@@ -205,7 +205,7 @@ evaluate 在代码没有开始执行时才换模式重试：编译期的 `Syntax
 
 attach 和 targets 的 `warnings` 使用这些码：`TARGET_CHANGED`（原来选中的页面已被替换）、`TARGET_SELECTOR_STALE`（之前传入的 title、url 或 targetId 不再匹配，沿用已选中的页面）、`RENDERER_NOT_ELECTRON`（renderer 端口上的不是 Electron）。
 
-允许求值时，主进程 attach 会在应用里装上记录用的包装：`ipcMain.emit`、`ipcMain` 的 invoke 处理表（IPC 追踪，事件 `kind` 为 `ipc`）和 `dialog` 的各个函数，另有两个 `Runtime.addBinding`；它们不读取参数值，应用重启前不会移除。renderer Session 除 `Runtime`、`Log` 外还启用 `Inspector`（崩溃检测）和 `Page`（对话框、截图）域。
+attach 传 `instrument` 且允许求值时，才会在主进程里装上记录用的包装（默认什么都不装）：`ipcMain.emit`、`ipcMain` 的 invoke 处理表（IPC 追踪，事件 `kind` 为 `ipc`）和 `dialog` 的各个函数，另有两个 `Runtime.addBinding`；它们不读取参数值，应用重启前不会移除。renderer Session 除 `Runtime`、`Log` 外还启用 `Inspector`（崩溃检测）和 `Page`（对话框、截图）域。
 
 `OUTPUT_TOO_LARGE` 当前只用于拒绝过大的 discovery 响应；日志事件使用 Session 自己的缓存上限，evaluate 结果超过 `maxResultBytes` 时在成功结果中标记 `truncated`，文本按 UTF-8 字节截断且不拆开多字节字符。
 
@@ -233,7 +233,7 @@ Skill 不应该复制 WebSocket 协议逻辑，也不应该自己实现一套 MC
 
 MCP 工具的 `ok` 只表示本次工具调用是否成功，不表示用户代码是否修复成功。工具成功时返回观察结果，工具失败时返回连接、协议或参数错误；最终验收结论由 Skill/Agent 结合用户目标和观察结果生成。
 
-`electron_attach` 允许部分成功：主进程和 renderer 的状态分别返回，单个通道不可用不应掩盖另一个通道的观察结果。只有请求参数或必需配置无法处理时才使用顶层 `ok: false`。
+`electron_attach` 允许部分成功：主进程和 renderer 的状态分别返回，单个通道不可用不应掩盖另一个通道的观察结果。只有请求参数或必需配置无法处理，或被请求的通道全都没有连上时才使用顶层 `ok: false`（后一种由 `electron_attach` 工具层判定，端点能连上、只是要选页面时不算失败）。
 
 ## 7. 安全和限制
 

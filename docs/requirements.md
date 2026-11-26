@@ -113,7 +113,7 @@ ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES=<optional-protocol-message-limit>
 
 可选的运行时配置（宿主设置，不是 Agent 参数）：
 
-- `ELECTRON_DEBUG_ALLOW_EVAL=0`（或 `false`）：禁用 evaluate 和 expression 型 wait_for，此时这些工具返回 `EVALUATION_NOT_ALLOWED`。默认开启，因为 endpoint 只允许回环地址。
+- `ELECTRON_DEBUG_ALLOW_EVAL=0`（或 `false`、`off`、`no`、`disabled`）：禁用 evaluate 和 expression 型 wait_for，此时这些工具返回 `EVALUATION_NOT_ALLOWED`；写成无法识别的值返回 `ENDPOINT_CONFIG_INVALID`，不会静默开启。默认开启，因为 endpoint 只允许回环地址。
 - `ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES`：单条协议消息上限，默认且最大 256 MiB（与 Puppeteer、Playwright 的 `maxPayload` 一致）。
 - `ELECTRON_DEBUG_OUTPUT_DIR`：截图输出目录，默认系统临时目录下的 `electron-agent-debug`。
 
@@ -147,6 +147,8 @@ endpoint 配置只接受用于 discovery 的本地 HTTP(S) URL；MCP 不接受 A
   "clearSelection": false
 }
 ```
+
+`instrument` 决定 attach 往应用里装什么：`["ipc"]` 记录主进程收到的 IPC，`["dialogs"]` 监测原生对话框，`[]` 不装。不传沿用上一次的选择，第一次什么都不装；装进应用的包装重启前不会移除，只在允许求值时能装。
 
 endpoint 解析优先级为：
 
@@ -238,9 +240,9 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 
 所有错误保留底层报错作为 `message`，可附可选的 `hint` 说明下一步。attach 失败按原因给出提示：端口没有进程监听（`ECONNREFUSED`，提示启动参数、`ELECTRON_RUN_AS_NODE`、`EnableNodeCliInspectArguments` fuse）、端口不响应、端口有响应但返回的不是调试协议、`mainUrl` 实际是 renderer 端口（返回 page 而没有 node target，不连接）、`rendererUrl` 实际是主进程 Inspector（只有 node target）。
 
-主进程通道在允许求值时还会追踪 IPC：通过 `Runtime.addBinding` 包装 `ipcMain`，把主进程收到的每条消息写入时间线（`kind: "ipc"`）。`invoke` 通过 Electron 的私有处理表 `ipcMain._invokeHandlers`（Map）包装，attach 前后注册的 handler 都覆盖，记录成功、失败和错误信息；表不存在时只追踪 `send`/`sendSync`，并在时间线写一条警告。`send`/`sendSync` 包装 `ipcMain.emit`，没有监听者时为 warn。没有 handler 的 `invoke` 不另记，Electron 自己会在主进程打印 `Error occurred in handler for … No handler registered`。只记录通道名、类型、耗时、结果、错误信息和参数序列化后的大小，不记录参数和返回值；每个通道每秒最多 20 条，超出的条数记在下一条的 `skipped` 里；跳过 Electron 内部通道。`webContents.ipc` 和 session 级 handler 不追踪。实测（Electron 45）：主进程监听者抛出异常时，主进程与之后的请求一起停止响应，追踪仍会在此之前记下这条失败。
+attach 传 `instrument: ["ipc"]` 且允许求值时，主进程通道还会追踪 IPC：通过 `Runtime.addBinding` 包装 `ipcMain`，把主进程收到的每条消息写入时间线（`kind: "ipc"`）。`invoke` 通过 Electron 的私有处理表 `ipcMain._invokeHandlers`（Map）包装，attach 前后注册的 handler 都覆盖，记录成功、失败和错误信息；表不存在时只追踪 `send`/`sendSync`，并在时间线写一条警告。`send`/`sendSync` 包装 `ipcMain.emit`，没有监听者时为 warn。没有 handler 的 `invoke` 不另记，Electron 自己会在主进程打印 `Error occurred in handler for … No handler registered`。只记录通道名、类型、耗时、结果、错误信息和参数序列化后的大小，不记录参数和返回值；每个通道每秒最多 20 条，超出的条数记在下一条的 `skipped` 里；跳过 Electron 内部通道。`webContents.ipc` 和 session 级 handler 不追踪。实测（Electron 45）：主进程监听者抛出异常时，主进程与之后的请求一起停止响应，追踪仍会在此之前记下这条失败。
 
-`electron_status` 和各通道快照的 `dialogs` 列出等待用户操作的对话框：renderer 通过 `Page.javascriptDialogOpening/Closed` 报告页面的 JavaScript 对话框；允许求值时，主进程在 attach 后包装 `dialog` 模块的函数，通过 `Runtime.addBinding` 报告打开和关闭（Electron 自己为页面 alert 调用的不报告，避免重复）。每项含 `process`、`kind`（`javascript` / `native`）、`type`、`blocking`、截断后的 `title`/`message` 和 `openedAt`。打开和关闭写入时间线（`kind: "dialog"`）。有阻塞的对话框时请求超时，错误的 `hint` 说明原因，`details.dialog` 给出对话框。页面崩溃时对话框随页面消失，Chromium 不发 Closed 事件，记录在 `Inspector.targetCrashed` 时清除，日志写 `closed (the page crashed)`。alert 打开时 reload 不需要特殊处理：被阻塞的页面要等对话框关闭后才会导航，那时 Closed 事件已经到达（Electron 43 实测）。
+`electron_status` 和各通道快照的 `dialogs` 列出等待用户操作的对话框：renderer 通过 `Page.javascriptDialogOpening/Closed` 报告页面的 JavaScript 对话框；attach 传 `instrument: ["dialogs"]` 且允许求值时，主进程包装 `dialog` 模块的函数，通过 `Runtime.addBinding` 报告打开和关闭（Electron 自己为页面 alert 调用的不报告，避免重复）。每项含 `process`、`kind`（`javascript` / `native`）、`type`、`blocking`、截断后的 `title`/`message` 和 `openedAt`。打开和关闭写入时间线（`kind: "dialog"`）。有阻塞的对话框时请求超时，错误的 `hint` 说明原因，`details.dialog` 给出对话框。页面崩溃时对话框随页面消失，Chromium 不发 Closed 事件，记录在 `Inspector.targetCrashed` 时清除，日志写 `closed (the page crashed)`。alert 打开时 reload 不需要特殊处理：被阻塞的页面要等对话框关闭后才会导航，那时 Closed 事件已经到达（Electron 43 实测）。
 
 #### `electron_screenshot`
 
@@ -276,7 +278,7 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 
 #### `ipc_trace`
 
-记录 IPC 的方向、通道、时间和结果，默认不记录参数值。**已实现，但不是独立工具**：主进程通道在线且允许求值时，自动把主进程收到的 IPC 写进统一时间线（`kind` 为 `ipc`），见 Phase 3。
+记录 IPC 的方向、通道、时间和结果，默认不记录参数值。**已实现，但不是独立工具**：attach 传 `instrument: ["ipc"]` 且允许求值时，把主进程收到的 IPC 写进统一时间线（`kind` 为 `ipc`），见 Phase 3。
 
 断点和暂停类的 P1 不属于当前交付。只有现有工具仍无法提供编码后验证所需的运行时事实时，才评估是否需要接入已有调试能力。
 
@@ -447,7 +449,7 @@ Skill 给出以下判断依据，具体怎么做由 Agent 根据情况决定：
 
 - 运行时检查：`electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`。
 - 统一时间线：main、renderer、utility 事件共享递增 `seq`，日志支持 `afterSeq` 续读和 `lastSeq`。
-- IPC 追踪：不新增工具，自动记录主进程收到的 `invoke`、`send`、`sendSync`（通道、耗时、结果、参数大小，不含参数值），没有监听者的消息为 warn；依赖 Electron 的私有字段，字段缺失时只追踪 `send`/`sendSync`。
+- IPC 追踪：不新增工具，attach 传 `instrument: ["ipc"]` 时记录主进程收到的 `invoke`、`send`、`sendSync`（通道、耗时、结果、参数大小，不含参数值），没有监听者的消息为 warn；依赖 Electron 的私有字段，字段缺失时只追踪 `send`/`sendSync`。
 - Skill 收敛为薄页面：5 步工作流、按修改类型列出的证据矩阵、PASS/FAIL/BLOCKED 判定；细节放进按需读取的 `references/`。
 
 仍未实现：断点、暂停、单步、调用栈、source map、原生对话框和菜单替身。与 MCP 共享核心的命令行入口以批处理模式（`launch.cjs --run`）提供，`launch.cjs --tools [工具名 ...]` 打印工具描述和 JSON Schema 作为批处理调用方的 `tools/list`；跨调用保持连接的常驻 CLI 未实现。

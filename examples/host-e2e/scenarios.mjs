@@ -359,7 +359,7 @@ electron-debug tools. Report the cause and the evidence you saw.`,
       "the IPC event showing field:sync-now had no listener was never read");
   },
   reference: [
-    { tool: "electron_attach" },
+    { tool: "electron_attach", arguments: { instrument: ["ipc"] } },
     { tool: "electron_targets", arguments: { title: "Field App" } },
     { tool: "electron_dom_snapshot" },
     snapshotClick("Sync"),

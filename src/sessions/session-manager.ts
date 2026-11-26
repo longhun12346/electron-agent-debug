@@ -34,8 +34,9 @@ export class SessionManager {
   private rendererEndpoint?: EndpointConfig;
   private rendererTargets: TargetInfo[] = [];
   private selectorChangedThisCall = false;
-  // What the agent last chose to have installed in the app; everything until it says otherwise.
-  private instrumentChoice: Instrument[] = ["ipc", "dialogs"];
+  // What the agent last chose to have installed in the app. Nothing until it asks: the wrappers stay in the app until it
+  // restarts, so installing them is the agent's decision, not a side effect of attaching.
+  private instrumentChoice: Instrument[] = [];
   private selector: TargetSelector = {};
   // The page the renderer session last inspected. The session forgets its target when the page closes; this does not,
   // so a later automatic selection of a different page is reported instead of happening silently.
@@ -93,6 +94,14 @@ export class SessionManager {
     const errors: DiagnosticError[] = [];
     const warnings: DiagnosticError[] = [];
     if (input.instrument !== undefined) this.instrumentChoice = [...new Set(input.instrument)];
+    if (input.instrument !== undefined && input.instrument.length > 0 && this.config.allowEval === false) {
+      warnings.push({
+        code: "INSTRUMENT_NOT_ALLOWED",
+        message: "求值被禁用（ELECTRON_DEBUG_ALLOW_EVAL=0），不会往应用里装 IPC 或对话框追踪",
+        retryable: false,
+        hint: "要用 IPC 追踪或对话框监测，需要宿主去掉这个设置并重启 MCP Server。",
+      });
+    }
     const resolved = this.resolveEndpoints(input, errors);
     if (!resolved.main && !resolved.renderer && input.utility === undefined) {
       return errorResult(

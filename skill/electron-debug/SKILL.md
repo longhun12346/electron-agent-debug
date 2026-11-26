@@ -32,7 +32,7 @@ MCP 连接 Agent 已启动的 Electron 应用，返回主进程、renderer（可
 1. **确认应用**：开发者常已开着 `pnpm dev`，先查进程命令行再决定。
    - Windows：`Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | ForEach-Object { "$($_.ProcessId) $($_.CommandLine)" }`（每个进程一行；`Select` 会截断长命令行，`Format-List` 会按窗口宽度折行，都可能让末尾的参数看不全）；在 Git Bash 里整条放进 `powershell -NoProfile -Command "…"`，内层的 `"` 写成 `\"`，`$` 写成 `\$`。结果里有 renderer、gpu 等子进程，主进程是命令行里没有 `--type=` 的那个。macOS、Linux：`ps -eo args | grep -i electron`。
    - 已带 `--inspect=`、`--remote-debugging-port=` 就用其中的端口；没带的话通常用项目已有的启动命令加这两个参数重启。停止或重启不是你自己启动的应用实例之前，先问用户；自己启动的实例可以直接重启。各启动方式见 [references/launch.md](references/launch.md)。
-2. **连接**：`electron_attach`，按返回的通道状态确认。只查一侧就连一侧，preload / IPC 连两侧。多窗口用 `electron_targets` 的 `title`、`url`（要完全相等）选页面，重名用 `targetId`。反复失败见 [references/troubleshooting.md](references/troubleshooting.md)。
+2. **连接**：`electron_attach`，按返回的通道状态确认。只查一侧就连一侧，preload / IPC 连两侧。attach 默认什么都不往应用里装：要看主进程收到的 IPC 就传 `instrument: ["ipc"]`，要监测原生对话框就传 `["dialogs"]`。多窗口用 `electron_targets` 的 `title`、`url`（要完全相等）选页面，重名用 `targetId`。反复失败见 [references/troubleshooting.md](references/troubleshooting.md)。
 3. **操作**：
    - 改了代码先交给热更新或自动重启；没有的话，renderer 用 `electron_evaluate` 执行 `location.reload()`，主进程需要重启，preload 至少要 reload，拿不准就重启，重启后重新 attach。附加了原生调试器时，重启会让调试会话失效，见 [references/native.md](references/native.md)。
    - 走界面先 `electron_dom_snapshot`，再 `electron_click` / `electron_type`（传 ref，或 `role` 加 `name`），记下 `afterSeq`；原生对话框提示用户人工操作。细节见 [references/evidence.md](references/evidence.md)。
@@ -45,7 +45,7 @@ MCP 连接 Agent 已启动的 Electron 应用，返回主进程、renderer（可
 ## 边界
 
 - 点击、输入和求值会改变应用状态，只用于验证。
-- 允许求值时，attach 会在主进程里装 IPC 和对话框的记录包装，应用重启前移除不了：用 `instrument` 选装哪些，用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 全关（求值、点击输入、utility 一并不可用），见 [references/evidence.md](references/evidence.md)。
+- 只有 attach 时传了 `instrument`，才会在主进程里装 IPC 或对话框的记录包装，装上后应用重启前移除不了；用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 全关（求值、点击输入、utility 一并不可用），见 [references/evidence.md](references/evidence.md)。
 - 网络、断点、拖拽悬停不提供，替代做法见 [references/alternatives.md](references/alternatives.md)；性能分析、内存泄漏分析不提供，也没有替代。
 - 原生模块调试见上一节：本工具只看 JS 层，原生部分靠外部调试器，需要原生源码和 PDB。原生崩溃和卡死目前没有验证过的流程。
 
@@ -53,7 +53,7 @@ MCP 连接 Agent 已启动的 Electron 应用，返回主进程、renderer（可
 
 改了 preload 暴露的保存接口，要确认 renderer 调用后主进程收到并返回：
 
-1. 用项目命令带 `--inspect`、`--remote-debugging-port` 启动，`electron_attach` 连两个通道。
+1. 用项目命令带 `--inspect`、`--remote-debugging-port` 启动，`electron_attach` 连两个通道，`instrument` 传 `["ipc"]`。
 2. `electron_dom_snapshot` 找到“保存”按钮的 ref，`electron_click` 点击，记下返回的 `afterSeq`。
 3. `electron_wait_for` 的 log 条件等 `IPC invoke notes:save`（`afterSeq` 用上一步的值），确认调用到达主进程以及结果。
 4. `electron_logs` 读两个通道 `afterSeq` 之后的事件，`electron_dom_snapshot` 看页面状态。
@@ -67,7 +67,7 @@ MCP 连接 Agent 已启动的 Electron 应用，返回主进程、renderer（可
 | --- | --- |
 | 主进程启动、窗口创建 | 主进程在线，日志无相关异常，`electron_evaluate`(main) 确认窗口状态 |
 | renderer 白屏、前端异常 | 快照或截图显示实际页面，renderer 日志无异常，target 正确 |
-| preload / contextBridge / IPC | 主进程与 renderer 各一项，并有覆盖调用链的回归；用 `electron_wait_for` 等 `IPC invoke <通道>` 确认到达主进程及结果（见 evidence.md） |
+| preload / contextBridge / IPC | 主进程与 renderer 各一项，并有覆盖调用链的回归；attach 时 `instrument` 传 `["ipc"]`，再用 `electron_wait_for` 等 `IPC invoke <通道>` 确认到达主进程及结果（见 evidence.md） |
 | 原生对话框、菜单、shell | 用户人工操作并确认，再用日志或求值核对 |
 | 崩溃、意外退出 | 应用的退出码与输出、退出前的日志；renderer 崩溃连接不断（`TARGET_CRASHED`），主进程退出则主进程通道断开 |
 | 仅类型或构建问题 | 项目已有检查，无需启动应用 |

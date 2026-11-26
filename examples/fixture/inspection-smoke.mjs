@@ -56,8 +56,10 @@ try {
     clientInfo: { name: "fixture-inspection-smoke", version: "1.0.0" },
   });
   client.notify("notifications/initialized", {});
+  // Attaching installs nothing in the app by default; this smoke checks both tracings, so it asks for them.
   const attached = await call("electron_attach", {
     mainUrl: `http://127.0.0.1:${mainPort}`, rendererUrl: `http://127.0.0.1:${rendererPort}`,
+    instrument: ["ipc", "dialogs"],
   });
   assert.ok(attached.main.online && attached.renderer.online, JSON.stringify(attached));
 
@@ -354,10 +356,13 @@ try {
     }, 30_000), "fresh attach");
     assert.equal(reattached.renderer.online, true, JSON.stringify(reattached.errors));
     // Ports passed the wrong way round fail with a hint instead of attaching to the wrong process.
-    const swapped = structuredData(await fresh.request(requestId++, "tools/call", {
+    const swappedResponse = await fresh.request(requestId++, "tools/call", {
       name: "electron_attach",
       arguments: { mainUrl: `http://127.0.0.1:${rendererPort}`, rendererUrl: `http://127.0.0.1:${mainPort}` },
-    }, 30_000), "swapped attach");
+    }, 30_000);
+    // No channel came up, so the attach fails; the reasons stay available in data.errors.
+    assert.equal(swappedResponse.result.isError, true, "an attach that reaches no channel must be an error");
+    const swapped = swappedResponse.result.structuredContent.data;
     assert.deepEqual(swapped.errors.map((error) => [error.code, /传反/u.test(error.hint ?? "")]),
       [["MAIN_INSPECTOR_UNAVAILABLE", true], ["RENDERER_CDP_UNAVAILABLE", true]], JSON.stringify(swapped.errors));
     assert.match(reattached.selectedTarget.url, /^file:.*index\.html/u);

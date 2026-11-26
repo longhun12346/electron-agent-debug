@@ -106,7 +106,7 @@ stdout 输出一行 JSON：`{"ok": true, "tools": [{"name", "description", "inpu
 ]
 ```
 
-stdout 输出一行 JSON：`{"ok": true|false, "results": [{"tool", "ok", "result"}, ...]}`，`result` 与 MCP 工具返回的 `structuredContent` 相同。某一步失败时默认停止，后续步骤标记为 `skipped`；该步骤设置 `continueOnError: true` 则继续。全部成功时退出码为 0，否则为 1。没传 endpoint 或 URL 非法时，attach 返回 `ok: false`；端口连不上时它仍是 `true`，整批退出码也是 0：是否连上看结果里的 `errors` 和各通道的 `status`。输入上限 1 MiB、100 步。输入内容经 shell 传递时，优先用文件或 heredoc，避免引号转义。
+stdout 输出一行 JSON：`{"ok": true|false, "results": [{"tool", "ok", "result"}, ...]}`，`result` 与 MCP 工具返回的 `structuredContent` 相同。某一步失败时默认停止，后续步骤标记为 `skipped`；该步骤设置 `continueOnError: true` 则继续。全部成功时退出码为 0，否则为 1。没有任何通道连上时（没传 endpoint、URL 非法、端口连不上），attach 返回 `ok: false`，后续步骤标记为 `skipped`，退出码为 1，各通道的原因在 `data.errors`；只连上一个通道时仍是成功，另一个通道的原因在 `errors`，是否连上看各通道的 `status`。输入上限 1 MiB、100 步。输入内容经 shell 传递时，优先用文件或 heredoc，避免引号转义。
 
 进程退出后连接和日志缓存随之消失，下一次执行要重新 `electron_attach`；`electron_logs` 只能读到本次执行期间观察到的事件。需要跨多轮保持连接或累积日志时，改为注册 MCP。环境变量保护参数（如 `ELECTRON_DEBUG_ALLOW_EVAL=0`）在两种方式下同样生效。
 
@@ -136,10 +136,10 @@ ELECTRON_DEBUG_MAX_LOG_EVENTS=<optional-event-limit>
 ELECTRON_DEBUG_MAX_LOG_BYTES=<optional-byte-limit>
 ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES=<optional-protocol-message-limit>
 ELECTRON_DEBUG_OUTPUT_DIR=<optional-screenshot-directory>
-ELECTRON_DEBUG_ALLOW_EVAL=<optional, 0, false, off, no or disabled to disable evaluation>
+ELECTRON_DEBUG_ALLOW_EVAL=<optional; 0, false, off, no or disabled disables evaluation, 1, true, on, yes or enabled enables it, anything else is ENDPOINT_CONFIG_INVALID>
 ```
 
-默认值和允许范围（超出范围时服务启动失败，没有 JSON 结果，stderr 里有 `ENDPOINT_CONFIG_INVALID`，很长，开头是压缩后的源码行，看末尾几行）：
+默认值和允许范围（超出范围时 MCP 照常启动，但每个工具都返回 `ENDPOINT_CONFIG_INVALID`，消息写明变量名和允许范围；批处理模式输出一行 JSON，退出码为 1）：
 
 | 变量 | 默认 | 范围 |
 | --- | --- | --- |
@@ -151,7 +151,7 @@ ELECTRON_DEBUG_ALLOW_EVAL=<optional, 0, false, off, no or disabled to disable ev
 
 这些默认值是保护性上限，没有做过基准测试：超时 3000 毫秒对应“3 秒内完成 attach”的设计目标；事件数和日志字节数限制内存占用，缓冲写满后会丢弃最旧的事件，结果里的 `gap` 会标出；协议消息上限 256 MiB 与 Puppeteer、Playwright 一致。应用启动很慢或日志很吵时再调，一般诊断不用改。
 
-`ELECTRON_DEBUG_ALLOW_EVAL` 只有 `0`、`false`、`off`、`no`、`disabled`（不分大小写）会关闭求值，写成别的值（如 `none`）仍是开启。它是宿主在启动 Server 时设置的开关，批处理模式（`launch.cjs --run`）下由运行它的人设置：能自己执行命令的 Agent 可以不带这个变量运行，所以它约束的是宿主配置的 MCP Server，不是一道对 Agent 的强制边界。
+`ELECTRON_DEBUG_ALLOW_EVAL` 写 `0`、`false`、`off`、`no`、`disabled`（不分大小写）关闭求值，写 `1`、`true`、`on`、`yes`、`enabled` 或不设（空字符串也算不设，宿主的变量展开为空时要留意）开启；写成别的值（如 `none`）会返回 `ENDPOINT_CONFIG_INVALID`，不会静默开启。它是宿主在启动 Server 时设置的开关，批处理模式（`launch.cjs --run`）下由运行它的人设置：能自己执行命令的 Agent 可以不带这个变量运行，所以它约束的是宿主配置的 MCP Server，不是一道对 Agent 的强制边界。
 
 `ELECTRON_DEBUG_OUTPUT_DIR` 指定截图目录，默认系统临时目录下的 `electron-agent-debug`，仅保留最近 50 张。`electron_evaluate` 和表达式型 `electron_wait_for` 默认开启（endpoint 只允许回环地址）；宿主在 `env` 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 可禁用，此时返回 `EVALUATION_NOT_ALLOWED`。单条协议消息上限默认 256 MiB，与 Puppeteer、Playwright 一致；可用 `ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES` 调小。
 

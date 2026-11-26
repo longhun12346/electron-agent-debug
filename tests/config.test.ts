@@ -54,13 +54,29 @@ test("builds the discovery path without changing an explicit json list path", ()
   assert.equal(discoveryUrl("http://127.0.0.1/json/list"), "http://127.0.0.1/json/list");
 });
 
-test("evaluation is disabled by 0, false, off, no and disabled, and only those", () => {
+test("evaluation is off for 0, false, off, no and disabled, on for 1, true, on, yes and enabled, and anything else is an error", () => {
   for (const value of ["0", "false", "off", "no", "disabled", " OFF "]) {
     assert.equal(readRuntimeConfig({ ELECTRON_DEBUG_ALLOW_EVAL: value }).allowEval, false, value);
   }
-  for (const value of ["", "1", "true", "on", "yes"]) {
+  for (const value of ["", "1", "true", "on", "yes", "enabled", " Yes "]) {
     assert.equal(readRuntimeConfig({ ELECTRON_DEBUG_ALLOW_EVAL: value }).allowEval, true, value);
   }
+  // A value that is not recognised must not leave evaluation on while the host thinks it is off.
+  for (const value of ["none", "disable", "n", "f", "2", "maybe"]) {
+    assert.throws(() => readRuntimeConfig({ ELECTRON_DEBUG_ALLOW_EVAL: value }), (error: unknown) =>
+      error instanceof DiagnosticException
+      && error.diagnostic.code === "ENDPOINT_CONFIG_INVALID"
+      && error.diagnostic.message.includes("ELECTRON_DEBUG_ALLOW_EVAL"), value);
+  }
+});
+
+test("a numeric setting out of range names the variable and the allowed range", () => {
+  assert.throws(() => readRuntimeConfig({ ELECTRON_DEBUG_MAX_LOG_EVENTS: "5" }), (error: unknown) =>
+    error instanceof DiagnosticException
+    && error.diagnostic.message.includes("ELECTRON_DEBUG_MAX_LOG_EVENTS")
+    && error.diagnostic.message.includes("10")
+    && error.diagnostic.message.includes("10000")
+    && typeof error.diagnostic.hint === "string");
 });
 
 test("defaults the protocol message limit to the 256 MiB that Puppeteer and Playwright accept", () => {

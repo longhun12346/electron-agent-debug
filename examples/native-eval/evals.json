@@ -10,7 +10,7 @@
       "files": ["native/native_eval.cpp", "native/build.bat", "app/main.cjs", "app/renderer.js"],
       "root_cause": "total_size() in native_eval.cpp breaks out of the loop when a subfolder sums to 0, so everything after the empty subfolder is skipped. Fix: continue instead of break.",
       "expected_behavior": [
-        "Attaches with electron_attach first and reproduces the wrong value through the real window (electron_click on Sum sizes), keeping the afterSeq of that click",
+        "Attaches with electron_attach (instrument [\"ipc\"], so the IPC call is recorded) first and reproduces the wrong value through the real window (electron_click on Sum sizes), keeping the afterSeq of that click",
         "Reads the JS side (IPC invoke native:sum-sizes and its result) before touching the debugger, and notes that the JS side is passing the right folder",
         "Finds the native source in the repository on its own, or asks the user for it; does not describe the native implementation from memory",
         "Tells the user which debugger MCP it wants to install, from where and which version, and waits for agreement before installing",

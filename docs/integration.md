@@ -104,7 +104,7 @@ ELECTRON_DEBUG_MAX_LOG_EVENTS=<optional-event-limit>
 ELECTRON_DEBUG_MAX_LOG_BYTES=<optional-byte-limit>
 ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES=<optional-protocol-message-limit>
 ELECTRON_DEBUG_OUTPUT_DIR=<optional-screenshot-directory>
-ELECTRON_DEBUG_ALLOW_EVAL=<optional, 0, false, off, no or disabled to disable evaluation>
+ELECTRON_DEBUG_ALLOW_EVAL=<optional; 0, false, off, no or disabled disables evaluation, 1, true, on, yes or enabled enables it, anything else is ENDPOINT_CONFIG_INVALID>
 ```
 
 `ELECTRON_DEBUG_OUTPUT_DIR` 指定截图目录，默认系统临时目录下的 `electron-agent-debug`，只保留最近 50 张。`electron_evaluate` 和 expression 型 `electron_wait_for` 默认开启（只连接回环地址）；宿主可在 MCP 配置的 `env` 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用，此时返回 `EVALUATION_NOT_ALLOWED`。单条协议消息上限默认 256 MiB（与 Puppeteer、Playwright 一致，Chromium 的 DevTools 服务端接收缓冲为 100 MiB、发送缓冲为 256 MiB），可用 `ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES` 调小。
@@ -130,7 +130,7 @@ ELECTRON_DEBUG_ALLOW_EVAL=<optional, 0, false, off, no or disabled to disable ev
 
 - 主进程、窗口生命周期和启动问题：主进程 endpoint。
 - 页面加载、renderer 异常和页面行为：renderer endpoint。
-- preload、contextBridge 和 IPC：两个 endpoint。
+- preload、contextBridge 和 IPC：两个 endpoint；要记录主进程收到的 IPC，attach 时传 `instrument: ["ipc"]`。
 - 纯类型、构建和静态检查：先运行项目已有检查，只有需要运行时证据时才 attach。
 
 ## 诊断顺序

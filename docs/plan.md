@@ -130,7 +130,7 @@ endpoint 来源按以下顺序解析：
 }
 ```
 
-当主进程连接失败但 renderer 成功时，仍返回 `ok: true` 和两边各自的状态；`errors` 只描述不可用的通道。只有没有任何 endpoint 或输入参数无法解析时才返回 `ok: false`。
+当主进程连接失败但 renderer 成功时，仍返回 `ok: true` 和两边各自的状态；`errors` 只描述不可用的通道。没有任何 endpoint、输入参数无法解析，或所有被请求的通道都没有连上时返回 `ok: false`（最后一种由 `electron_attach` 工具层判定，`data.errors` 保留各通道的原因）。
 
 要求：
 
@@ -413,7 +413,7 @@ Skill 只提供指导和建议，提供能力才最重要。已实现：
 - 统一 `seq` 时间线和 `afterSeq`/`lastSeq` 续读。
 - 薄 Skill（证据矩阵）。
 
-暂缓：与 MCP 共享核心的 CLI 入口（需要常驻进程）。IPC trace 已作为自动记录实现（不是独立工具）。仍未承诺：调试断点、调用栈、source map、原生对话框和菜单替身。
+暂缓：与 MCP 共享核心的 CLI 入口（需要常驻进程）。IPC trace 已实现（不是独立工具，attach 时传 `instrument: ["ipc"]` 才记录）。仍未承诺：调试断点、调用栈、source map、原生对话框和菜单替身。
 
 ## 9. 风险与处理
 

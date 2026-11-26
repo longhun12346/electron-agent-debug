@@ -12,4 +12,4 @@
 
 `evaluate` 与表达式型 `wait_for` 默认开启，宿主设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 后返回 `EVALUATION_NOT_ALLOWED`，点击和输入同时禁用（`INTERACTION_NOT_ALLOWED`）。MCP 不启动应用。截图目录由 `ELECTRON_DEBUG_OUTPUT_DIR` 指定。所有文本输出结构化、有界，且只连接回环地址；不做脱敏，是否遮挡敏感内容由 Agent 判断。
 
-断点、拖拽、悬停、快捷键、通用桌面自动化、原生对话框和菜单替身目前没有实现；打开的对话框会在 `electron_status` 的 `dialogs` 里报告（`dialogs.ts`）。重连、target 重新发现和事件缓存属于内部能力。
+断点、拖拽、悬停、快捷键、通用桌面自动化、原生对话框和菜单替身目前没有实现；页面的 JavaScript 对话框会在 `electron_status` 的 `dialogs` 里报告，原生对话框要 attach 时传 `instrument: ["dialogs"]` 才会（`dialogs.ts`）。重连、target 重新发现和事件缓存属于内部能力。

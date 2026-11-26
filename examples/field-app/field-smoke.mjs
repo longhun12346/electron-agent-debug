@@ -121,11 +121,13 @@ try {
       protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "field-smoke-later", version: "1.0.0" },
     });
     later.notify("notifications/initialized", {});
-    const again = structuredData(await later.request(requestId++, "tools/call", {
+    const afterExit = await later.request(requestId++, "tools/call", {
       name: "electron_attach", arguments: {
         mainUrl: `http://127.0.0.1:${field.mainPort}`, rendererUrl: `http://127.0.0.1:${field.rendererPort}`,
       },
-    }, 30_000), "attach after exit");
+    }, 30_000);
+    assert.equal(afterExit.result.isError, true, "attach to an app that has exited must be an error");
+    const again = afterExit.result.structuredContent.data;
     assert.equal(again.main.online, false);
     assert.ok(again.errors.some((error) => error.code === "MAIN_INSPECTOR_UNAVAILABLE"), JSON.stringify(again.errors));
   } finally {

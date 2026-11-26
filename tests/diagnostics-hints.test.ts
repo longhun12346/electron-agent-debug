@@ -311,10 +311,15 @@ test("native dialogs are instrumented through the main process only when evaluat
         : {};
     },
   });
+  const plain = new SessionManager(config());
   const allowed = new SessionManager(config());
   const denied = new SessionManager(config({ allowEval: false }));
   try {
-    assert.ok((await allowed.attach({ mainUrl: main.endpoint })).ok);
+    assert.ok((await plain.attach({ mainUrl: main.endpoint })).ok);
+    assert.equal(seen.includes("Runtime.addBinding"), false, "attach installs nothing in the app unless it is asked to");
+    seen.length = 0;
+
+    assert.ok((await allowed.attach({ mainUrl: main.endpoint, instrument: ["dialogs"] })).ok);
     assert.ok(seen.includes("Runtime.addBinding") && seen.includes("evaluate:dialogs"));
     main.push("Runtime.bindingCalled", {
       name: "__electronAgentDebugDialog",
@@ -327,10 +332,10 @@ test("native dialogs are instrumented through the main process only when evaluat
     await until(() => allowed.status().dialogs === undefined, "native dialog cleared");
 
     seen.length = 0;
-    assert.ok((await denied.attach({ mainUrl: main.endpoint })).ok);
+    assert.ok((await denied.attach({ mainUrl: main.endpoint, instrument: ["dialogs", "ipc"] })).ok);
     assert.equal(seen.includes("Runtime.addBinding"), false, "no app code runs when evaluation is disabled");
   } finally {
-    await Promise.all([allowed.close(), denied.close()]);
+    await Promise.all([plain.close(), allowed.close(), denied.close()]);
     await main.close();
   }
 });
@@ -400,4 +405,100 @@ test("screenshots are taken at CSS size on high-DPI screens and can be shrunk fu
 test("the native dialog instrumentation is valid JavaScript", async () => {
   const { instrumentDialogsScript } = await import("../src/dialogs.js");
   assert.doesNotThrow(() => new Function(`return ${instrumentDialogsScript}`));
+});
+
+// The tool layer decides what counts as a failed attach; the manager only reports each channel.
+async function attachThroughTool(manager: SessionManager, input: Record<string, unknown>) {
+  const { allTools } = await import("../src/tools/index.js");
+  const tool = allTools.find((candidate) => candidate.name === "electron_attach")!;
+  return tool.handler(manager, tool.inputSchema.parse(input));
+}
+
+test("attach through the tool: a window that still has to be chosen is not a failed attach", async () => {
+  const renderer = await startMock([page("a", "Settings"), page("b", "Main")]);
+  const manager = new SessionManager(config());
+  try {
+    const answer = await attachThroughTool(manager, { rendererUrl: renderer.endpoint });
+    assert.equal(answer.isError, undefined, "the endpoint answered; the caller only has to pick a page");
+    assert.equal((answer.structuredContent as { ok: boolean }).ok, true);
+  } finally {
+    await manager.close();
+    await renderer.close();
+  }
+});
+
+test("attach through the tool: no channel online is a failure that still lists the reasons", async () => {
+  const closed = await new Promise<number>((resolve) => {
+    const server = createTcpServer();
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address() as { port: number };
+      server.close(() => resolve(port));
+    });
+  });
+  const manager = new SessionManager(config());
+  try {
+    const answer = await attachThroughTool(manager, { mainUrl: `http://127.0.0.1:${closed}` });
+    const body = answer.structuredContent as { ok: boolean; error?: { code: string }; data?: { errors: unknown[] } };
+    assert.equal(answer.isError, true);
+    assert.equal(body.ok, false);
+    assert.ok(body.error?.code);
+    assert.ok((body.data?.errors.length ?? 0) > 0);
+  } finally {
+    await manager.close();
+  }
+});
+
+test("attach through the tool: one channel online is a success even when the other is down", async () => {
+  const main = await startMock([{ id: "main", type: "node", title: "main", url: "" }]);
+  const manager = new SessionManager(config());
+  try {
+    const answer = await attachThroughTool(manager, { mainUrl: main.endpoint, rendererUrl: "http://127.0.0.1:1" });
+    const body = answer.structuredContent as { ok: boolean; data: { main: { online: boolean }; errors: unknown[] } };
+    assert.equal(answer.isError, undefined);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.main.online, true);
+    assert.ok(body.data.errors.length > 0, "the renderer's reason is still reported");
+  } finally {
+    await manager.close();
+    await main.close();
+  }
+});
+
+test("asking for instrumentation while evaluation is disabled says it will not happen", async () => {
+  const main = await startMock([{ id: "main", type: "node", title: "main", url: "" }]);
+  const manager = new SessionManager(config({ allowEval: false }));
+  try {
+    const attached = await manager.attach({ mainUrl: main.endpoint, instrument: ["ipc"] });
+    assert.ok(attached.ok);
+    assert.ok(attached.data.warnings.some((warning) => warning.code === "INSTRUMENT_NOT_ALLOWED"));
+    assert.deepEqual(attached.data.instrumented, []);
+    const plain = await manager.attach({ mainUrl: main.endpoint, instrument: [] });
+    assert.ok(plain.ok);
+    assert.equal(plain.data.warnings.some((warning) => warning.code === "INSTRUMENT_NOT_ALLOWED"), false);
+  } finally {
+    await manager.close();
+    await main.close();
+  }
+});
+
+test("the IPC wait hint fits the situation and only fires for waits that name an IPC event on the main channel", async () => {
+  const main = await startMock([{ id: "main", type: "node", title: "main", url: "" }]);
+  const allowed = new SessionManager(config());
+  const denied = new SessionManager(config({ allowEval: false }));
+  const hintOf = async (manager: SessionManager, contains: string, process: "main" | "renderer" | "all" = "main") => {
+    const waited = await manager.inspector.waitFor({ condition: { kind: "log", contains, process }, timeoutMs: 100 });
+    assert.ok(!waited.ok);
+    return (waited.error.details as { hint?: string } | undefined)?.hint;
+  };
+  try {
+    assert.ok((await allowed.attach({ mainUrl: main.endpoint })).ok);
+    assert.ok((await denied.attach({ mainUrl: main.endpoint })).ok);
+    assert.match(String(await hintOf(allowed, "IPC invoke notes:save")), /instrument/u);
+    assert.match(String(await hintOf(denied, "IPC invoke notes:save")), /ELECTRON_DEBUG_ALLOW_EVAL/u);
+    assert.equal(await hintOf(allowed, "IPC invoke notes:save", "renderer"), undefined, "a renderer wait is not about main-process tracing");
+    assert.equal(await hintOf(allowed, "the app logged: IPC failed"), undefined, "the app's own text is not an IPC event");
+  } finally {
+    await Promise.all([allowed.close(), denied.close()]);
+    await main.close();
+  }
 });

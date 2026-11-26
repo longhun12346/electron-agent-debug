@@ -17,7 +17,7 @@ export interface AttachInput {
   url?: string;
   title?: string;
   clearSelection?: boolean;
-  /** Which wrappers attach installs in the app. Left out: all of them, or what an earlier attach chose. */
+  /** Which wrappers attach installs in the app. Left out: nothing, or what an earlier attach chose. */
   instrument?: Instrument[];
 }
 
