@@ -22,9 +22,9 @@
 
 ## 3. 安装调试器 MCP
 
-先告诉用户装什么、从哪来，得到同意再装：它会运行第三方代码，并让 Agent 能附加进程、读写内存。装好后新注册的 MCP 通常要重载或新开会话才可见，看不到工具就请用户重载。
+先告诉用户装什么、从哪来、哪个版本，得到同意再装：它会运行第三方代码，并让 Agent 能附加进程、读写内存。装好后新注册的 MCP 通常要重载或新开会话才可见，看不到工具就请用户重载。
 
-- **Windows**：[mcp-windbg](https://github.com/svnscha/mcp-windbg)，驱动 `cdb.exe`，需要 Windows SDK 的 Debugging Tools 或商店版 WinDbg，安装按它的 README。
+- **Windows**：[mcp-windbg](https://github.com/svnscha/mcp-windbg)，个人维护的开源项目，不是 Microsoft 官方；驱动 `cdb.exe`，需要 Windows SDK 的 Debugging Tools 或商店版 WinDbg。安装时固定版本，不要装跟随分支的写法（如 `git+https://…`）：`pip install mcp-windbg==<版本>`（写本文时 PyPI 上最新是 1.6.0，装之前再查一次），或下载 [Release](https://github.com/svnscha/mcp-windbg/releases) 里带签名的 `mcp-windbg.exe`，用 `Get-FileHash` 和 `Get-AuthenticodeSignature` 核对。注册方式按它的 README。
 - **macOS、Linux**：LLDB 自带的 MCP，见 [LLDB 文档](https://lldb.llvm.org/use/mcp.html)（`lldb-mcp`；新会话默认异步，创建后先执行 `script lldb.debugger.SetAsync(False)`）。
 
 工具名以安装后宿主列出的为准，下面用到 mcp-windbg 的 `open_cdb_remote`、`run_cdb_command`、`wait_for_break`。
@@ -41,8 +41,21 @@ cdb -server npipe:pipe=eadbg -noio -pd -lines -p <主进程 pid>
 
 - `-server` 必须是第一个参数；`-noio` 让服务端后台运行时不用保持 stdin；`-pd` 让退出时不终止被调试进程。
 - 用命名管道，不要用 `tcp:port=`：TCP 会监听在 `0.0.0.0` 且没有认证，局域网内的机器能连上来控制进程。
-- `open_cdb_remote` 的初始输出会列出目标进程的**全部环境变量**，令牌会进入上下文。启动应用时只传必要的变量（例如 `env -i` 加 `SystemRoot`、`USERPROFILE`、`APPDATA`、`LOCALAPPDATA`、`TEMP`）；Git Bash 里 `PATH` 要写成 `/c/...` 形式，写 `C:\...;...` 会被改坏。这段输出还包含全部模块列表，很长，`include_modules=false` 不会缩短它。
+- `open_cdb_remote` 的初始输出会列出目标进程的**全部环境变量**，令牌会进入上下文，所以附加前先做两件事：启动应用时只传必要的变量（例如 `env -i` 加 `SystemRoot`、`USERPROFILE`、`APPDATA`、`LOCALAPPDATA`、`TEMP`）；注册 mcp-windbg 时加 `--filter-script <脚本路径>` 对输出脱敏，写法见下面。Git Bash 里 `PATH` 要写成 `/c/...` 形式，写 `C:\...;...` 会被改坏。这段输出还包含全部模块列表，很长，`include_modules=false` 不会缩短它。
 - 符号路径和源码路径各用一条独立命令：`.sympath <pdb 目录>`、`.srcpath <源码目录>`，它们会把整行当路径，后面不能用分号接别的命令。再 `.reload /f <模块>.dll`，`lm m <模块>` 显示 `private pdb symbols` 才算成功。
+
+脱敏脚本是一个 Python 文件，定义 `process_output(text, context)`，返回脱敏后的文本（`None` 表示不改）。它在 mcp-windbg 的进程里运行，等于受信任的代码，写好后给用户看过再用。下面是示意，只覆盖常见形态，没有实测，要按实际情况调整：
+
+```python
+import re
+
+ENV_VAR = re.compile(r"\b([A-Z][A-Z0-9_]{2,})=([^\s;]+)")
+TOKEN = re.compile(r"ghp_[A-Za-z0-9]{36}|eyJ[\w-]+\.[\w-]+\.[\w-]+|Bearer\s+[\w.~+/-]+=*")
+
+def process_output(text, context):
+    text = ENV_VAR.sub(r"\1=[redacted]", text)
+    return TOKEN.sub("[redacted-token]", text)
+```
 
 ## 5. 跟踪一次 JS 调用进入原生函数
 
@@ -71,12 +84,12 @@ cdb -server npipe:pipe=eadbg -noio -pd -lines -p <主进程 pid>
 ## 7. 改了原生代码之后
 
 - **构建用 Debug**（MSVC 的 `/Od /Zi`）：局部变量全部可见。PDB 里记的是本机的绝对路径，符号和源码都自动找到，不用设路径。
-- **部署前先停应用**：库被加载后 Windows 上不能覆盖，重新链接会报 `LNK1168`。按 pid 停掉应用（不要按进程名），重新构建，再启动，重新 `electron_attach` 和附加调试器（pid 变了）。Git Bash 里运行 `.bat` 要写成 `cmd //c "C:\完整\路径\build.bat"`，相对路径会找不到文件。
+- **部署前先停应用**：库被加载后 Windows 上不能覆盖，重新链接会报 `LNK1168`。按 pid 停掉应用（不要按进程名；不是你启动的实例先问用户），重新构建，再启动，重新 `electron_attach` 和附加调试器（pid 变了）。Git Bash 里运行 `.bat` 要写成 `cmd //c "C:\完整\路径\build.bat"`，相对路径会找不到文件。
 - **让应用加载新产物，不要覆盖用户在用的那份**：先看项目怎么定位原生库，环境变量或配置通常可以指向新文件。
 - **调试期间别触发热重启**：`electron-vite dev --watch` 这类工具在源码改动后会重启主进程，调试器连接和 pid 随之失效，需要重新附加（这一条没有实测）。
 
 ## 注意事项
 
-- **凭据**：附加输出会带出全部环境变量，内存里也可能有令牌、密码、用户数据。有就告诉用户，只引用必要片段；mcp-windbg 的 `--filter-script` 可对输出做脱敏，用法见其文档。
+- **凭据**：附加输出会带出全部环境变量，内存里也可能有令牌、密码、用户数据。附加前按第 4 节做脱敏；输出里仍有就告诉用户，只引用必要片段。
 - **会冻住应用**：附加和断点都会让整个进程停下，本工具的请求在这期间超时。查完要放行再断开。
 - **报告里把证据按来源分开**：JS 侧（本工具的日志、`seq`）和原生侧（调试器的栈、变量）。原生证据只能证明停在哪、值是多少，不能单独证明原因；写成已确认还是推测，由你判断。
