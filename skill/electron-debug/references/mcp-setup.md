@@ -149,6 +149,8 @@ ELECTRON_DEBUG_ALLOW_EVAL=<optional, 0, false, off, no or disabled to disable ev
 | `ELECTRON_DEBUG_MAX_LOG_BYTES` | 1 MiB | 4096 字节到 16 MiB |
 | `ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES` | 256 MiB | 4096 字节到 256 MiB |
 
+这些默认值是保护性上限，没有做过基准测试：超时 3000 毫秒对应“3 秒内完成 attach”的设计目标；事件数和日志字节数限制内存占用，缓冲写满后会丢弃最旧的事件，结果里的 `gap` 会标出；协议消息上限 256 MiB 与 Puppeteer、Playwright 一致。应用启动很慢或日志很吵时再调，一般诊断不用改。
+
 `ELECTRON_DEBUG_ALLOW_EVAL` 只有 `0`、`false`、`off`、`no`、`disabled`（不分大小写）会关闭求值，写成别的值（如 `none`）仍是开启。它是宿主在启动 Server 时设置的开关，批处理模式（`launch.cjs --run`）下由运行它的人设置：能自己执行命令的 Agent 可以不带这个变量运行，所以它约束的是宿主配置的 MCP Server，不是一道对 Agent 的强制边界。
 
 `ELECTRON_DEBUG_OUTPUT_DIR` 指定截图目录，默认系统临时目录下的 `electron-agent-debug`，仅保留最近 50 张。`electron_evaluate` 和表达式型 `electron_wait_for` 默认开启（endpoint 只允许回环地址）；宿主在 `env` 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 可禁用，此时返回 `EVALUATION_NOT_ALLOWED`。单条协议消息上限默认 256 MiB，与 Puppeteer、Playwright 一致；可用 `ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES` 调小。

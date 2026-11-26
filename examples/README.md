@@ -31,3 +31,7 @@ fixture 的核心验收依赖 attach、status、targets 和 logs 收集运行时
 可通过 `FIXTURE_FAULT=main-window`、`FIXTURE_FAULT=renderer` 或 `FIXTURE_FAULT=ipc` 选择故障态。故障开关只属于 fixture 验证，不是 MCP Server 的配置。
 
 `fixture/smoke.mjs` 可用于启动并等待两个 discovery endpoint；`fixture/mcp-smoke.mjs` 会继续启动本项目 MCP Server，执行 attach、status 和 logs。运行前必须由 Agent 或测试脚本设置 `FIXTURE_MAIN_PORT` 和 `FIXTURE_RENDERER_PORT`。
+
+## 原生模块调试评估
+
+`native-eval/` 是原生模块调试流程的评估（Windows，不在 CI 里运行）：三个故意写错的原生函数、一个最小应用和三条评估，见 [native-eval/README.md](native-eval/README.md)。

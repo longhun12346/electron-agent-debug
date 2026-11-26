@@ -13,7 +13,7 @@
 | `<webview>` 里的页面 | 出现在 `targets` 里（`type` 为 `webview`），用 `electron_targets` 传它的 `targetId` 选中后，求值、日志、截图和无障碍树都作用于它；检查完再选回窗口 | 不会被自动选中；一次只连一个页面 |
 | worker、跨域 iframe 里的代码 | 不能直接连接。让它们用 `postMessage` 把值传回页面，再用 `electron_evaluate`(renderer) 读取或打印；同源 iframe 可通过 `iframe.contentDocument` 读取 | 这些目标里的日志和求值不在工具范围内 |
 | 原生对话框、菜单 | 提示用户人工操作 | 见 SKILL.md 工作流第 3 步 |
-| 原生模块（koffi、`.node` 插件）里从 JS 调用跟到原生函数执行 | 先用本工具留下日志、触发操作，再经用户同意安装外部调试器 MCP 下断点、看栈（Windows 用 mcp-windbg，macOS/Linux 用 LLDB 的 MCP），见 [native.md](native.md) | 本工具只看 JS 层；原生栈要符号才有用，附加或下断点会冻住应用，本工具的请求会超时；崩溃和卡死没有验证过的流程 |
+| 原生模块（koffi、`.node` 插件）里从 JS 调用跟到原生函数执行 | 先用本工具留下日志、触发操作，再经用户同意安装外部调试器 MCP 下断点、看栈（Windows 用 mcp-windbg，macOS/Linux 用 LLDB 的 MCP），见 SKILL.md 的“原生模块调试”一节 | 本工具只看 JS 层；原生栈要符号才有用，附加或下断点会冻住应用，本工具的请求会超时；崩溃和卡死没有验证过的流程 |
 
 ## utility process
 

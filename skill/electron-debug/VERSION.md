@@ -1,5 +1,14 @@
 # 版本记录
 
+## 1.6.5
+
+- 运行文件（MCP 0.7.0）与 1.6.4 相同，只改 `SKILL.md` 和 `references/`。依据：把官方 Skill 写作清单重新逐条对照了一遍。
+- `description` 从 1009 字符精简到 764 字符，保留触发场景、中文例句和不适用场景。
+- `SKILL.md` 写明工具的完整名字因宿主而异（`electron-agent-debug:electron_attach`、`mcp__electron-agent-debug__electron_attach`），新增“验证一次 IPC 修改”的具体示例。
+- 去掉时效性文字：安装 mcp-windbg 不再写“当前最新版本”。`mcp-setup.md` 的默认值表后说明这些是保护性上限、没有做过基准测试。
+- 引用文件之间不再互相链接：`alternatives.md`、`native-startup.md`、`native.md` 里指向其他引用文件的链接改成文字提示，所有引用文件都只从 `SKILL.md` 直接链接。
+- 仓库新增 `examples/native-eval`（不在 Skill 包里）：三个故意写错的原生函数、一个最小应用和三条评估（循环提前结束、UTF-8 路径按系统代码页读、启动时只调用一次的函数）。三处错误在 Windows 上复现过；评估没有对任何 Agent 跑过，所以没有基线。
+
 ## 1.6.4
 
 - 运行文件（MCP 0.7.0）与 1.6.3 相同，只改 `SKILL.md` 和 `references/`。依据：skills.sh 上 Snyk 对 1.6.3 的审计结果是 Fail，列出了五条；下面四条是对其中真实行为的文字约束，没有改任何默认行为。

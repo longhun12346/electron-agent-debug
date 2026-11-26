@@ -1,6 +1,6 @@
 ---
 name: electron-debug
-description: "Verifies or diagnoses a local Electron app at runtime, and traces a JS call into native modules (koffi, .node) with an external debugger. Use when main-process, BrowserWindow, preload, contextBridge or IPC changes need checking; for a blank or white window, a crash on startup or a runtime or console error; or when a native-module call (koffi, .node addon) returns the wrong result and you need to debug from the JS call into the native function, even if the user never says 'Electron' or the project has its own tests. Attaches to the running dev app to read main, renderer and utility logs, evaluate code, take screenshots and accessibility snapshots, click or type in the real window; for native code it guides installing a debugger MCP (WinDbg/cdb on Windows) to set breakpoints, read arguments and variables, and verify the fix. Examples: '窗口一片白', '改了 preload 帮我确认还能用', '原生模块函数返回值不对，帮我从 JS 调用一路调试到原生代码', 'koffi 调的 DLL 结果不对'. Not for packaged apps, pure type or build errors, or native crashes and hangs."
+description: "Verifies or diagnoses a local Electron app at runtime, and traces a JS call into native modules (koffi, .node) with an external debugger. Use for main-process, BrowserWindow, preload, contextBridge or IPC changes, a blank window, a startup crash or runtime error, or a native-module call that returns the wrong result, even if the user never says 'Electron' or the project has its own tests. Attaches to the running dev app to read main, renderer and utility logs, evaluate code, take screenshots and accessibility snapshots, and click or type; for native code it guides a debugger MCP (WinDbg/cdb on Windows). Examples: '窗口一片白', '改了 preload 帮我确认还能用', '原生模块函数返回值不对，帮我从 JS 调用一路调试到原生代码'. Not for packaged apps, pure type or build errors, or native crashes and hangs."
 license: MIT
 compatibility: "Requires Node.js 20+ and an Electron app started with --inspect and --remote-debugging-port. The runtime is smoke-tested on Windows, macOS and Linux; the native-code debugging guide is verified on Windows only."
 ---
@@ -49,6 +49,16 @@ MCP 连接 Agent 已启动的 Electron 应用，返回主进程、renderer（可
 - 网络、断点、拖拽悬停不提供，替代做法见 [references/alternatives.md](references/alternatives.md)；性能分析、内存泄漏分析不提供，也没有替代。
 - 原生模块调试见上一节：本工具只看 JS 层，原生部分靠外部调试器，需要原生源码和 PDB。原生崩溃和卡死目前没有验证过的流程。
 
+## 示例：验证一次 IPC 修改
+
+改了 preload 暴露的保存接口，要确认 renderer 调用后主进程收到并返回：
+
+1. 用项目命令带 `--inspect`、`--remote-debugging-port` 启动，`electron_attach` 连两个通道。
+2. `electron_dom_snapshot` 找到“保存”按钮的 ref，`electron_click` 点击，记下返回的 `afterSeq`。
+3. `electron_wait_for` 的 log 条件等 `IPC invoke notes:save`（`afterSeq` 用上一步的值），确认调用到达主进程以及结果。
+4. `electron_logs` 读两个通道 `afterSeq` 之后的事件，`electron_dom_snapshot` 看页面状态。
+5. 两侧都有证据且与预期一致才报 `PASS`；否则报 `FAIL`，写明错误在哪一侧。
+
 ## 证据矩阵
 
 建议收集的证据，够不够由你判断。
@@ -68,7 +78,7 @@ MCP 连接 Agent 已启动的 Electron 应用，返回主进程、renderer（可
 
 ## 接入
 
-`electron_*` 工具已经可见就直接用，不用再注册。宿主会给工具名加前缀（如 `mcp__<服务名>__electron_attach`），以 `electron_attach` 等结尾即算可见；拿不准用 `claude mcp list`、`codex mcp list`、`pi mcp list` 查。
+`electron_*` 工具已经可见就直接用，不用再注册。工具的完整名字因宿主而异：写作 `electron-agent-debug:electron_attach`，Claude Code、pi、dsh 里是 `mcp__electron-agent-debug__electron_attach`（作为插件安装时服务名带插件名前缀）；以 `electron_attach` 等结尾即算可见；拿不准用 `claude mcp list`、`codex mcp list`、`pi mcp list` 查。
 
 - **校验**：随包运行文件是 `runtime/launch.cjs`（Node.js 20+）。先执行 `node <absolute-skill-directory>/runtime/launch.cjs --verify`，失败或文件缺失就报告 `BLOCKED`，不要下载或在本机构建。
 - **注册 MCP**：需要多轮取证（保持连接、累积日志）时注册为本地 stdio MCP Server。先问用户，说明会改宿主配置以及范围（用户级还是项目级），同意后再注册。新注册的 MCP 通常要重载或新开会话才可见，提醒用户去做，不要假设当前会话能用。

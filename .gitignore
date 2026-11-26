@@ -22,3 +22,6 @@ temp/
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Build output of the native debugging evaluation
+examples/native-eval/native/build/

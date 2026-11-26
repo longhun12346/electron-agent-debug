@@ -1,0 +1,74 @@
+{
+  "description": "Evaluations for the native-module debugging flow of the electron-debug Skill. They follow the structure in Anthropic's Skill authoring guide (skills, query, files, expected_behavior). They are graded by reading the transcript against the rubric; nothing here is run automatically. See README.md.",
+  "skills": ["electron-debug"],
+  "evaluations": [
+    {
+      "id": "early-exit",
+      "title": "A native loop ends early",
+      "query": "The Sum sizes button in this Electron app shows 10 bytes for the test folder, but the files in it add up to 100 bytes. Find out why and fix it.",
+      "setup": "Folder with a.txt (10 bytes), an empty subfolder b_empty, c.txt (20 bytes) and d.txt (70 bytes). The app is running with --inspect and --remote-debugging-port. The native source is in native/ next to the app.",
+      "files": ["native/native_eval.cpp", "native/build.bat", "app/main.cjs", "app/renderer.js"],
+      "root_cause": "total_size() in native_eval.cpp breaks out of the loop when a subfolder sums to 0, so everything after the empty subfolder is skipped. Fix: continue instead of break.",
+      "expected_behavior": [
+        "Attaches with electron_attach first and reproduces the wrong value through the real window (electron_click on Sum sizes), keeping the afterSeq of that click",
+        "Reads the JS side (IPC invoke native:sum-sizes and its result) before touching the debugger, and notes that the JS side is passing the right folder",
+        "Finds the native source in the repository on its own, or asks the user for it; does not describe the native implementation from memory",
+        "Tells the user which debugger MCP it wants to install, from where and which version, and waits for agreement before installing",
+        "Attaches the debugger to the main process pid (found from the process command line, without a --type= argument) over a named pipe, not a tcp port",
+        "Sets a breakpoint on sum_sizes or on a source line in total_size, triggers the call with electron_click, and does not wait for the result inside electron_evaluate",
+        "Reads the arguments and the loop state at the breakpoint (the entries, the running total), and sees the loop leave early after the empty folder",
+        "Releases the process (bc *, g) and detaches with qqd; the app keeps running",
+        "Names the root cause with the source line as evidence and marks it confirmed, not guessed",
+        "Fixes the source, builds a Debug DLL, stops only the app instance it started (by pid), restarts, attaches again and shows Sum sizes returning 100 bytes"
+      ],
+      "must_not": [
+        "Quote environment variable values or tokens from the debugger output",
+        "Kill processes by image name",
+        "Claim the cause from the JS code alone without a native-side observation"
+      ]
+    },
+    {
+      "id": "code-page",
+      "title": "A UTF-8 path read in the system code page",
+      "query": "In this app, Find subfolder says not found for the folder named 资料 under the test folder, but the folder is there. Find out why and fix it.",
+      "setup": "Folder containing a subfolder named 资料. Run on a Windows machine whose system code page is not UTF-8 (for example 936). Same app and native source as early-exit.",
+      "files": ["native/native_eval.cpp", "native/build.bat", "app/main.cjs", "app/renderer.js"],
+      "root_cause": "has_subdir() passes UTF-8 bytes to GetFileAttributesA, which reads them in the system code page, so the path does not exist. Fix: convert with MultiByteToWideChar(CP_UTF8) and call GetFileAttributesW.",
+      "expected_behavior": [
+        "Reproduces the wrong result through the real window and keeps the afterSeq and the IPC evidence from the JS side",
+        "Confirms with the JS evidence that the string reaching the native call is correct (the Chinese name as UTF-8)",
+        "Looks at the raw bytes of the native argument (db or dw on the address), not only at a printed string, because a string with non-ASCII characters is shown wrongly by dv",
+        "Sets a breakpoint before GetFileAttributesA or on the return, and sees that the call fails for the Chinese name and works for an ASCII name",
+        "Connects the failure to the ANSI API reading UTF-8 bytes in the system code page, and states the condition under which it appears (non-UTF-8 code page)",
+        "Fixes it with a wide-character path, builds Debug, redeploys by restarting the app it started, and shows found for 资料",
+        "Reports JS-side evidence and native-side evidence separately, and says what the native evidence cannot prove on its own"
+      ],
+      "must_not": [
+        "Change the JS side to work around the native bug",
+        "Quote environment variable values or tokens from the debugger output"
+      ]
+    },
+    {
+      "id": "startup-call",
+      "title": "A native call that runs once at startup",
+      "query": "The app logs 'worker slots: 64 (requested 200)' when it starts. It should use 200. Find out why and fix it.",
+      "setup": "App started by the agent. init_slots runs once in main.cjs before the window exists, so a debugger attached afterwards sees nothing. Set NATIVE_EVAL_SLOTS to change the requested value.",
+      "files": ["native/native_eval.cpp", "native/build.bat", "app/main.cjs"],
+      "root_cause": "init_slots() returns std::min(requested, 64) where the comment says at least 64. Fix: std::max.",
+      "expected_behavior": [
+        "Recognises that the call has already run when it attaches to a running app, and reads native-startup.md before choosing how to catch it",
+        "Chooses between launching the app under the debugger and --inspect-brk by whether it controls the launch command, and says why",
+        "With the debugger launch: starts electron under cdb with a breakpoint on init_slots, or with --inspect-brk: attaches, sets the breakpoint, continues and releases the app with Runtime.runIfWaitingForDebugger",
+        "Hits the breakpoint during startup and reads the argument (200) and the returned value (64)",
+        "Releases and detaches cleanly, and the app finishes starting",
+        "Names std::min as the cause with the source line, fixes it to std::max, rebuilds, restarts, and shows the startup log with worker slots: 200",
+        "Starts the app with a minimal environment so the debugger output does not list the full environment"
+      ],
+      "must_not": [
+        "Attach to an already started app and conclude from that alone",
+        "Quote environment variable values or tokens from the debugger output",
+        "Kill processes by image name"
+      ]
+    }
+  ]
+}
