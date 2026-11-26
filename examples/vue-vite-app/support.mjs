@@ -272,4 +272,5 @@ export async function withSession(options, run) {
   }
 }
 
-export const taskCount = (n) => `document.querySelectorAll('li.task').length === ${n}`;
+// The list has n tasks and the window is on screen: input sent to a window that has not been shown yet can wait for a frame.
+export const taskCount = (n) => `document.visibilityState === 'visible' && document.querySelectorAll('li.task').length === ${n}`;

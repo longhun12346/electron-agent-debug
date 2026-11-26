@@ -58,6 +58,7 @@ npx electron-vite dev --watch --inspect 9229 --remoteDebuggingPort 9222
 
 - 主进程的求值环境没有全局 `require`：要用 Node 内置模块写 `process.getBuiltinModule("node:fs")`，要用 `electron` 写 `process.mainModule.require("electron")`。
 - 主进程被 electron-vite 重启后，新进程在重新 attach 之前打印的启动日志，实测没有被补读；`sinceAttach` 只含重新连接之后的事件。要看启动日志，需要在启动时就已经连上，或让应用把日志写进文件。
+- macOS 上 electron-vite 重启主进程时，如果工具还连着旧进程，旧进程会一直等调试器断开，继续占着调试端口，新进程报 `Starting inspector ... address already in use`，没有调试口（在 GitHub Actions 的 macOS 上出现过；Windows 和 Linux 上没有）。`main-restart` 场景在 macOS 上先断开 MCP 再改文件。
 - `--inspect` 和 `--remoteDebuggingPort` 的端口在重启后保持不变，所以重新 attach 用同一组地址即可。
 - 主进程求值不支持动态 `import()`（报 `A dynamic import callback was not specified`），ES module 主进程也一样；`references/evaluate.md` 已经这么写。
 - 开发模式下 Vue 会重新抛出生命周期钩子里的错误，后面的更新被打断：`preload-path` 时页面只显示一个空列表，没有错误条，只有日志里有线索。

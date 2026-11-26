@@ -147,7 +147,11 @@ async function inspection(s, outputDir) {
   assert.equal(shot.deviceScaleFactor, 2);
   const sharp = await s.call("electron_screenshot", { maxWidth: 4_000 });
   assert.equal(sharp.width, (await readFile(sharp.path)).readUInt32BE(16));
-  assert.ok(Math.abs(sharp.width - cssSize[0] * 2) <= 2, `full resolution ${sharp.width} for CSS width ${cssSize[0]}`);
+  // Without the clip the capture covers the whole viewport, scrollbar included; with a scrollbar that is wider than the
+  // layout viewport the default image is cut to.
+  const wholeWidth = await value("renderer", "innerWidth");
+  assert.ok(sharp.width >= cssSize[0] * 2 - 2 && sharp.width <= wholeWidth * 2 + 2,
+    `full resolution ${sharp.width} for CSS width ${cssSize[0]} (window ${wholeWidth})`);
   const small = await s.call("electron_screenshot", { maxWidth: 200 });
   assert.equal((await readFile(small.path)).readUInt32BE(16), 200);
   assert.equal(small.width, 200);
