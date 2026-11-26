@@ -2,7 +2,8 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("node:path");
 const koffi = require("koffi");
 
-const dll = process.env.NATIVE_EVAL_DLL || path.join(__dirname, "..", "native", "build", "native_eval.dll");
+const libraryName = { win32: "native_eval.dll", darwin: "libnative_eval.dylib" }[process.platform] ?? "libnative_eval.so";
+const dll = process.env.NATIVE_EVAL_DLL || path.join(__dirname, "..", "native", "build", libraryName);
 const lib = koffi.load(dll);
 const sumSizes = lib.func("int64_t sum_sizes(const char *dir)");
 const hasSubdir = lib.func("int has_subdir(const char *root, const char *name)");

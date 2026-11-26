@@ -1,8 +1,19 @@
 # 原生模块（koffi、`.node` 插件）：从 JS 调用跟到原生函数
 
-本工具只看 JS 层。原生函数里的问题（返回值不对、想看参数和执行过程）要用原生调试器；这类调试器已有成熟的 MCP，不要自己造：先用本工具留下 JS 侧证据，再经用户同意安装外部调试器 MCP 配合，两边的证据按 `seq` 和时间对上。已验证的平台是 Windows（mcp-windbg 加 cdb）；macOS、Linux 只依据 LLDB 官方文档，没有实测。
+本工具只看 JS 层。原生函数里的问题（返回值不对、想看参数和执行过程）要用原生调试器；这类调试器已有成熟的 MCP，不要自己造：先用本工具留下 JS 侧证据，再经用户同意安装外部调试器 MCP 配合，两边的证据按 `seq` 和时间对上。已验证的平台：Windows（mcp-windbg 加 cdb）；Linux（gdb、LLDB 命令行，在 Ubuntu 26.04 上）；macOS 没有实测，只依据 Apple 和 Electron 的文档与社区资料。
 
 应用启动时就跑完的原生调用见 `native-startup.md`。崩溃和卡死目前没有验证过的流程：只做“1. 留下 JS 侧证据”，并告诉用户这一限制。只是 JS 异常、renderer 崩溃（`TARGET_CRASHED`）或普通的 IPC 失败，不用走这里。
+
+## 目录
+
+1. 留下 JS 侧证据
+2. 找原生源码和符号
+3. 安装调试器 MCP
+4. 附加调试器（Windows），4b（Linux、macOS）
+5. 跟踪一次 JS 调用进入原生函数
+6. 返回值不符合预期时
+7. 改了原生代码之后
+注意事项
 
 ## 1. 留下 JS 侧证据
 
@@ -25,7 +36,7 @@
 先告诉用户装什么、从哪来、哪个版本，得到同意再装：它会运行第三方代码，并让 Agent 能附加进程、读写内存。装好后新注册的 MCP 通常要重载或新开会话才可见，看不到工具就请用户重载。
 
 - **Windows**：[mcp-windbg](https://github.com/svnscha/mcp-windbg)，个人维护的开源项目，不是 Microsoft 官方；驱动 `cdb.exe`，需要 Windows SDK 的 Debugging Tools 或商店版 WinDbg。安装时固定版本，不要装跟随分支的写法（如 `git+https://…`）：`pip install mcp-windbg==<版本>`（装之前去 PyPI 查当前版本），或下载 [Release](https://github.com/svnscha/mcp-windbg/releases) 里带签名的 `mcp-windbg.exe`，用 `Get-FileHash` 和 `Get-AuthenticodeSignature` 核对。注册方式按它的 README。
-- **macOS、Linux**：LLDB 自带的 MCP，见 [LLDB 文档](https://lldb.llvm.org/use/mcp.html)（`lldb-mcp`；新会话默认异步，创建后先执行 `script lldb.debugger.SetAsync(False)`）。
+- **macOS、Linux**：不装 MCP 也行，直接用 `gdb -batch` 或 `lldb -b` 的命令行（见 4b）。要 MCP 时用 LLDB 自带的，见 [LLDB 文档](https://lldb.llvm.org/use/mcp.html)（`lldb-mcp`；新会话默认异步，创建后先执行 `script lldb.debugger.SetAsync(False)`）；发行版里的 LLDB 不一定带它，先查有没有这个可执行文件。
 
 工具名以安装后宿主列出的为准，下面用到 mcp-windbg 的 `open_cdb_remote`、`run_cdb_command`、`wait_for_break`。
 
@@ -57,6 +68,17 @@ def process_output(text, context):
     return TOKEN.sub("[redacted-token]", text)
 ```
 
+## 4b. 附加调试器（Linux、macOS）
+
+下面只写容易踩的几点，调试器本身的用法按你已有的知识。Linux 上用 gdb 17 和 LLDB 21 实测过命令行方式；macOS 的内容没有实测，遇到和这里不符的地方，如实告诉用户。
+
+- **不能附加到已经在运行的进程**：内核的 `ptrace_scope` 为 1（Ubuntu 默认）时，普通用户只能调试自己启动的子进程，gdb 报 `ptrace: Inappropriate ioctl for device`，lldb 报 `ptrace_scope is 1`。放宽它（`sysctl`、root）会改变整机的限制，由用户决定；默认改为在调试器下启动应用，如 `gdb -batch -x <命令文件> --args <electron> <应用目录> --inspect=<端口>`，lldb 用 `process launch -- <参数>`。
+- Electron 会派生很多子进程：gdb 里 `set follow-fork-mode parent`，lldb 里 `settings set target.process.follow-fork-mode parent`；原生库还没加载时断点要允许 pending（gdb 的 `set breakpoint pending on`，lldb 默认就是）。没有 SUID 沙箱时 Electron 要加 `--no-sandbox`。
+- 命中断点后调试器会一直阻塞，触发那次调用的要是另一个进程：把调试器的输出写进文件，用本工具的 `electron_click`、批处理或 `setTimeout` 方式的求值去触发，再读文件。启动时就跑完的调用，命令里直接 `run` 就会在启动期命中，不需要 `--inspect-brk`。
+- **LLDB 的 MCP 因版本而异**：LLDB 21.1.8（Ubuntu 26.04）没有 `lldb-mcp`，只有 lldb 里的 `protocol-server start MCP listen://localhost:<端口>`，它在 TCP 上收发按行分隔的 JSON-RPC，工具叫 `lldb_command`（参数 `debugger_id`，从 1 开始；`arguments`）。宿主要的是 stdio，用 `nc localhost <端口>` 当桥即可（在 Linux 上试过），注册成 `nc` 加这两个参数的 MCP，lldb 要先启动并开着服务。Apple 自带的 LLDB 有没有 `protocol-server` 没查到，先 `lldb -b -o "help protocol-server"` 看。
+- **macOS 没有 `ptrace_scope`，但有两道别的门**（依据 Apple 文档，没实测）。一是开发者模式：没开时 lldb 附加或启动会弹系统授权框，在没有界面的会话里（ssh、后台）直接报 `non-interactive debug session, cannot get permission to debug processes`；开启要管理员执行 `sudo DevToolsSecurity -enable`，用户还要在 `admin` 或 `_developer` 组，这是改整机的设置，由用户决定。二是目标进程的签名：带 hardened runtime 的进程（多数已发布、已公证的应用）默认拒绝附加，除非有 `com.apple.security.get-task-allow`；开发时用的 Electron 和自己的构建一般没有这个问题。不要给用户装的应用重签名，也不要关 SIP，需要时在应用的副本上做并先问用户。
+- macOS 上原生库的调试信息在 `.dSYM` 里（`dsymutil` 生成，放在 dylib 旁边），lldb 找不到时 `target symbols add <路径>.dSYM`；主进程 pid 用 `ps -eo pid,args | grep -i electron`，取没有 `--type=` 的那个。
+
 ## 5. 跟踪一次 JS 调用进入原生函数
 
 1. 应用用 `--inspect` 启动（要看 renderer 再加 `--remote-debugging-port`），用本工具 attach，确认 JS 侧能触发那次调用。
@@ -86,7 +108,7 @@ def process_output(text, context):
 - **构建用 Debug**（MSVC 的 `/Od /Zi`）：局部变量全部可见。PDB 里记的是本机的绝对路径，符号和源码都自动找到，不用设路径。
 - **部署前先停应用**：库被加载后 Windows 上不能覆盖，重新链接会报 `LNK1168`。按 pid 停掉应用（不要按进程名；不是你启动的实例先问用户），重新构建，再启动，重新 `electron_attach` 和附加调试器（pid 变了）。Git Bash 里运行 `.bat` 要写成 `cmd //c "C:\完整\路径\build.bat"`，相对路径会找不到文件。
 - **让应用加载新产物，不要覆盖用户在用的那份**：先看项目怎么定位原生库，环境变量或配置通常可以指向新文件。
-- **调试期间别触发热重启**：`electron-vite dev --watch` 这类工具在源码改动后会重启主进程，调试器连接和 pid 随之失效，需要重新附加（这一条没有实测）。
+- **调试期间别触发热重启**：`electron-vite dev --watch` 这类工具在源码改动后会重启主进程，调试器连接和 pid 随之失效，需要重新附加（主进程重启、pid 变化、端口不变在 electron-vite 6 上实测过；调试器那一侧没测）。
 
 ## 注意事项
 

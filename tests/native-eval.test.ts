@@ -13,6 +13,7 @@ const evals = JSON.parse(readFileSync(new URL("evals.json", root), "utf8")) as {
     root_cause: string;
     expected_behavior: string[];
     must_not: string[];
+    posix?: { files?: string[]; setup?: string; root_cause?: string; expected_behavior: string[] };
   }>;
 };
 
@@ -26,15 +27,19 @@ test("the native debugging evaluations name the Skill and carry a rubric each", 
     assert.ok(item.root_cause.length > 20, `${item.id}: root_cause`);
     assert.ok(item.expected_behavior.length >= 5, `${item.id}: needs a rubric of at least five items`);
     assert.ok(item.must_not.length >= 1, `${item.id}: must_not`);
+    assert.ok((item.posix?.expected_behavior.length ?? 0) >= 5, `${item.id}: needs a rubric for Linux and macOS too`);
   }
 });
 
 test("every file an evaluation points at exists, and the native source still contains the bugs under test", () => {
   for (const item of evals.evaluations) {
-    for (const file of item.files) assert.ok(existsSync(new URL(file, root)), `${item.id}: missing ${file}`);
+    for (const file of [...item.files, ...(item.posix?.files ?? [])]) {
+      assert.ok(existsSync(new URL(file, root)), `${item.id}: missing ${file}`);
+    }
   }
   const source = readFileSync(new URL("native/native_eval.cpp", root), "utf8");
   assert.ok(/if \(sub == 0\) break;/u.test(source), "early-exit: the loop must still end at an empty folder");
   assert.ok(source.includes("GetFileAttributesA"), "code-page: the ANSI API must still be used");
   assert.ok(source.includes("std::min(requested, 64)"), "startup-call: min must still be used where max is meant");
+  assert.ok(source.includes("to_file_system_encoding(path)"), "code-page (Linux, macOS): the path must still be re-encoded");
 });

@@ -1,5 +1,5 @@
 {
-  "description": "Evaluations for the native-module debugging flow of the electron-debug Skill. They follow the structure in Anthropic's Skill authoring guide (skills, query, files, expected_behavior). They are graded by reading the transcript against the rubric; nothing here is run automatically. See README.md.",
+  "description": "Evaluations for the native-module debugging flow of the electron-debug Skill. They follow the structure in Anthropic's Skill authoring guide (skills, query, files, expected_behavior). They are graded by reading the transcript against the rubric; nothing here is run automatically. Each evaluation has a Windows rubric (the top-level fields) and a posix one (Linux and macOS, `posix`); fields the posix object leaves out are shared. See README.md.",
   "skills": ["electron-debug"],
   "evaluations": [
     {
@@ -25,7 +25,27 @@
         "Quote environment variable values or tokens from the debugger output",
         "Kill processes by image name",
         "Claim the cause from the JS code alone without a native-side observation"
-      ]
+      ],
+      "posix": {
+        "files": [
+          "native/native_eval.cpp",
+          "native/build.sh",
+          "app/main.cjs",
+          "app/renderer.js"
+        ],
+        "expected_behavior": [
+          "Attaches with electron_attach (instrument [\"ipc\"], so the IPC call is recorded) first and reproduces the wrong value through the real window (electron_click on Sum sizes), keeping the afterSeq of that click",
+          "Reads the JS side (IPC invoke native:sum-sizes and its result) before touching the debugger, and notes that the JS side is passing the right folder",
+          "Finds the native source in the repository on its own, or asks the user for it; does not describe the native implementation from memory",
+          "Checks which debugger is installed (gdb or lldb) and asks before installing anything",
+          "Does not try to attach to the running app when ptrace_scope is 1 (it fails), or asks before loosening ptrace_scope; starts the app under the debugger instead, following the parent process and with a pending breakpoint",
+          "Sets a breakpoint on sum_sizes or on a source line in total_size, writes the debugger output to a file, triggers the call with electron_click, and does not wait for the result inside electron_evaluate",
+          "Reads the arguments and the loop state at the breakpoint (the entries, the running total), and sees the loop leave early after the empty folder",
+          "Ends the debugger session on purpose and says what happened to the app",
+          "Names the root cause with the source line as evidence and marks it confirmed, not guessed",
+          "Fixes the source, builds with native/build.sh, stops only the app instance it started (by pid), restarts, and shows Sum sizes returning 100 bytes"
+        ]
+      }
     },
     {
       "id": "code-page",
@@ -46,7 +66,27 @@
       "must_not": [
         "Change the JS side to work around the native bug",
         "Quote environment variable values or tokens from the debugger output"
-      ]
+      ],
+      "posix": {
+        "setup": "Folder containing a subfolder named 资料. Any Linux or macOS machine; the error does not depend on the locale. Same app and native source as early-exit.",
+        "files": [
+          "native/native_eval.cpp",
+          "native/build.sh",
+          "app/main.cjs",
+          "app/renderer.js"
+        ],
+        "root_cause": "has_subdir() passes the path through to_file_system_encoding(), which takes the UTF-8 bytes to be Latin-1 and encodes them again as UTF-8, so stat() looks for a different name. Fix: use the path as it is, it is already UTF-8.",
+        "expected_behavior": [
+          "Reproduces the wrong result through the real window and keeps the afterSeq and the IPC evidence from the JS side",
+          "Confirms with the JS evidence that the string reaching the native call is correct (the Chinese name as UTF-8)",
+          "Looks at the raw bytes of the native argument and of the path handed to stat (memory read or x/ on the address), not only at a printed string",
+          "Sets a breakpoint in has_subdir or on stat, and sees that the path handed to stat differs from the argument for the Chinese name and is the same for an ASCII name",
+          "Connects the failure to the re-encoding step, and states that only non-ASCII names are affected",
+          "Starts the app under the debugger instead of attaching when ptrace_scope is 1, with the debugger output in a file",
+          "Fixes it, builds with native/build.sh, restarts the app it started, and shows found for 资料",
+          "Reports JS-side evidence and native-side evidence separately, and says what the native evidence cannot prove on its own"
+        ]
+      }
     },
     {
       "id": "startup-call",
@@ -68,7 +108,17 @@
         "Attach to an already started app and conclude from that alone",
         "Quote environment variable values or tokens from the debugger output",
         "Kill processes by image name"
-      ]
+      ],
+      "posix": {
+        "expected_behavior": [
+          "Recognises that the call has already run when it attaches to a running app, and reads native-startup.md before choosing how to catch it",
+          "Starts the app under gdb or lldb with a breakpoint on init_slots (no ptrace problem for a child process, no --inspect-brk needed), and says why",
+          "Hits the breakpoint during startup and reads the argument (200) and the returned value (64)",
+          "Ends the debugger session cleanly, and the app finishes starting or is stopped on purpose",
+          "Names std::min as the cause with the source line, fixes it to std::max, rebuilds with native/build.sh, restarts, and shows the startup log with worker slots: 200",
+          "Does not print or quote environment variable values from the process"
+        ]
+      }
     }
   ]
 }

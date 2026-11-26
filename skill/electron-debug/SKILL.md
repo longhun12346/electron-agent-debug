@@ -19,7 +19,7 @@ MCP 连接 Agent 已启动的 Electron 应用，返回主进程、renderer（可
 
 1. 用本工具留下 JS 侧证据：触发操作的 `afterSeq`、主进程 pid、调用原生函数的 JS 位置和参数形状。
 2. 找原生源码和符号；本机找不到就问用户：原生仓库在哪、哪个分支或提交对应这份二进制、能不能给 Debug 构建。
-3. 经用户同意安装外部调试器 MCP（Windows：mcp-windbg 加 cdb），附加主进程，在原生函数或源码行上下断点。
+3. 经用户同意安装外部调试器 MCP（Windows：mcp-windbg 加 cdb；Linux、macOS：gdb 或 lldb 命令行），附加主进程，在原生函数或源码行上下断点。
 4. 用 `electron_click` 或 `electron_type` 触发 JS 调用，命中后看栈、参数和变量，按 `seq` 和 JS 侧的证据对上，对照源码定位原因。
 5. 改原生源码，Debug 构建，停应用、部署、重启并重新 attach，再验证。
 

@@ -1,5 +1,11 @@
 # 版本记录
 
+## 1.7.1
+
+- 只改 `SKILL.md` 和 `references/`，MCP（0.8.0）和运行文件没有变。
+- `references/native.md` 补了 Linux 和 macOS 的原生调试：不装调试器 MCP，直接用 `gdb -batch`、`lldb -b` 命令行；Linux 上 `ptrace_scope` 为 1 时不能附加到运行中的进程，要在调试器下启动应用；LLDB 21 没有 `lldb-mcp`，用 `nc localhost <端口>` 把它内置的 MCP 接成 stdio；macOS 的开发者模式（`DevToolsSecurity`）、hardened runtime 签名和 `.dSYM` 的要点。Linux 用 gdb 17 和 LLDB 21 实测过，macOS 没有实测，文中已写明。
+- `references/native.md` 目录、热重启一条补了实测范围（electron-vite 6 上主进程重启、pid 变化、端口不变，调试器一侧没测）；`SKILL.md` 的原生调试步骤写明 Linux、macOS 用 gdb 或 lldb 命令行。
+
 ## 1.7.0
 
 - MCP 0.8.0，运行文件变了，其中第一条不兼容：
