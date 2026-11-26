@@ -30,10 +30,10 @@ node <absolute-skill-directory>/runtime/launch.cjs --verify
 
 | 宿主 | 用户级（所有项目） | 项目级 | 说明 |
 | --- | --- | --- | --- |
-| Claude Code | `~/.claude/skills/electron-debug/` | `<项目>/.claude/skills/electron-debug/` | 描述和 `when_to_use` 合计最多 1,536 字符；已装 Skill 很多时描述会被截断，可用 `/doctor`、`/skill-doctor` 查看。见 [Skills 文档](https://code.claude.com/docs/en/skills) |
+| Claude Code | `~/.claude/skills/electron-debug/` | `<项目>/.claude/skills/electron-debug/` | `description` 最多 1,024 字符（开放标准），本 Skill 744 字符；已装 Skill 很多时描述会被截断，可用 `/doctor`、`/skill-doctor` 查看。见 [Skills 文档](https://code.claude.com/docs/en/skills) |
 | Codex | `~/.agents/skills/electron-debug/` | `<项目>/.agents/skills/electron-debug/`（从工作目录向上到仓库根都会扫描） | 要求 `SKILL.md` 有 `name` 和 `description`；初始列表占上下文的 2%（窗口未知时 8,000 字符），空间不够时先截短描述，再丢弃部分 Skill；`$electron-debug` 可显式调用。见 [Codex Skills 文档](https://learn.chatgpt.com/docs/build-skills) |
 
-本 Skill 的 `SKILL.md` 里有 Claude Code 专用的 `when_to_use` 字段。Codex 对未知字段的处理在文档里没有说明，本仓库也没有验证过；如果 Codex 报 frontmatter 错误，先删掉这一行，`description` 本身已经包含主要触发条件。
+本 Skill 的 frontmatter 只用开放标准里的字段（`name`、`description`、`license`、`compatibility`），用官方的 `skills-ref validate` 校验通过，不依赖宿主对未知字段的处理。触发条件和例句都写在 `description` 里；Claude Code 专用的 `when_to_use` 字段已经去掉，因为它不在开放标准里，严格的校验器会报错。
 
 不同宿主的 MCP 配置位置不同，见下一节。
 
