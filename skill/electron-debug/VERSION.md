@@ -1,18 +1,25 @@
 # 版本记录
 
+## 1.6.3
+
+- 运行文件（MCP 0.7.0）与 1.6.2 相同，改的是 `SKILL.md` 和 `references/`。
+- 接入：`electron_*` 工具已可见就不再注册；需要注册 MCP 时先问用户，注册后提醒重载，重载前用批处理模式完成本次任务。`mcp-setup.md` 增加 Claude Code、Codex、pi、dsh 的注册方式，Codex、pi、dsh 只依据官方文档，没有实测。批处理小节补充：端口连不上时整批仍是 `ok: true`，上一次执行的 `afterSeq` 和 ref 带不到下一次。
+- 修正：Windows 查进程的命令改成每个进程一行（`Select` 会截断，`Format-List` 会折行，末尾的 `--inspect` 参数可能看不全）；vite-plugin-electron 可以带参数启动；`--inspect-brk` 的开关写法随启动工具而异，没有实测；`electron_logs` 默认只返回最近 100 条；`sinceAttach` 只排除 attach 时重放的历史；IPC 事件带发送方地址；utility 连接会在主进程同步执行 netstat 或 lsof；`ELECTRON_DEBUG_ALLOW_EVAL` 写成无法识别的值时仍是开启；补充调试端口没有认证的提示；性能分析和内存泄漏分析不提供。
+- 新增：仓库根的 `.claude-plugin/marketplace.json`，Claude Code 可以把本仓库当插件市场，一次装好 Skill 并注册 MCP（只用本地目录验证过，没有从 GitHub 安装过）。
+
 ## 1.6.2
 
 - 新增 `references/native.md` 和 `native-startup.md`：koffi、`.node` 插件等原生代码的问题超出本工具范围（本工具只看 JS 层），改为指引 Agent 先留下 JS 侧证据，再经用户同意安装成熟的外部调试器 MCP 配合。`native.md` 含 JS 证据、找原生源码和符号、装调试器、附加，以及从 JS 调用跟到原生函数里执行、定位返回值不符合预期的原因、编译部署再验证的开发循环；启动期的原生调用单独成文件，遇到才读。按官方和社区的写作建议精简过：只留模型不知道的内容，引用只放一层，启动期给判断规则而不是并列选项，没有验证过的命令不留在文档里。崩溃和卡死的草稿因为没验证过，没有放进 Skill，记在仓库的 `docs/plan.md` 待办里。Windows 用 mcp-windbg（驱动 cdb、kd），macOS、Linux 用 LLDB 自带的 MCP，安装方式依据两个项目的官方文档。`SKILL.md`、`alternatives.md`、`launch.md` 和平台描述各加了指向它的说明；`MAIN_INSPECTOR_UNAVAILABLE` 的超时提示加上“被原生调试器暂停”这一可能（运行文件的其余行为不变，MCP 0.7.0）。
 - 按官方 Skill 写作清单复查后的调整：`description` 加上原生模块（koffi、`.node`）返回值不对的触发词，并写明不适用原生崩溃和卡死；`when_to_use` 是 Claude Code 专用字段，不在 Agent Skills 开放标准里，官方的 `skills-ref validate` 会报错，所以并入 `description`（744 字符，标准上限 1,024），另加 `compatibility` 字段，现在校验通过；`SKILL.md` 里 942 字符的一整段拆成“边界”列表，步骤 1、3、4 拆成子项；`alternatives.md` 里 1,210 字符的表格单元格拆成“utility process”一节；`SKILL.md` 不再引导 Agent 去读 `VERSION.md`，当前版本看 `runtime/manifest.json`。
 - 验证方式（Windows）：一个最小的 koffi 示例，一个带 PDB 的真实 koffi 项目，一个用本机 MSVC 做 Debug 构建的小原生模块；之后让两个全新的 Agent 只凭 Skill 文档各走一遍（两个不同的原生 bug：循环提前退出导致结果偏小；按系统代码页解释 UTF-8 路径导致含中文的子目录被当成找不到），都独立完成了定位、修复和验证，并按 pid 清理了进程。
 - 实测中发现并写进文档的坑：附加输出会带出目标进程的全部环境变量；`tcp:port=` 的调试服务端监听在 `0.0.0.0` 且没有认证，改用命名管道；`qd` 在远程会话里只退出客户端、停在断点上直接 `qq` 会让应用退出，要先 `bc *`、`g`，再 `qqd`；`.sympath`、`.srcpath` 会把整行当路径；koffi 之上的栈帧不可信；`dx` 默认展开宽字符串，含非 ASCII 的字符串要用 `db`、`dw` 看原始字节；重新链接时应用还加载着库会报 `LNK1168`；`--inspect-brk` 下 `electron_evaluate` 会超时，放行要发 `Runtime.runIfWaitingForDebugger`；批处理模式每次调用是新会话，读不到断点期间那次调用的 IPC 记录。
-- 验证的局限：都是 Windows；Agent 是被明确要求使用这个 Skill 的，不能说明没有提示时它会不会自己去用；`description` 里还没有 koffi、原生模块这类触发词。
+- 验证的局限：都是 Windows；Agent 是被明确要求使用这个 Skill 的，不能说明没有提示时它会不会自己去用。
 - 没有实测，也因此没有写进 Skill 的内容：崩溃后分析 dump、进程卡死时看所有线程的栈、macOS 和 Linux 上的 LLDB 流程、命令行的 `-y`、`-srcpath`、`-hd` 选项和 `sxe ld:`、electron-vite 的 `--inspect-brk` 写法（记在 `docs/plan.md` 的待办里）。热重启使调试会话失效这一条保留了，标明没有实测。
 
 ## 1.6.1
 
 - 运行文件（MCP 0.7.0）、`SKILL.md` 和 `references/` 与 1.6.0 相同，只有这份版本记录和 manifest 里的 Skill 版本号变化。
-- 重新发布的原因：OneTool 平台上的简要和详细描述已按平台描述规范改写（使用须知、接入与来源、合并后的故障排除、三个经典案例），平台只在包内容变化时才接受描述更新。
+- 重新发布的原因：平台上的简要和详细描述已按平台描述规范改写（使用须知、接入与来源、合并后的故障排除、三个经典案例），平台只在包内容变化时才接受描述更新。
 
 ## 1.6.0
 

@@ -4,7 +4,7 @@
 
 ## IPC
 
-主进程通道在线且未禁用求值时，时间线自动记录主进程收到的每条 IPC（`kind` 为 `ipc`）：`invoke` 的成功或失败与错误信息，`send` / `sendSync` 没有监听者时为 warn。只记录通道名、耗时、结果和参数大小，不含参数值。用 `electron_wait_for` 等 `IPC invoke <通道>` 即可确认调用到达主进程以及结果。main 侧证据也可以在 renderer 触发调用后，用 `electron_evaluate`(main) 读副作用，如文件是否落盘、状态是否变化。
+主进程通道在线且未禁用求值时，时间线自动记录主进程收到的每条 IPC（`kind` 为 `ipc`）：`invoke` 的成功或失败与错误信息，`send` / `sendSync` 没有监听者时为 warn。只记录通道名、耗时、结果、错误信息、参数大小和发送方（`senderId`、`senderUrl`，地址里可能带令牌），不含参数值。用 `electron_wait_for` 等 `IPC invoke <通道>` 即可确认调用到达主进程以及结果。main 侧证据也可以在 renderer 触发调用后，用 `electron_evaluate`(main) 读副作用，如文件是否落盘、状态是否变化。
 
 ## 崩溃
 
@@ -27,7 +27,7 @@ renderer 页面崩溃时连接不会断：`electron_status` 的 renderer 变为 
 
 ## attach 会在应用里装什么
 
-`ELECTRON_DEBUG_ALLOW_EVAL` 没有关闭时，attach 主进程会在应用里装上记录用的包装：`ipcMain.emit`、`ipcMain` 的 invoke 处理表和 `dialog` 的各个函数，另有两个 `Runtime.addBinding`。它们不读取参数值，应用重启前不会移除。utility 连接还会在应用里调用未公开的 `process._debugProcess`。不想让工具改动应用：只想少装一部分，给 `electron_attach` 传 `instrument`（`["ipc"]`、`["dialogs"]` 或 `[]`，不传沿用上一次的选择，结果的 `instrumented` 列出实际装了什么）；要连求值、点击输入、utility 一起关掉，就设 `ELECTRON_DEBUG_ALLOW_EVAL=0`。已经装上的包装在应用重启前不会移除。
+`ELECTRON_DEBUG_ALLOW_EVAL` 没有关闭时，attach 主进程会在应用里装上记录用的包装：`ipcMain.emit`、`ipcMain` 的 invoke 处理表和 `dialog` 的各个函数，另有两个 `Runtime.addBinding`。它们不上报参数值（会对参数做 JSON 序列化来计算大小），应用重启前不会移除。utility 连接还会在应用里调用未公开的 `process._debugProcess`，并在主进程里同步执行 `netstat`（Windows）或 `lsof` 查监听端口（每次最多阻塞约 3 秒）。不想让工具改动应用：只想少装一部分，给 `electron_attach` 传 `instrument`（`["ipc"]`、`["dialogs"]` 或 `[]`，不传沿用上一次的选择，结果的 `instrumented` 列出实际装了什么）；要连求值、点击输入、utility 一起关掉，就设 `ELECTRON_DEBUG_ALLOW_EVAL=0`。
 
 ## 点击、输入和对话框
 

@@ -2,7 +2,7 @@
 
 在 SKILL.md 工作流第 1、3 步之外的细节。
 
-参数含义见 Electron 官方文档：[调试主进程](https://www.electronjs.org/docs/latest/tutorial/debugging-main-process)、[命令行开关](https://www.electronjs.org/docs/latest/api/command-line-switches)。参数怎么传进 Electron 取决于启动方式，并以 `electron_attach` 返回的通道状态确认是否生效。
+参数含义见 Electron 官方文档：[调试主进程](https://www.electronjs.org/docs/latest/tutorial/debugging-main-process)、[命令行开关](https://www.electronjs.org/docs/latest/api/command-line-switches)。参数怎么传进 Electron 取决于启动方式，并以 `electron_attach` 返回的通道状态确认是否生效。`--inspect` 和 `--remote-debugging-port` 打开的端口没有认证，同机的其他进程或用户都能连上并执行代码：只在本机开发环境用，用完关闭应用，多用户机器上要留意。
 
 ## 改动生效
 
@@ -22,4 +22,4 @@
 | `electron .`，或构建后直接运行 | `electron . --inspect=<I> --remote-debugging-port=<R>` |
 | electron-vite（脚本是 `electron-vite dev`） | `electron-vite dev --inspect <I> --remoteDebuggingPort <R>`；脚本被包了一层时设环境变量 `V8_INSPECTOR_PORT=<I>`、`REMOTE_DEBUGGING_PORT=<R>` 再照常运行（已在 pnpm 加 turbo 包了两层的项目上实测：`pnpm dev:desktop` 前设这两个变量，electron 的命令行里出现了 `--inspect` 和 `--remote-debugging-port`；turbo 要带 `--env-mode=loose`，变量才会传下去） |
 | Electron Forge | `electron-forge start --inspect-electron -- --remote-debugging-port=<R>`（官方文档的写法，未实测；主进程端口以 `electron_attach` 的结果为准） |
-| vite-plugin-electron（脚本是 `vite`） | 插件固定用 `electron . --no-sandbox` 启动，命令行参数和 `ELECTRON_EXTRA_LAUNCH_ARGS` 都传不进去。先构建（如 `vite build`），再按第一行用 `electron .` 运行；这样跑的是构建产物，不带开发服务器的热更新 |
+| vite-plugin-electron（脚本是 `vite`） | 插件默认用 `electron . --no-sandbox` 启动。按插件文档，在 `onstart({ startup })` 里调用 `startup(['.', '--no-sandbox', '--inspect=<I>', '--remote-debugging-port=<R>'])` 可以带参数；v1.0.0 起它也认环境变量 `ELECTRON_INSPECT`、`REMOTE_DEBUGGING_PORT`（以上来自插件文档，没有实测，要改项目配置）。不想改配置：先构建（如 `vite build`），再按第一行用 `electron .` 运行，这样跑的是构建产物，不带开发服务器的热更新 |

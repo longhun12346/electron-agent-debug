@@ -9,7 +9,7 @@
 原生调试器看不到 JS 在做什么，这部分只有本工具能给：
 
 - 触发那次调用的操作（`electron_click`、`electron_type` 返回的 `afterSeq`，或最后一条 `IPC invoke <通道>`）和退出前最后几条日志（带 `seq`）。
-- 主进程的 pid 和命令行（工作流第 1 步查过的那条）；utility 进程用 `electron_attach` 结果里的 pid。
+- 主进程的 pid 和命令行（工作流第 1 步查过的那条）；utility 进程的 pid 用 `electron_evaluate`(main) 读 `app.getAppMetrics()`。
 - 调用原生函数的 JS 位置和参数形状：读项目代码，必要时加一行 `console.log` 后复现。
 
 ## 2. 找原生源码和符号

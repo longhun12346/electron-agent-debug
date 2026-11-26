@@ -40,7 +40,7 @@ gh attestation verify <absolute-release-zip> --repo longhun12346/electron-agent-
 
 ## 配置宿主
 
-先确认包来源符合任务要求，再执行完整性检查。通过后，根据实际宿主注册以下本地入口：
+先确认包来源符合任务要求，再执行完整性检查。通过后，向用户说明要改哪份宿主配置、是用户级还是项目级，得到同意再注册；注册后新 MCP 通常要重载或新开会话才可见，提醒用户去做，在此之前用下面的批处理模式完成本次任务。根据实际宿主注册以下本地入口：
 
 ```json
 {
@@ -53,7 +53,29 @@ gh attestation verify <absolute-release-zip> --repo longhun12346/electron-agent-
 }
 ```
 
-这是概念示例，字段与刷新方式以实际宿主为准。已存在相同 Server 时先核对其入口和版本，避免重复注册。刷新后确认全部 10 个工具可见：`electron_attach`、`electron_status`、`electron_targets`、`electron_logs`、`electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`、`electron_click`、`electron_type`。MCP 启动成功不代表 Electron 已启动或业务已通过。
+这是概念示例，字段与刷新方式以实际宿主为准。各宿主的注册方式如下（`<abs>` 是 Skill 的绝对安装目录）：
+
+| 宿主 | 注册方式 | 说明 |
+| --- | --- | --- |
+| Claude Code | `claude mcp add --scope user electron-agent-debug -- node <abs>/runtime/launch.cjs`；或装仓库自带的插件（见 GitHub 仓库的 README） | 不加 `--scope` 是只对当前项目、只对你可见的 local 范围；`--scope project` 会把本机绝对路径写进项目的 `.mcp.json`，不要提交；插件会同时装 Skill 和 MCP |
+| Codex | `codex mcp add electron-agent-debug -- node <abs>/runtime/launch.cjs`；或在 `~/.codex/config.toml` 写 `[mcp_servers.electron-agent-debug]`，`command = "node"`，`args = ["<abs>/runtime/launch.cjs"]` | 项目级配置在 `.codex/config.toml`，仅信任的项目生效 |
+| pi | `pi mcp add electron-agent-debug --exposure direct -- node <abs>/runtime/launch.cjs`（默认写用户级 `~/.pi/agent/mcp.json`，加 `-l` 写项目级 `.pi/mcp.json`，要先信任项目） | pi 默认 `exposure` 是 `codemode`，工具只能在脚本里调用；`direct` 才像内置工具一样直接可用。改完配置在会话里用 `/reload` |
+| DeepSeek Harness（dsh） | 把表后的 YAML 合并进 `$DSH_HOME/cordis.patch.yml`（所有 profile）或 `$DSH_HOME/profiles/<名>/cordis.patch.yml`，或用 `dsh web --patch <文件>` 传入 | 默认不启用任何 MCP；不要覆盖已有的 patch 文件；改完要不要重启，官方文档没说，看不到工具就重启 `dsh web`；工具名带前缀，如 `mcp__electron-agent-debug__electron_attach` |
+
+```yaml
+- insert:
+    - id: mcp-electron-agent-debug
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: electron-agent-debug
+        transport: stdio
+        command: node
+        args: ['<abs>/runtime/launch.cjs']
+```
+
+Codex、pi、dsh 的写法依据各自的官方文档，没有在真机上实测过，注册后以工具是否可见为准。`<abs>` 在 Windows 上写成正斜杠 `C:/…`；反斜杠在 JSON、TOML 里要写成 `\\`，在 Git Bash 里不加引号会被吃掉。新注册的 MCP 要不要重载，Claude Code 和 Codex 的文档没说清，pi 用 `/reload`，看不到工具就请用户重启会话。
+
+`electron_*` 工具已经可见（工具名以 `electron_attach` 等结尾，宿主可能加前缀）就不用再注册；用 `claude mcp list`、`codex mcp list`、`pi mcp list` 查已注册的 Server，已存在相同 Server 时先核对其入口和版本，避免重复注册。刷新后确认全部 10 个工具可见：`electron_attach`、`electron_status`、`electron_targets`、`electron_logs`、`electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`、`electron_click`、`electron_type`。MCP 启动成功不代表 Electron 已启动或业务已通过。
 
 ## 不注册 MCP：批处理模式
 
@@ -84,7 +106,7 @@ stdout 输出一行 JSON：`{"ok": true, "tools": [{"name", "description", "inpu
 ]
 ```
 
-stdout 输出一行 JSON：`{"ok": true|false, "results": [{"tool", "ok", "result"}, ...]}`，`result` 与 MCP 工具返回的 `structuredContent` 相同。某一步失败时默认停止，后续步骤标记为 `skipped`；该步骤设置 `continueOnError: true` 则继续。全部成功时退出码为 0，否则为 1。输入上限 1 MiB、100 步。输入内容经 shell 传递时，优先用文件或 heredoc，避免引号转义。
+stdout 输出一行 JSON：`{"ok": true|false, "results": [{"tool", "ok", "result"}, ...]}`，`result` 与 MCP 工具返回的 `structuredContent` 相同。某一步失败时默认停止，后续步骤标记为 `skipped`；该步骤设置 `continueOnError: true` 则继续。全部成功时退出码为 0，否则为 1。没传 endpoint 或 URL 非法时，attach 返回 `ok: false`；端口连不上时它仍是 `true`，整批退出码也是 0：是否连上看结果里的 `errors` 和各通道的 `status`。输入上限 1 MiB、100 步。输入内容经 shell 传递时，优先用文件或 heredoc，避免引号转义。
 
 进程退出后连接和日志缓存随之消失，下一次执行要重新 `electron_attach`；`electron_logs` 只能读到本次执行期间观察到的事件。需要跨多轮保持连接或累积日志时，改为注册 MCP。环境变量保护参数（如 `ELECTRON_DEBUG_ALLOW_EVAL=0`）在两种方式下同样生效。
 
@@ -117,7 +139,7 @@ ELECTRON_DEBUG_OUTPUT_DIR=<optional-screenshot-directory>
 ELECTRON_DEBUG_ALLOW_EVAL=<optional, 0, false, off, no or disabled to disable evaluation>
 ```
 
-默认值和允许范围（超出范围会返回 `ENDPOINT_CONFIG_INVALID`）：
+默认值和允许范围（超出范围时服务启动失败，没有 JSON 结果，stderr 里有 `ENDPOINT_CONFIG_INVALID`，很长，开头是压缩后的源码行，看末尾几行）：
 
 | 变量 | 默认 | 范围 |
 | --- | --- | --- |
@@ -127,7 +149,7 @@ ELECTRON_DEBUG_ALLOW_EVAL=<optional, 0, false, off, no or disabled to disable ev
 | `ELECTRON_DEBUG_MAX_LOG_BYTES` | 1 MiB | 4096 字节到 16 MiB |
 | `ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES` | 256 MiB | 4096 字节到 256 MiB |
 
-`ELECTRON_DEBUG_ALLOW_EVAL` 是宿主在启动 Server 时设置的开关，批处理模式（`launch.cjs --run`）下由运行它的人设置：能自己执行命令的 Agent 可以不带这个变量运行，所以它约束的是宿主配置的 MCP Server，不是一道对 Agent 的强制边界。
+`ELECTRON_DEBUG_ALLOW_EVAL` 只有 `0`、`false`、`off`、`no`、`disabled`（不分大小写）会关闭求值，写成别的值（如 `none`）仍是开启。它是宿主在启动 Server 时设置的开关，批处理模式（`launch.cjs --run`）下由运行它的人设置：能自己执行命令的 Agent 可以不带这个变量运行，所以它约束的是宿主配置的 MCP Server，不是一道对 Agent 的强制边界。
 
 `ELECTRON_DEBUG_OUTPUT_DIR` 指定截图目录，默认系统临时目录下的 `electron-agent-debug`，仅保留最近 50 张。`electron_evaluate` 和表达式型 `electron_wait_for` 默认开启（endpoint 只允许回环地址）；宿主在 `env` 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 可禁用，此时返回 `EVALUATION_NOT_ALLOWED`。单条协议消息上限默认 256 MiB，与 Puppeteer、Playwright 一致；可用 `ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES` 调小。
 

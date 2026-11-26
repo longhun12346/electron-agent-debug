@@ -128,4 +128,4 @@ Release 打包使用 Python 标准库，不是 MCP 运行依赖。第三方安�
 2. 运行 `npm test`（含 `build:skill`）、`npm run lint`、`npm run check:skill`，并提交重新生成的 `runtime/` 文件。
 3. 同步 `docs/platform-description.md`：工具数量、支持的系统与 Node.js 版本、新增的能力或限制。`tests/platform-description.test.ts` 核对简要描述长度、工具数量、Node.js 版本，以及文中的环境变量、错误码、参数名和工具名是否存在于源码。这些要人工对照：带条件的能力（如 IPC 追踪、原生对话框、`instrument`）有没有把条件写全；不脱敏、attach 会改动应用、求值和点击会改变状态这几条风险是否仍在“使用须知”里；用词是否与 `SKILL.md` 一致；“功能简介”不超过约 250 字、“不适用场景”不超过 3 条；版本号和来源链接是否是最新的。
 4. 推送后等待 CI 全部通过，包括 `electron-versions`。
-5. 用 skill-publisher 的 `oneskill update` 发布，简要描述和详细描述取自 `docs/platform-description.md`，发布范围保持平台上原有的值；广场发布后等安全扫描结果。
+5. 在发布平台上更新，简要描述和详细描述取自 `docs/platform-description.md`，发布范围保持平台上原有的值；公开发布后等安全扫描结果。

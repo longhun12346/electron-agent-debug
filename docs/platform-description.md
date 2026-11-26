@@ -1,6 +1,6 @@
-# 平台描述（OneTool）
+# 平台描述
 
-本文件是 Skill 在 OneTool 平台上展示的描述，不进入 Skill 包。发布或更新时，简要描述对应 `oneskill update` 的 `--brief-desc`，详细描述对应 `--detail-doc`（取两个标记之间的内容）。
+本文件是 Skill 在发布平台上展示的描述，不进入 Skill 包。发布或更新时，简要描述和详细描述（取两个标记之间的内容）分别填入平台的对应字段。
 
 平台上的描述与 `SKILL.md` 是两份独立文本，容易各自过期。修改工具数量、支持的平台和 Node.js 版本、参数、环境变量、新增或移除能力时，先改这里，再发布。`tests/platform-description.test.ts` 会核对简要描述长度、工具数量、Node.js 版本，以及文中出现的环境变量、错误码和参数名是否存在于源码；条件有没有写全、风险是否醒目这类事要人工对照，发布前的完整清单见 [CONTRIBUTING.md](../CONTRIBUTING.md) 的“Skill 发布构建”。
 
@@ -36,9 +36,12 @@
 - **utility process 内代码的检查**：连接时传入 utility 的名字或 pid，可像主进程一样求值和读日志
   - 示例：我的 utilityProcess 里的任务没有执行，帮我连上它看日志和状态
 
+- **原生模块（koffi、`.node` 插件）返回值不对**：本工具只看 JS 层，Skill 先留下 JS 侧证据，再指引 Agent 经用户同意安装 WinDbg 等外部调试器 MCP，对着原生源码和 PDB 从 JS 调用跟到原生函数（只在 Windows 上验证过）
+  - 示例：原生模块的函数返回值不对，帮我从 JS 调用一路调试到原生代码
+
 ## 不适用场景
 - **本地开发环境之外的应用**：打包后的应用（安装包，或已关闭调试开关、fuse 的构建）和远程、非回环地址的应用不在支持范围内；工具只连接已运行的应用，不负责启动、停止或重启
-- **不需要运行时观察，或本工具不提供的能力**：纯类型检查和构建问题用项目已有的检查；断点、拖拽悬停快捷键、网络抓包、性能分析不提供，Skill 的 references/alternatives.md 给出了用日志、求值等替代做法；原生对话框和系统菜单需要用户人工操作；koffi、`.node` 插件等原生代码内部的单步跟踪也不在范围内，Skill 会先留下 JS 侧证据，再指引 Agent 经用户同意安装 WinDbg、LLDB 等外部调试器 MCP 配合，对着原生源码和 PDB 从 JS 调用跟到原生函数；原生崩溃和卡死目前没有验证过的流程
+- **不需要运行时观察，或本工具不提供的能力**：纯类型检查和构建问题用项目已有的检查；断点、拖拽悬停快捷键、网络抓包不提供，Skill 的 references/alternatives.md 给出了用日志、求值等替代做法；性能分析和内存泄漏分析不提供，也没有替代；原生对话框和系统菜单需要用户人工操作；本工具自身不做原生代码的单步跟踪（见适用场景里的原生模块一条），原生崩溃和卡死目前没有验证过的流程
 - **带真实生产凭据的应用**：输出不做脱敏，只应连接本地开发环境的应用（详见“使用须知”）
 
 ## 依赖要求
@@ -52,7 +55,8 @@
 ## 使用须知
 - **输出不做脱敏**：日志、报错、求值结果、页面文本、窗口地址和标题可能带出令牌、密码、cookie，并进入模型上下文和会话记录。是否遮挡由 Agent 判断：只读取需要的内容，汇报时只引用必要片段，不连接带真实生产凭据的应用。
 - **attach 会改动被检查的应用**：允许求值时，attach 会在主进程里装上 IPC 追踪和原生对话框追踪的包装，应用重启前不会移除。可用 `electron_attach` 的 `instrument` 参数选择装哪些（传 `[]` 都不装），结果的 `instrumented` 列出实际装了什么。
-- **求值、点击和输入会改变应用状态**，只用于验证。宿主把环境变量 `ELECTRON_DEBUG_ALLOW_EVAL` 设为 `0`、`false`、`off`、`no` 或 `disabled` 时，求值、点击输入、utility 连接、IPC 和对话框追踪都不可用，此时只能读状态、日志、截图和无障碍树。
+- **求值、点击和输入会改变应用状态**，只用于验证。宿主把环境变量 `ELECTRON_DEBUG_ALLOW_EVAL` 设为 `0`、`false`、`off`、`no` 或 `disabled` 时，求值、点击输入、utility 连接、IPC 和对话框追踪都不可用，此时只能读状态、日志、截图和无障碍树；写成别的值（如 `none`）仍是开启。
+- **调试端口没有认证**：`--inspect` 和 `--remote-debugging-port` 打开的端口，同机的其他进程或用户都能连上并执行代码。只在本机开发环境使用，用完关闭应用，多用户机器上要留意。
 - **只连接本机回环地址**（127.0.0.1、::1、localhost），不接受远程地址。
 
 ## 使用方式
@@ -63,7 +67,7 @@
 验证报告，包含结论（PASS、FAIL 或 BLOCKED）、预期行为、使用的工具与关键证据（日志、截图路径、无障碍树、求值结果）、所选 target 以及剩余限制。
 
 ### 接入与来源
-随包运行文件是 `runtime/launch.cjs`：先执行 `node <skill 目录>/runtime/launch.cjs --verify` 校验完整性，再注册为本地 stdio MCP Server；宿主不能注册 MCP 时用 `launch.cjs --run` 批处理，`launch.cjs --tools` 列出每个工具的参数。
+随包运行文件是 `runtime/launch.cjs`：先执行 `node <skill 目录>/runtime/launch.cjs --verify` 校验完整性。`electron_*` 工具已可见就直接用；否则多轮取证时再注册为本地 stdio MCP Server（先问用户；新注册的 MCP 通常要重载或新开会话才可见）；重载前、用户不同意或宿主不能注册 MCP 时用 `launch.cjs --run` 批处理，`launch.cjs --tools` 列出每个工具的参数。
 
 注册的最小配置（具体文件名和字段以宿主为准，路径换成实际的 skill 目录）：
 
@@ -78,15 +82,17 @@
 }
 ```
 
+各宿主的注册命令（Codex、pi、DeepSeek Harness 只依据官方文档，没有实测）：Claude Code 用 `claude mcp add --scope user electron-agent-debug -- node <skill 目录>/runtime/launch.cjs`，也可以把本仓库当插件市场安装，一次装好 Skill 并注册 MCP；Codex 用 `codex mcp add electron-agent-debug -- node <skill 目录>/runtime/launch.cjs`；pi 用 `pi mcp add electron-agent-debug --exposure direct -- node <skill 目录>/runtime/launch.cjs`；DeepSeek Harness 的写法见 Skill 的 references/mcp-setup.md。Skill 目录放 `.agents/skills/`（Codex、pi、DeepSeek Harness 都会读）或 `.claude/skills/`（Claude Code）。
+
 被诊断的应用要带 --inspect 和 --remote-debugging-port 启动；electron-vite、Electron Forge 等各启动方式怎么传参，见 Skill 的 references/launch.md。
 
-版本：Skill 1.6.2（MCP 0.7.0），变更记录见包内 VERSION.md；许可证 MIT；源码与发布说明：https://github.com/longhun12346/electron-agent-debug
+版本：Skill 1.6.3（MCP 0.7.0），变更记录见包内 VERSION.md；许可证 MIT；源码与发布说明：https://github.com/longhun12346/electron-agent-debug
 
 ## 故障排除
 ### attach 连不上，或某个通道不可用
 **出现原因**：
 - 应用没带调试参数：开发者常已开着 pnpm dev，而它没有 --inspect 和 --remote-debugging-port（最常见）
-- 端口没人监听、主进程和 renderer 的端口传反、端口上是浏览器而不是 Electron
+- 端口没人监听、主进程和 renderer 的端口传反（端口上是浏览器而不是 Electron 时，结果的 warnings 里有 RENDERER_NOT_ELECTRON）
 - 环境里设置了 ELECTRON_RUN_AS_NODE=1：Electron 按 Node 运行、不会创建窗口，renderer 通道不可用
 - 应用关闭了 EnableNodeCliInspectArguments fuse：--inspect 被忽略，主进程通道连不上而 renderer 正常
 
@@ -97,8 +103,8 @@
 **解决方案**：对照 `electron_targets` 返回的 title 和 url（需完全相等）选择，重名时用 targetId；收到 TARGET_CHANGED 时先确认新页面就是要验证的窗口。
 
 ### 日志不对：读到旧的，或缺事件
-**出现原因**：attach 时会重放应用启动以来的历史输出，等待命中这类旧事件时结果会带 beforeAttach 标记；日志缓冲区写满后会丢弃最旧的事件。
-**解决方案**：读取和等待日志时传 sinceAttach，或用操作返回的 afterSeq，只看本次操作之后的事件；读取日志时看 droppedThroughSeq 和 gap，缩短两次取证的间隔，或调大 ELECTRON_DEBUG_MAX_LOG_EVENTS。
+**出现原因**：attach 时会重放应用启动以来的历史输出，等待命中这类旧事件时结果会带 beforeAttach 标记；日志缓冲区写满后会丢弃最旧的事件；electron_logs 默认只返回最近 100 条。
+**解决方案**：用操作返回的 afterSeq 只看本次操作之后的事件，sinceAttach 只排除 attach 时重放的历史；读取日志时看 droppedThroughSeq 和 gap，缩短两次取证的间隔，或调大 ELECTRON_DEBUG_MAX_LOG_EVENTS。
 
 ### renderer 页面崩溃
 **出现原因**：页面崩溃时调试连接不断，但状态会标为离线，各 renderer 工具返回 TARGET_CRASHED。

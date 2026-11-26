@@ -1,0 +1,23 @@
+{
+  "name": "electron-agent-debug",
+  "description": "Runtime diagnostics for Electron apps: an attach-only MCP server plus the electron-debug Agent Skill",
+  "owner": {
+    "name": "longhun12346"
+  },
+  "plugins": [
+    {
+      "name": "electron-debug",
+      "source": "./skill/electron-debug",
+      "description": "Verify or diagnose a local Electron app at runtime: read main, renderer and utility logs, evaluate code, take screenshots and accessibility snapshots, click and type in the real window, and trace a JS call into native code with an external debugger. Registers the bundled stdio MCP server (Node.js 20+).",
+      "homepage": "https://github.com/longhun12346/electron-agent-debug",
+      "license": "MIT",
+      "keywords": ["electron", "debugging", "mcp", "ipc", "koffi", "agent-skills"],
+      "mcpServers": {
+        "electron-agent-debug": {
+          "command": "node",
+          "args": ["${CLAUDE_PLUGIN_ROOT}/runtime/launch.cjs"]
+        }
+      }
+    }
+  ]
+}

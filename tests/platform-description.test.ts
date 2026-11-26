@@ -5,7 +5,7 @@ import { allTools } from "../src/tools/index.js";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-// The description shown on the OneTool platform is a separate text from SKILL.md and has gone stale before.
+// The description shown on the publishing platform is a separate text from SKILL.md and has gone stale before.
 // This pins the facts that change with the code; whether conditions are stated in full and risks are prominent is
 // checked by hand against the list in CONTRIBUTING.md.
 const description = read("docs/platform-description.md");

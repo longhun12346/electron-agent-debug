@@ -14,9 +14,9 @@ cdb -server npipe:pipe=eadbg -noio -pd -lines -c "bu <模块>!<函数>; g" <elec
 
 ## 用 `--inspect-brk`
 
-把启动参数里的 `--inspect` 换成 `--inspect-brk`，应用会在第一行用户代码之前等待。此时 `electron_attach` 能连上，但 `electron_evaluate` 会超时，也不会让应用继续。
+把启动参数里的 `--inspect` 换成 `--inspect-brk`（electron-vite 这类工具的开关写法以它的 `--help` 为准，这一点没有实测），端口用实际的 `<I>`，应用会在第一行用户代码之前等待。此时 `electron_attach` 能连上，但 `electron_evaluate` 会超时，也不会让应用继续。
 
-流程：启动应用并等待，附加调试器、下断点、`g`，再发一条 `Runtime.runIfWaitingForDebugger` 放行，断点命中。放行用 Node 22 以上自带的 WebSocket，几行就够：
+流程：启动应用并等待，附加调试器、下断点、`g`，再发一条 `Runtime.runIfWaitingForDebugger` 放行，断点命中。放行用 Node 22 以上自带的 WebSocket，存成 `.mjs` 文件再用 node 运行（里面用了顶层 `await`），把 `9229` 换成实际端口，几行就够：
 
 ```js
 const [target] = await (await fetch("http://127.0.0.1:9229/json/list")).json();

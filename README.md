@@ -16,9 +16,9 @@
 1. 通过 stdio 暴露给 Agent 的轻量 MCP Server。
 2. 一个项目级 Electron Debug Skill，规定编码后的诊断顺序、工具选择和证据要求。
 
-Skill 发布包包含已构建、带依赖的 MCP JavaScript 运行文件、完整性启动器、版本清单和许可证。正常使用只需要 Node.js 20+，无需下载额外源码、安装依赖或构建 MCP。宿主配置由 Agent 根据实际安装目录完成。
+Skill 发布包包含已构建、带依赖的 MCP JavaScript 运行文件、完整性启动器、版本清单和许可证。正常使用只需要 Node.js 20+，无需下载额外源码、安装依赖或构建 MCP。宿主配置由 Agent 根据实际安装目录完成，注册前会先征求你的同意。
 
-Skill 可以全局安装供多个 Electron 项目使用，也可以作为项目级规则随单个项目使用。全局目录、项目级目录和加载方式由 Agent 宿主决定；两种安装方式都不会自动注册 MCP。
+Skill 可以全局安装供多个 Electron 项目使用，也可以作为项目级规则随单个项目使用。全局目录、项目级目录和加载方式由 Agent 宿主决定；两种安装方式都不会自动注册 MCP（下面的 Claude Code 插件除外）。
 
 ## 安装 Skill
 
@@ -38,6 +38,29 @@ npx skills add longhun12346/electron-agent-debug --skill electron-debug --global
 
 GitHub Release 的 Skill ZIP 附带构建来源证明，绑定发布工作流及源码提交；第三方安装渠道的安装包以该渠道的发布和扫描结果为准。本地完整性校验不独立证明发布者身份。配置、升级和来源验证边界见 [MCP 接入说明](skill/electron-debug/references/mcp-setup.md)。
 
+### 作为 Claude Code 插件安装（含 MCP）
+
+仓库自带一个 Claude Code 插件市场（`.claude-plugin/marketplace.json`），插件会同时装好 Skill 并注册内置的 MCP Server，不用手动配置。需要 Node.js 20+ 在 PATH 里：
+
+```text
+/plugin marketplace add longhun12346/electron-agent-debug
+/plugin install electron-debug@electron-agent-debug
+```
+
+Claude Code 2.1.275 以上也可以一步完成：`/plugin install electron-debug --marketplace longhun12346/electron-agent-debug`。会话里的 `/plugin install` 会先打开详情面板，选好安装范围才装；提示重载时运行 `/reload-plugins`。这条路径只用本地目录验证过，没有从 GitHub 装过。插件里的 Skill 调用名带插件名前缀，在 `/` 菜单里查看。
+
+### 其他编码 Agent（Codex、pi、DeepSeek Harness）
+
+`npx skills add` 对 Claude Code、Codex、pi 会按宿主放进对应目录（它的支持列表里没有 dsh）；手动复制 `skill/electron-debug/`（整个目录，含 `runtime` 和 `references`）时放这里：
+
+| 宿主 | 项目级 | 全局 |
+| --- | --- | --- |
+| Claude Code | `.claude/skills/` | `~/.claude/skills/` |
+| Codex、pi | `.agents/skills/` | `~/.agents/skills/` |
+| DeepSeek Harness（dsh） | `.dsh/skills/` 或 `.agents/skills/` | `~/.dsh/skills/` 或 `~/.agents/skills/` |
+
+MCP 要另外注册，Agent 会先征求你的同意：Codex 用 `codex mcp add electron-agent-debug -- node <Skill 目录>/runtime/launch.cjs`，pi 用 `pi mcp add electron-agent-debug --exposure direct -- node <Skill 目录>/runtime/launch.cjs`（默认的 Codemode 只能在脚本里调用），dsh 的写法见 [MCP 接入说明](skill/electron-debug/references/mcp-setup.md)。新注册的 MCP 要重载或新开会话才可见，在此之前 Agent 用 `launch.cjs --run` 批处理模式（不保留连接和日志）完成本次任务。Codex、pi、dsh 这部分只依据官方文档，没有实测。
+
 ### 让宿主稳定用上这个 Skill
 
 宿主只凭 `description` 决定是否调用 Skill，同一句话有时触发、有时不触发（宿主自带的 `run` 等 Skill 也在竞争）。在 Electron 项目的 `CLAUDE.md` 或 `AGENTS.md` 里加一句，它每次都会进入上下文，比依赖描述匹配稳定：
@@ -46,7 +69,7 @@ GitHub Release 的 Skill ZIP 附带构建来源证明，绑定发布工作流及
 改动 Electron 主进程、preload、IPC，或遇到白屏、崩溃、运行时报错时，用 electron-debug Skill 连接正在运行的应用来验证，不要只读代码推断。
 ```
 
-也可以直接输入 `/electron-debug` 显式调用。
+也可以在 Claude Code 里直接输入 `/electron-debug` 显式调用（作为插件安装时名字带插件名前缀；Codex 用 `$electron-debug`）。
 
 ## MCP 工具
 
@@ -104,7 +127,7 @@ Agent 可以使用本项目完成：
 
 当 Agent 需要验证 Electron 修改时，Skill 建议按以下流程执行；项目不监听文件保存，也不自动启动验证：
 
-1. Agent 配置并验证 MCP Server，加载本项目 Skill。
+1. 加载本项目 Skill；`electron_*` 工具可见就直接用，否则先问用户再注册 MCP，注册生效前用批处理模式。
 2. 根据修改文件和用户问题判断主进程、渲染进程或双进程范围。
 3. 用项目已有命令启动应用（加 `--inspect`、`--remote-debugging-port`），调用 `electron_attach` 建立诊断通道。
 4. 用 `electron_wait_for` 等待就绪信号，用 `electron_status`、`electron_logs` 建立证据。

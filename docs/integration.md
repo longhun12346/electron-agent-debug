@@ -16,7 +16,7 @@ node <absolute-skill-directory>/runtime/launch.cjs --verify
 
 ## Skill 的安装范围
 
-完整 Skill 目录可以按 Agent 宿主支持的方式全局安装，也可以只放在某个项目中使用。两种方式均包含随包 MCP，但不会自动配置或启动 Server。
+完整 Skill 目录可以按 Agent 宿主支持的方式全局安装，也可以只放在某个项目中使用。两种方式均包含随包 MCP，但不会自动配置或启动 Server（Claude Code 插件除外，它会同时注册 MCP）。
 
 全局安装适合希望所有 Electron 项目都遵守同一套诊断流程的场景。使用者将 `skill/electron-debug` 完整目录复制或链接到当前 Agent 宿主的全局 Skill 目录，再按宿主要求启用或刷新 Skill。全局目录、命名方式和刷新入口由宿主决定，本项目不假设固定路径。
 
@@ -32,12 +32,14 @@ node <absolute-skill-directory>/runtime/launch.cjs --verify
 | --- | --- | --- | --- |
 | Claude Code | `~/.claude/skills/electron-debug/` | `<项目>/.claude/skills/electron-debug/` | `description` 最多 1,024 字符（开放标准），本 Skill 744 字符；已装 Skill 很多时描述会被截断，可用 `/doctor`、`/skill-doctor` 查看。见 [Skills 文档](https://code.claude.com/docs/en/skills) |
 | Codex | `~/.agents/skills/electron-debug/` | `<项目>/.agents/skills/electron-debug/`（从工作目录向上到仓库根都会扫描） | 要求 `SKILL.md` 有 `name` 和 `description`；初始列表占上下文的 2%（窗口未知时 8,000 字符），空间不够时先截短描述，再丢弃部分 Skill；`$electron-debug` 可显式调用。见 [Codex Skills 文档](https://learn.chatgpt.com/docs/build-skills) |
+| pi | `~/.agents/skills/electron-debug/` | `<项目>/.agents/skills/electron-debug/` | 见 [pi Skills 文档](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/skills.md) |
+| DeepSeek Harness（dsh） | `~/.dsh/skills/electron-debug/` 或 `~/.agents/skills/electron-debug/` | `<项目>/.dsh/skills/electron-debug/` 或 `<项目>/.agents/skills/electron-debug/` | 项目根是离工作目录最近的带 `.git` 的上级目录。见 [skill-filesystem README](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/skill/skill-filesystem/README.md) |
 
 本 Skill 的 frontmatter 只用开放标准里的字段（`name`、`description`、`license`、`compatibility`），用官方的 `skills-ref validate` 校验通过，不依赖宿主对未知字段的处理。触发条件和例句都写在 `description` 里；Claude Code 专用的 `when_to_use` 字段已经去掉，因为它不在开放标准里，严格的校验器会报错。
 
-不同宿主的 MCP 配置位置不同，见下一节。
+各宿主的注册命令见[随包接入说明](../skill/electron-debug/references/mcp-setup.md)的宿主表；下一节只给通用写法和 Codex 的 TOML。
 
-当前仓库没有跨宿主的 Skill 安装器或自动注册机制。安装完成后，Agent 仍必须单独配置 MCP，并通过 `initialize`、`tools/list` 或宿主等价界面确认 10 个工具可见（attach、status、targets、logs、evaluate、wait_for、screenshot、dom_snapshot、click、type）。
+除 Claude Code 插件（见 README）外，仓库没有跨宿主的 Skill 安装器或自动注册机制。安装完成后，如果 `electron_*` 工具还不可见，需要单独配置 MCP（先征得用户同意），并通过 `initialize`、`tools/list` 或宿主等价界面确认 10 个工具可见（attach、status、targets、logs、evaluate、wait_for、screenshot、dom_snapshot、click、type）。
 
 ## Agent 宿主接入
 
@@ -68,16 +70,16 @@ args = ["<absolute-skill-directory>/runtime/launch.cjs"]
 
 具体配置文件名、字段名和入口由 Agent 宿主决定。任何支持本地 stdio MCP 的宿主在协议层都可以按这个契约接入；本项目不依赖某个宿主的专用 API。上面的 JSON 只是配置概念示意，不能直接假设适用于所有宿主，也不代表每个宿主都已经完成专门的端到端验证。
 
-Agent 必须自行完成以下接入步骤：
+Agent 在 `electron_*` 工具已经可见时直接使用，不用再注册；否则按以下步骤接入，其中注册要先征得用户同意：
 
 1. 查找当前 Agent 宿主的 MCP 配置入口。
 2. 检查 `electron-agent-debug` 是否已经配置并可用。
-3. 如果未配置，先核对包来源和完整性，再使用当前 Skill 安装目录的实际绝对路径配置 `node <absolute-skill-directory>/runtime/launch.cjs`。
-4. 启动或刷新 MCP 配置。
+3. 如果未配置，先核对包来源和完整性，向用户说明要改哪份配置、是用户级还是项目级，得到同意后，再使用当前 Skill 安装目录的实际绝对路径配置 `node <absolute-skill-directory>/runtime/launch.cjs`。
+4. 启动或刷新 MCP 配置。新注册的 MCP 通常要重载或新开会话才可见，提醒用户去做；在此之前用批处理模式（`launch.cjs --run`）完成本次任务。
 5. 验证 MCP 初始化成功，并确认工具可见。
 6. 再按下方前提准备 Electron 应用和动态 endpoint。
 
-Skill 文件随仓库提供不代表宿主已经自动注册 MCP。Agent 宿主配置文件、项目路径和刷新方式不能假设为固定值；如果 Agent 无法完成配置或初始化，应报告 `BLOCKED`。
+Skill 文件随仓库提供不代表宿主已经自动注册 MCP。Agent 宿主配置文件、项目路径和刷新方式不能假设为固定值；如果用户不同意注册，或宿主不能注册，就一直用批处理模式；只有完整性校验失败，或批处理也取不到所需证据时，才报告 `BLOCKED`。
 
 MCP 接入和 Skill 加载是两个步骤：
 
@@ -102,7 +104,7 @@ ELECTRON_DEBUG_MAX_LOG_EVENTS=<optional-event-limit>
 ELECTRON_DEBUG_MAX_LOG_BYTES=<optional-byte-limit>
 ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES=<optional-protocol-message-limit>
 ELECTRON_DEBUG_OUTPUT_DIR=<optional-screenshot-directory>
-ELECTRON_DEBUG_ALLOW_EVAL=<optional, 0 or false to disable evaluation>
+ELECTRON_DEBUG_ALLOW_EVAL=<optional, 0, false, off, no or disabled to disable evaluation>
 ```
 
 `ELECTRON_DEBUG_OUTPUT_DIR` 指定截图目录，默认系统临时目录下的 `electron-agent-debug`，只保留最近 50 张。`electron_evaluate` 和 expression 型 `electron_wait_for` 默认开启（只连接回环地址）；宿主可在 MCP 配置的 `env` 中设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 禁用，此时返回 `EVALUATION_NOT_ALLOWED`。单条协议消息上限默认 256 MiB（与 Puppeteer、Playwright 一致，Chromium 的 DevTools 服务端接收缓冲为 100 MiB、发送缓冲为 256 MiB），可用 `ELECTRON_DEBUG_MAX_PROTOCOL_MESSAGE_BYTES` 调小。

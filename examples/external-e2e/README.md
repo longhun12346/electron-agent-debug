@@ -23,8 +23,8 @@
 先准备外部项目依赖，并确认它已经位于本地目录。Windows PowerShell 示例：
 
 ```powershell
-$env:ELECTRON_E2E_PROJECT_ROOT = "D:\workspace\github\electron-vite-react-e2e"
-$env:ELECTRON_E2E_ELECTRON = "D:\workspace\github\electron-agent-debug\examples\fixture\node_modules\electron\dist\electron.exe"
+$env:ELECTRON_E2E_PROJECT_ROOT = "<被测项目的路径>"
+$env:ELECTRON_E2E_ELECTRON = "<本仓库路径>\examples\fixture\node_modules\electron\dist\electron.exe"
 npm run build
 npm run test:e2e:external
 ```

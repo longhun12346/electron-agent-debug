@@ -21,4 +21,4 @@
 - 同名进程有多个时用 pid；一次只连一个 utility，再次 attach 其他 utility 会替换当前连接。
 - 前提：主进程通道在线，且未设置 `ELECTRON_DEBUG_ALLOW_EVAL=0`。
 - 调试口默认端口 9229，被占用时开口不报错也不会生效，attach 会返回 `UTILITY_INSPECTOR_UNAVAILABLE`。此时，或同时调试多个 utility 时，让 fork 带 `execArgv: ['--inspect-port=<各自空闲端口>']`（只指定端口，不自动开启）。
-- 开口用的 `process._debugProcess` 是未公开接口，随 Electron 版本可能变化，以 attach 结果为准（已验证的版本见 VERSION.md）。查端口用 netstat（Windows）或 lsof（macOS、Linux）；命令无法运行时，错误的 `details.portLookupError` 会给出原因。
+- 开口用的 `process._debugProcess` 是未公开接口，随 Electron 版本可能变化，以 attach 结果为准（CI 在固定的 Electron 版本上实测）。查端口用 netstat（Windows）或 lsof（macOS、Linux）；命令无法运行时，错误的 `details.portLookupError` 会给出原因。
