@@ -235,7 +235,21 @@ export async function withSession(options, run) {
   const bind = (client) => {
     const raw = (tool, toolArguments = {}) =>
       client.request(requestId++, "tools/call", { name: tool, arguments: toolArguments }, 30_000);
-    const call = async (tool, toolArguments) => structuredData(await raw(tool, toolArguments), tool);
+    const call = async (tool, toolArguments) => {
+      const response = await raw(tool, toolArguments);
+      const error = response.result?.structuredContent?.error;
+      // Input sent right after a window appeared has been seen to time out on a loaded CI runner (never locally). Say what
+      // the page looked like, then try once more: the error is marked retryable, and so would an agent treat it.
+      if (["electron_click", "electron_type"].includes(tool) && error?.code === "PROTOCOL_ERROR" && error.details?.reason === "timeout") {
+        const state = await raw("electron_evaluate", {
+          scope: "renderer",
+          expression: "JSON.stringify({ visibility: document.visibilityState, focus: document.hasFocus(), ready: document.readyState, at: Math.round(performance.now()) })",
+        }).then((answer) => answer.result?.structuredContent?.data?.value ?? JSON.stringify(answer.result?.structuredContent?.error ?? answer.error));
+        console.warn(`${tool} timed out once (${JSON.stringify(toolArguments)}); page state: ${state}; retrying`);
+        return structuredData(await raw(tool, toolArguments), tool);
+      }
+      return structuredData(response, tool);
+    };
     const session = {
       app, client, raw, call,
       // A tool call that must fail: returns the error.

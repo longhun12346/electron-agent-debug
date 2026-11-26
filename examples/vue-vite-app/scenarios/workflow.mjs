@@ -67,24 +67,23 @@ scenarios.hmr = () => withSession({}, async (s) => {
 });
 
 // A main-process change makes electron-vite restart Electron on the same ports; the tools attach again and see new state.
-scenarios["main-restart"] = () => withSession({}, async (first) => {
-  let s = first;
+scenarios["main-restart"] = () => withSession({}, async (s) => {
   const entry = path.join(appRoot, "src/main/index.ts");
   const original = readFileSync(entry, "utf8");
   try {
     await s.attach();
     await s.renderer(taskCount(2));
     const firstPid = await s.evaluate("main", "process.pid");
-    // On macOS electron-vite stops Electron gracefully, and Node keeps a process with a debugger attached alive until the
-    // debugger lets go. The old process then still holds the inspector port ("address already in use") and the new one
-    // starts without an inspector, so the tools disconnect first there and a new session attaches afterwards.
-    if (process.platform === "darwin") {
-      await s.client.close();
-      s = await s.newSession({});
-    }
     const editedAt = new Date().toISOString();
-    writeFileSync(entry, `${original}\nconsole.log("main restarted by the smoke test");\n`);
+    // electron-vite starts the new Electron right after stopping the old one. On macOS the new process can win that race
+    // for the fixed inspector and debugging ports, and then runs without a debugging port ("address already in use"). Saving
+    // the file again restarts it once more, which is what a developer would do.
+    let saves = 0;
+    const save = () => writeFileSync(entry, `${original}\nconsole.log("main restarted by the smoke test ${(saves += 1)}");\n`);
+    save();
+    let lastSave = Date.now();
     const secondPid = await waitUntil(async () => {
+      if (Date.now() - lastSave > 12_000) { save(); lastSave = Date.now(); }
       try {
         const attached = await s.attach();
         if (!attached.main.online || !attached.renderer.online) return undefined;
