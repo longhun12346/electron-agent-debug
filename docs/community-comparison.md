@@ -54,7 +54,7 @@
 - 只 attach 到 Agent 已启动的应用，不管理应用生命周期。
 - 回环地址和 WebSocket 地址二次校验。
 - 更小的工具集。
-- fixture 和自动化验收。
+- 示例应用和自动化验收。
 - evaluate 安全边界。
 
 ### halilural/electron-mcp-server
@@ -137,5 +137,5 @@
 - 只 attach Agent 已启动的本地 Electron，不启动、停止或重启应用。
 - 主进程、renderer 和可选的 utility process 各使用一个 Session。
 - reconnect、target 重新发现和缓存作为内部能力。
-- 先实现三类 fixture 和 Agent 使用验证。
+- 先实现三类故障场景和 Agent 使用验证。
 - P1 调试功能暂不进入开发承诺。

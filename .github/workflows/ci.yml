@@ -55,52 +55,40 @@ jobs:
       - name: Run TypeScript lint check
         run: npm run lint
 
-      - name: Check fixture scripts
+      - name: Check example and build scripts
         shell: bash
         run: |
-          node --check examples/fixture/main.cjs
-          node --check examples/fixture/preload.cjs
-          node --check examples/fixture/renderer.js
-          node --check examples/fixture/smoke.mjs
-          node --check examples/fixture/mcp-smoke.mjs
-          node --check examples/fixture/ci-smoke.mjs
-          node --check examples/fixture/blocked-smoke.mjs
-          node --check examples/fixture/lifecycle-smoke.mjs
-          node --check examples/fixture/utility.cjs
-          node --check examples/fixture/utility-smoke.mjs
-          node --check examples/fixture/inspection-smoke.mjs
-          node --check examples/fixture/interaction-smoke.mjs
-          node --check examples/fixture/interaction.js
-          node --check examples/fixture/test-support.mjs
-          node --check examples/fixture/smoke-assertions.mjs
-          node --check examples/fixture/package-smoke.mjs
-          node --check scripts/build-skill.mjs
-          node --check scripts/run-tests.mjs
-          node --check scripts/skill-launcher.cjs
-          node --check examples/external-e2e/electron-vite-react-smoke.mjs
-          node --check examples/host-e2e/smoke.mjs
-          node --check examples/host-e2e/mcp-trace.mjs
-          node --check examples/host-e2e/scenarios.mjs
-          node --check examples/host-e2e/fixture-launch.mjs
-          node --check examples/host-e2e/reference.mjs
-          node --check examples/field-app/main.mjs
-          node --check examples/field-app/preload.cjs
-          node --check examples/field-app/renderer.js
-          node --check examples/field-app/field-launch.mjs
-          node --check examples/field-app/field-smoke.mjs
+          for file in scripts/*.mjs scripts/*.cjs examples/external-e2e/*.mjs examples/host-e2e/*.mjs \
+            examples/vue-vite-app/*.mjs examples/vue-vite-app/scenarios/*.mjs; do
+            node --check "$file"
+          done
 
-      - name: Install fixture dependencies
-        run: npm ci --prefix examples/fixture
+      - name: Install the Vue + Vite example dependencies
+        run: npm ci --prefix examples/vue-vite-app
 
-      - name: Run real Electron fixture smoke on Linux
+      # A Vue 3 + Vite app through the electron-vite dev server and its build output, against a copy of the Skill in a
+      # folder with spaces in its name: hot updates, a main-process restart, typical faults, a utility process, several
+      # windows, a crashed page, inspection, clicking and typing, restart on new ports.
+      - name: Run the Vue + Vite example smoke on Linux
         if: runner.os == 'Linux'
-        run: xvfb-run -a node examples/fixture/package-smoke.mjs
+        run: xvfb-run -a node examples/vue-vite-app/package-smoke.mjs
         env:
-          FIXTURE_ELECTRON_NO_SANDBOX: "true"
+          TEST_ELECTRON_NO_SANDBOX: "true"
 
-      - name: Run real Electron fixture smoke on Windows and macOS
+      - name: Run the Vue + Vite example smoke on Windows and macOS
         if: runner.os != 'Linux'
-        run: node examples/fixture/package-smoke.mjs
+        run: node examples/vue-vite-app/package-smoke.mjs
+
+      # The scripted reference solutions of the host scenarios, replayed without a model against the same app.
+      - name: Replay the host scenarios' reference solutions on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node examples/host-e2e/reference.mjs
+        env:
+          TEST_ELECTRON_NO_SANDBOX: "true"
+
+      - name: Replay the host scenarios' reference solutions on Windows and macOS
+        if: runner.os != 'Linux'
+        run: node examples/host-e2e/reference.mjs
 
   electron-versions:
     # The utility channel relies on the undocumented process._debugProcess, and evaluate retries on V8 error wording.
@@ -128,26 +116,18 @@ jobs:
           npm ci --ignore-scripts
           npm run build
 
-      - name: Install fixture dependencies with the Electron version under test
+      - name: Install the Vue + Vite example with the Electron version under test
         run: |
-          npm ci --prefix examples/fixture
-          npm install --no-save --prefix examples/fixture electron@${{ matrix.electron }}
-          node -e "console.log('Electron ' + require('./examples/fixture/node_modules/electron/package.json').version)"
+          npm ci --prefix examples/vue-vite-app
+          npm install --no-save --prefix examples/vue-vite-app electron@${{ matrix.electron }}
+          node -e "console.log('Electron ' + require('./examples/vue-vite-app/node_modules/electron/package.json').version)"
 
-      - name: Run utility, inspection and field smokes on Linux
+      - name: Run utility, inspection, interaction, window and crash scenarios on Linux
         if: runner.os == 'Linux'
-        run: |
-          xvfb-run -a node examples/fixture/utility-smoke.mjs
-          xvfb-run -a node examples/fixture/inspection-smoke.mjs
-          xvfb-run -a node examples/fixture/interaction-smoke.mjs
-          xvfb-run -a node examples/field-app/field-smoke.mjs
+        run: xvfb-run -a node examples/vue-vite-app/smoke.mjs utility inspection interaction windows crash-and-exit
         env:
-          FIXTURE_ELECTRON_NO_SANDBOX: "true"
+          TEST_ELECTRON_NO_SANDBOX: "true"
 
-      - name: Run utility, inspection and field smokes on Windows
+      - name: Run utility, inspection, interaction, window and crash scenarios on Windows
         if: runner.os != 'Linux'
-        run: |
-          node examples/fixture/utility-smoke.mjs
-          node examples/fixture/inspection-smoke.mjs
-          node examples/fixture/interaction-smoke.mjs
-          node examples/field-app/field-smoke.mjs
+        run: node examples/vue-vite-app/smoke.mjs utility inspection interaction windows crash-and-exit

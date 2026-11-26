@@ -5,7 +5,7 @@
 - Node.js 20 或更高版本。
 - 包完整性测试使用系统 `tar` 命令（bsdtar 和 GNU tar 均可，包括 Windows 上 Git Bash 自带的 GNU tar）；仅测试环境需要，MCP 运行不依赖它。
 - 根目录依赖用于 MCP Server、测试和 TypeScript 构建。
-- `examples/fixture` 是独立的 Electron 示例包，使用自己的 `package.json` 和 lockfile。
+- `examples/vue-vite-app` 是独立的 Electron 示例包（electron-vite、Vue 3），使用自己的 `package.json` 和 lockfile，要求 Node.js 20.19 或更高（electron-vite 6 的要求）。
 - 根目录使用 npm 管理构建、测试和开发依赖；公开交付以 GitHub 仓库、Skill 文件和源码为准。
 
 ## 常用命令
@@ -47,25 +47,23 @@ npm run check:skill
 | 检查能力 | `tests/inspection.test.ts` 用 `tests/helpers/fake-electron-app.cjs` 测试 evaluate 的门控（`ELECTRON_DEBUG_ALLOW_EVAL=0` 时拒绝）、截断、超时、Promise 与顶层 await；wait_for 的 log/expression 与 `WAIT_TIMEOUT`；截图写入私有目录；无障碍树渲染及节点上限 |
 | 统一时间线 | main/renderer/utility 事件共享递增 `seq`，`afterSeq` 与 `lastSeq` 可续读；缓冲区淘汰或拒收事件后 `droppedThroughSeq` 与 `gap` 如实报告，`clear` 重置；`sinceAttach` 按通道只返回最近一次连接之后的事件，连接事件被淘汰后边界仍然保留 |
 | 平台描述 | `tests/platform-description.test.ts` 核对 `docs/platform-description.md` 的简要描述长度、工具数量和 Node.js 版本与代码一致 |
-| 真实形态 | `examples/field-app` 是更接近开发构建的应用（ESM 主进程、两个窗口加 DevTools、嘈杂的控制台、1500 行的页面、要按下才发生的保存、页面崩溃和硬退出），`field-smoke.mjs` 在真实 Electron 上逐项断言：DevTools 不参与自动选择、重放的噪声被 `sinceAttach` 排除并如实报告 `gap`、快照截断、评估出的点击会执行处理函数但不可信、崩溃后 `TARGET_CRASHED` 并在 reload 后恢复、硬退出的退出码。单元测试用假端口，只证明逻辑；新增一类真实问题时，先在这个应用里加上能复现它的形态 |
+| 真实应用 | `examples/vue-vite-app` 是 electron-vite、Vue 3、Pinia、Vue Router 的任务板（主进程里还有一个搜索索引的 utility process），`smoke.mjs` 在真实 Electron 上逐项断言：开发服务器下热更新不重载页面、改主进程后 Electron 重启并用同一组端口重新 attach、构建产物从 `file:` 加载、ES module 构建的主进程里仍能取到 Electron 的 API；换名的 IPC 通道、没人监听的消息、字段缺失、数据文件损坏、窗口创建失败、preload 找不到六类故障；attach utility process；两个窗口加 DevTools 时按标题选窗口、重放的噪声被 `sinceAttach` 排除并如实报告 `gap`、快照截断；页面崩溃后 `TARGET_CRASHED` 并在 reload 后恢复、硬退出的退出码；reload、窗口重建、整个应用以新端口重启而 MCP 进程不变；evaluate、wait_for、截图、日志渲染、IPC（含二进制参数按长度计）与对话框追踪；可信的点击和输入。单元测试用假端口，只证明逻辑；新增一类真实问题时，先在这个应用里加上能复现它的形态 |
 | evaluate 重试 | 只在代码没有开始执行时换模式重试：编译期 `SyntaxError`（无 `stackTrace`）和 `await` 前只有空白的 `await (…)`；运行期抛出的 `SyntaxError` 不重试。假端口按真实 V8 的 `stackTrace` 有无区分，真实冒烟逐项复核 |
 
 这些测试通过只证明所覆盖的契约。外部 Electron 项目的业务操作、视觉结果和真实 Agent 宿主接入仍需分别验证，不能用测试数量或一次 CI 成功代替。
 
-## Electron fixture
+## 真实 Electron 示例
 
-fixture 的安装和运行说明位于 [`examples/fixture/README.md`](examples/fixture/README.md)。主进程 Inspector 和 renderer CDP 的端口由运行 Agent 或测试脚本分配，仓库不固定端口，也不提交 `node_modules`、构建产物或 Electron 下载缓存。
+[`examples/vue-vite-app`](examples/vue-vite-app/README.md) 是 electron-vite、Vue 3、Pinia、Vue Router 的任务板，数据经 IPC 存在 JSON 文件里，主进程另有一个做搜索索引的 utility process。所有真实 Electron 验证都在这里：主进程 Inspector 和 renderer CDP 的端口由测试脚本动态分配，仓库不固定端口，也不提交 `node_modules`、构建产物或 Electron 下载缓存。
 
 ```text
-npm ci --prefix examples/fixture
-node examples/fixture/package-smoke.mjs
+npm ci --prefix examples/vue-vite-app
+node examples/vue-vite-app/package-smoke.mjs
 ```
 
-Linux 无显示环境时使用 `FIXTURE_ELECTRON_NO_SANDBOX=true xvfb-run -a node examples/fixture/package-smoke.mjs`。该命令把完整 Skill 复制到系统临时目录，真实 Electron 的全部 smoke 都使用隔离安装包中的 MCP，避免仅测试源码构建而漏掉发布打包问题。
+`package-smoke.mjs` 把完整 Skill 复制到系统临时目录（目录名带空格），全部场景都使用隔离安装包中的 MCP，避免仅测试源码构建而漏掉发布打包问题。只跑几个场景、直接用源码构建的 MCP：`node examples/vue-vite-app/smoke.mjs <场景…>`。Linux 无显示环境时在前面加 `TEST_ELECTRON_NO_SANDBOX=true xvfb-run -a`。
 
-完整 smoke 包括默认、主进程失败、renderer 失败、IPC 失败、缺少 endpoint、连接运行中的 utility process、检查类工具（evaluate、wait_for、截图、无障碍树及异常和调用栈渲染），以及真实 renderer reload、BrowserWindow 重建、Electron 正常退出后以新端口重启。生命周期测试始终使用同一个 MCP 进程，检查旧 target 清理、新 target 选择和新一轮双通道证据；清空日志后还会检查旧运行标记未混入新结果。
-
-fixture 的父子进程 IPC 仅供测试驱动 reload、重建和退出，未添加到 MCP。生产 Server 另外提供 evaluate、wait_for、截图、DOM 快照、click、type 工具；边界情况由 `tests/` 中的替身应用覆盖，`inspection-smoke.mjs` 在真实 Electron 上验证主要路径。替身对 Chromium 行为的模拟必须以真实 smoke 观察到的行为为准。真实 Electron 的截图要求窗口可见（隐藏或最小化的窗口会让 `Page.captureScreenshot` 超时）。
+应用里的故障和启动开关只属于测试，不是 MCP Server 的配置，也不会出现在 Skill 的指引里。生产 Server 提供 evaluate、wait_for、截图、DOM 快照、click、type 工具；边界情况由 `tests/` 中的替身应用覆盖，替身对 Chromium 行为的模拟必须以真实 smoke 观察到的行为为准。真实 Electron 的截图要求窗口可见（隐藏或最小化的窗口会让 `Page.captureScreenshot` 超时）。
 
 ## CI
 
@@ -77,13 +75,13 @@ GitHub Actions 执行以下矩阵，每个组合均运行根目录测试、类�
 | Windows | 20、22、24 |
 | macOS | 20、22 |
 
-Linux smoke 使用 `xvfb` 提供虚拟显示。这些组合使用 fixture lockfile 中的 Electron 版本。另有 `electron-versions` 任务，在 Ubuntu 和 Windows 上用 Electron 43、44 和最新稳定版各运行一次 utility、inspection、interaction 和 field-app smoke：utility 通道依赖未公开的 `process._debugProcess`，evaluate 的重试依赖 V8 的报错措辞，这两处最容易随 Electron 主版本变化。矩阵不代表所有历史 Electron 版本或未来 Node.js 版本均已实测。
+Linux smoke 使用 `xvfb` 提供虚拟显示。这些组合使用 Vue 示例 lockfile 中的 Electron 版本。另有 `electron-versions` 任务，在 Ubuntu 和 Windows 上用 Electron 43、44 和最新稳定版各运行一次 utility、inspection、interaction、windows 和 crash-and-exit 场景：utility 通道依赖未公开的 `process._debugProcess`，evaluate 的重试依赖 V8 的报错措辞，这两处最容易随 Electron 主版本变化。矩阵不代表所有历史 Electron 版本或未来 Node.js 版本均已实测。
 
-`npm test` 通过 `scripts/run-tests.mjs` 列出测试文件再交给 `tsx --test`，因为 Windows 的 shell 和 Node 20 都不会展开 `tests/*.test.ts`。`.github/dependabot.yml` 每周检查 GitHub Actions、根目录和 fixture 的依赖；根目录依赖会改变随包 bundle，所以这类 PR 需要先运行 `npm run build:skill` 并提交生成文件，`check:skill` 才会通过。
+`npm test` 通过 `scripts/run-tests.mjs` 列出测试文件再交给 `tsx --test`，因为 Windows 的 shell 和 Node 20 都不会展开 `tests/*.test.ts`。`.github/dependabot.yml` 每周检查 GitHub Actions、根目录和 Vue 示例的依赖；根目录依赖会改变随包 bundle，所以这类 PR 需要先运行 `npm run build:skill` 并提交生成文件，`check:skill` 才会通过。
 
 ## 真实 Agent 宿主
 
-宿主 smoke 是显式运行的集成测试，需要本机已经安装并认证的 CLI、构建后的 MCP 和 fixture 依赖，可能消耗宿主模型额度；普通 `npm test` 和 CI 不调用模型。
+宿主 smoke 是显式运行的集成测试，需要本机已经安装并认证的 CLI、构建后的 MCP 和 `examples/vue-vite-app` 的依赖，可能消耗宿主模型额度；普通 `npm test` 和 CI 不调用模型。
 
 ```text
 node examples/host-e2e/smoke.mjs codex <absolute-codex-executable> [--scenario <name|all>]
@@ -94,23 +92,23 @@ node examples/host-e2e/smoke.mjs claude <absolute-claude-executable> [--scenario
 
 | 场景 | 任务 | 断言（只看真实 MCP 流量） |
 | --- | --- | --- |
-| `ipc` | IPC 失败，两侧都要有证据 | 调用 attach、status、targets、logs；两个通道在线；日志含 main 和 renderer 各自的错误 |
-| `renderer` | 页面异常，读错误和页面内容 | 日志里有可读的 `Uncaught Error: …`；无障碍树里读到故障状态文本 |
-| `main-window` | 窗口没出现，判断责任在哪一侧 | main 在线、renderer 离线；读到主进程的窗口失败日志 |
-| `inspect` | 健康应用，逐项取证 | wait_for 条件成立；main 通道求值成功；无障碍树含结果文本；截图已保存；读过日志 |
-| `utility` | 连接 utility process 读值 | attach 带 `utility` 且 main 与 utility 同时在线；`scope: utility` 读到 `utility-ok` |
-| `devtools-windows` | 开发构建：DevTools 加两个窗口，选对窗口再读取（field 应用） | 工具连到 `Field App` 窗口；无障碍树读到它的标题；向主进程询问了窗口数 |
-| `click-save` | 按钮不按就什么都不会发生：自己按下，再读两侧证据（field 应用） | 用 `electron_click` 按下 Save，点击之后读到 renderer 和主进程各自的失败日志 |
-| `stale-save` | 保存处理已修好，但 attach 会重放旧的失败，只有现在按下才知道真相 | 按下 Save 之后读到 `FIELD_SAVE_OK` 和主进程的保存请求 |
+| `ipc` | 数据文件损坏，页面加载时 IPC 失败，两侧都要有证据 | 调用 attach、status、targets、logs；两个通道在线；日志含 main 的 `tasks:list` handler 错误（带 `SyntaxError`）和 renderer 的 `load tasks failed` |
+| `renderer` | 缺字段（`missing-field`），添加任务后页面异常，读错误和页面内容 | 按下 Add 之后读到 `TypeError … reading 'name'` 和 `[Vue warn]`；无障碍树里计数器比列出的行多 |
+| `main-window` | `window.json` 损坏，窗口没出现，判断责任在哪一侧 | main 在线、renderer 离线；读到主进程的 `Could not create the main window` 日志和原因 |
+| `inspect` | 健康应用，逐项取证 | wait_for 条件成立；main 通道求值得到 1 个窗口；无障碍树含种子任务；截图已保存；读到无 error 级别的日志 |
+| `utility` | 连接 `task-indexer` utility process 读值 | attach 带 `utility` 且 main 与 utility 同时在线；`scope: utility` 的 `indexer.size()` 为 2 |
+| `devtools-windows` | 开发构建：DevTools 加两个窗口，选对窗口再读取 | 工具连到标题为 `Task Board` 的窗口而不是设置窗口；无障碍树读到 `Tasks` 标题；主进程报告 2 个窗口 |
+| `click-add` | IPC 通道名不一致（`ipc-channel`），按钮不按就什么都不会发生：自己输入并按下 Add，再读两侧证据 | 用 `electron_click` 按下 Add，按下之后读到 renderer 的 `Error invoking remote method 'tasks:add'` 和主进程的 `Error occurred in handler for 'tasks:add'` |
+| `stale-add` | 处理已修好（`stale-add`），但 attach 会重放旧的失败，只有现在按下才知道真相 | 按下 Add 之后读到页面列出 3 个任务，或追踪里 `tasks:add` 成功；重放的旧失败不算 |
 | `sync-mismatch` | 按钮什么都不做，没有报错：消息发到了没人监听的 IPC 通道 | 按下 Sync 之后读到该通道没有监听者的 IPC 事件（attach 时要传 `instrument: ["ipc"]`） |
 
-每个场景还带一份脚本化的参考解法。`node examples/host-e2e/reference.mjs [场景名…]` 不调用模型，直接对真实 fixture 回放参考解法并套用同样的断言，已加入 `ci-smoke.mjs`，用来保证场景能用现有工具完成、断言接受正确的运行。新增场景时先写参考解法并让它通过，再让真实宿主跑。
+每个场景还带一份脚本化的参考解法。`node examples/host-e2e/reference.mjs [场景名…]` 不调用模型，直接对真实的 Vue 应用回放参考解法并套用同样的断言（CI 里有单独一步），用来保证场景能用现有工具完成、断言接受正确的运行。新增场景时先写参考解法并让它通过，再让真实宿主跑。
 
-脚本在临时目录配置本次 MCP，显式提供当前 Skill 内容，启动真实 fixture，再让宿主执行场景任务。以透明 stdio trace 中的实际请求、响应断言结果，不接受模型口头声称成功。测试使用命令行临时 MCP 配置和工具授权，不修改用户保存的宿主配置。成功后删除临时产物，失败则保留本机 trace 供定位；不要提交宿主日志。
+脚本在临时目录配置本次 MCP，显式提供当前 Skill 内容，按场景的 `app` 字段启动真实的 Vue 应用，再让宿主执行场景任务。以透明 stdio trace 中的实际请求、响应断言结果，不接受模型口头声称成功。测试使用命令行临时 MCP 配置和工具授权，不修改用户保存的宿主配置。成功后删除临时产物，失败则保留本机 trace 供定位；不要提交宿主日志。
 
 ## 提交边界
 
-一次提交应保持一个清晰目的。核心实现、测试、文档和 fixture 可以在同一次功能提交中一起提交，因为它们共同构成可验证的诊断能力；本地产物、日志、依赖安装目录和临时输出不应进入 Git。
+一次提交应保持一个清晰目的。核心实现、测试、文档和示例应用可以在同一次功能提交中一起提交，因为它们共同构成可验证的诊断能力；本地产物、日志、依赖安装目录和临时输出不应进入 Git。
 
 ## Skill 发布构建
 
@@ -118,7 +116,7 @@ node examples/host-e2e/smoke.mjs claude <absolute-claude-executable> [--scenario
 
 运行时启动器使用 Node 内置模块检查 manifest 和文件 SHA-256，随后加载 bundle。自带哈希用于检测文件不一致，不能独立认证来源。构建输入摘要绑定源码、构建脚本、package.json 和锁文件，生成内容不含本机路径或生成时间。
 
-发布前更新 Skill 根目录 `VERSION.md`、重建运行文件并完成隔离包及真实 fixture 验证。GitHub Release tag 使用 `skill-v<Skill版本>`；发布事件触发 `.github/workflows/release.yml`，检查 tag 与 manifest 一致，在锁定依赖下重建验证，生成可重复 ZIP，并使用 GitHub OIDC 生成构建来源 attestation。工作流验证预期仓库和自身身份后上传 ZIP、SHA256SUMS 和 Sigstore bundle；不会静默覆盖已有附件。
+发布前更新 Skill 根目录 `VERSION.md`、重建运行文件并完成隔离包及真实示例应用验证。GitHub Release tag 使用 `skill-v<Skill版本>`；发布事件触发 `.github/workflows/release.yml`，检查 tag 与 manifest 一致，在锁定依赖下重建验证，生成可重复 ZIP，并使用 GitHub OIDC 生成构建来源 attestation。工作流验证预期仓库和自身身份后上传 ZIP、SHA256SUMS 和 Sigstore bundle；不会静默覆盖已有附件。
 
 Release 打包使用 Python 标准库，不是 MCP 运行依赖。第三方安装渠道的 CLI 可能加入自己的元数据文件，其 ZIP 与 GitHub Release ZIP 是不同产物，必须分别核验；不能拿一个 ZIP 的来源证明认证另一个 ZIP，也不能把平台“上传成功”当作“安全扫描通过”。
 

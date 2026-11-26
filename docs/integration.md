@@ -159,7 +159,7 @@ Agent 完成编码后，按 [Electron Debug Skill](../skill/electron-debug/SKILL
 
 ## 本地验证
 
-源码仓库中的最小 fixture 安装和运行方式见
-[examples/fixture/README.md](../examples/fixture/README.md)。
-CI 使用 `examples/fixture/ci-smoke.mjs` 动态分配端口，并依次验证默认态、主进程窗口故障、renderer
-故障、IPC 故障和缺少 endpoint 的 `BLOCKED` 场景；fixture 只属于源码仓库的验证内容。
+源码仓库中的真实 Electron 示例（electron-vite、Vue 3 的任务板）安装和运行方式见
+[examples/vue-vite-app/README.md](../examples/vue-vite-app/README.md)。
+CI 用 `examples/vue-vite-app/package-smoke.mjs` 动态分配端口，在开发服务器和构建产物上依次验证热更新、主进程重启、六类故障、
+utility process、多窗口、崩溃与退出、检查与交互工具，以及缺少 endpoint 的 `BLOCKED` 场景；示例应用只属于源码仓库的验证内容。

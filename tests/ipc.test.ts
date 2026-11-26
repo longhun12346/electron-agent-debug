@@ -3,7 +3,7 @@ import test from "node:test";
 import { DialogTracker } from "../src/dialogs.js";
 import { instrumentIpcScript, ipcEvent } from "../src/ipc.js";
 
-// The script itself runs in a real main process in examples/fixture/inspection-smoke.mjs; here the parts that do not
+// The script itself runs in a real main process in examples/vue-vite-app/scenarios/inspection.mjs; here the parts that do not
 // need Electron: it parses, and binding payloads become readable timeline events.
 
 test("the IPC instrumentation is valid JavaScript", () => {

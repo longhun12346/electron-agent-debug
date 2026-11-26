@@ -5,8 +5,8 @@ import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { stopChild } from "../fixture/test-support.mjs";
-import { startFixture } from "./fixture-launch.mjs";
+import { stopChild } from "../vue-vite-app/support.mjs";
+import { startScenarioApp } from "./app-launch.mjs";
 import { allTools, callsFromTraffic, scenarioNames, scenarios } from "./scenarios.mjs";
 
 const usage = `usage: node examples/host-e2e/smoke.mjs <codex|claude> [absolute-host-executable] [--scenario <${scenarioNames.join("|")}|all>]`;
@@ -38,16 +38,16 @@ async function runScenario(name) {
   const scenario = scenarios[name];
   const temporary = await mkdtemp(path.join(tmpdir(), "electron host smoke "));
   const trace = path.join(temporary, "mcp.jsonl");
-  let fixture;
+  let running;
   let hostProcess;
   let succeeded = false;
   try {
-    fixture = await startFixture(scenario);
+    running = await startScenarioApp(scenario);
     const server = {
       command: process.execPath,
       args: [path.join(root, "examples/host-e2e/mcp-trace.mjs"), root, trace],
       env: {
-        ...fixture.endpoints,
+        ...running.endpoints,
         ...(process.env.ELECTRON_DEBUG_TEST_MCP_ENTRY ? {
           ELECTRON_DEBUG_TEST_MCP_ENTRY: path.resolve(process.env.ELECTRON_DEBUG_TEST_MCP_ENTRY),
         } : {}),
@@ -99,7 +99,7 @@ async function runScenario(name) {
     throw error;
   } finally {
     if (hostProcess) await stopChild(hostProcess);
-    if (fixture) await fixture.stop();
+    if (running) await running.stop();
     // Successful traces are disposable. Keep a failed trace only if present.
     if (succeeded) await removeTemporary(temporary);
   }

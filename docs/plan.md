@@ -69,7 +69,7 @@ Electron 窗口内的 DevTools 主要用于渲染进程；主进程需要通过 
 缺点：
 
 - 需要自己处理 WebSocket JSON-RPC、target 变化和 Node/CDP 协议差异。
-- 需要编写 Electron fixture 和重连测试。
+- 需要编写 Electron 示例应用和重连测试。
 
 这是当前项目的推荐方案。
 
@@ -390,6 +390,8 @@ online        Session 可发送请求并接收事件
 - 编写核心工具契约测试和最小端到端验收脚本。
 - 增加缺少 endpoint 的 `BLOCKED` 场景验收，并让 fixture 显式覆盖 `electron_targets`。
 - 增加固定外部项目 commit、动态端口和双通道工具调用的 opt-in E2E harness。
+
+> 现状：这三个最小 fixture 已被 [`examples/vue-vite-app`](../examples/vue-vite-app/README.md)（electron-vite、Vue 3 的任务板，覆盖窗口创建失败、renderer 异常、IPC 失败等场景）取代，见 [CONTRIBUTING.md](../CONTRIBUTING.md)；上面是当时的阶段目标。
 - 验证包含 MCP 运行文件的完整 Skill、源码和文档边界，并验证随包 stdio 启动入口。
 
 完成标准：
@@ -403,7 +405,7 @@ online        Session 可发送请求并接收事件
 - 外部项目 harness 能独立报告诊断层结果，不把上游项目自身的业务断言混入诊断结论。
 - GitHub 仓库包含构建所需源码、完整 Skill 和文档；已安装 Skill 的随包 MCP 无需额外依赖安装即可初始化，且不污染 stdout。
 
-这三个 fixture 只证明核心诊断链路可用，不代表项目覆盖所有 Electron 故障类型。
+这三类场景只证明核心诊断链路可用，不代表项目覆盖所有 Electron 故障类型。
 
 ### Phase 3：能力优先扩展（已实现）
 
@@ -437,7 +439,7 @@ Skill 只能规定 Agent 在修改后执行验证。真正的自动触发由 Age
 
 ## 11. 边界审查
 
-| 边界 | MCP Server 负责 | Agent/Skill 或 fixture 负责 |
+| 边界 | MCP Server 负责 | Agent/Skill 或示例应用负责 |
 |---|---|---|
 | 最终验收 | 不做业务验收，只返回观察结果和错误 | 根据用户目标判断 `PASS`、`FAIL`、`BLOCKED` |
 | 源码分析 | 不读取、不修改源码 | 分析 diff、判断修改范围和预期行为 |
@@ -447,7 +449,7 @@ Skill 只能规定 Agent 在修改后执行验证。真正的自动触发由 Age
 | 表达式执行 | 对本工具启动的应用提供带超时和大小限制的 evaluate；外部应用需宿主开启 | 决定是否需要执行以及如何解释结果 |
 | 日志 | 采集并返回受控证据（含应用输出和统一 seq 时间线） | 判断证据是否证明用户目标已经满足 |
 | 截图与 DOM 快照 | 提供截图文件和无障碍树文本 | 判断它们是否有助于证明用户目标 |
-| fixture | 不启动、不注入故障 | 启动测试应用、设置故障态和预期结果 |
+| 示例应用 | 不启动、不注入故障 | 启动测试应用、设置故障态和预期结果 |
 | 触发时机 | 不监听文件保存 | 在编码完成后按 Skill 主动发起验证 |
 
 ### 11.1 数据边界
@@ -491,7 +493,7 @@ Skill 只能规定 Agent 在修改后执行验证。真正的自动触发由 Age
 - 本次修改的预期行为和回归操作。
 - 项目特有的 preload API、IPC channel、DOM selector 和诊断表达式。
 - 应用就绪条件，例如页面 URL、标题、关键文本或自定义健康检查。
-- fixture 的故障开关和预期结果。
+- 示例应用的故障开关和预期结果。
 
 按需提供：
 

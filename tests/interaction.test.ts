@@ -8,7 +8,7 @@ import { RefRegistry } from "../src/interaction.js";
 import { SessionManager } from "../src/sessions/session-manager.js";
 
 // Ref bookkeeping and the decisions click/type make from CDP answers. Real input is covered by
-// examples/fixture/interaction-smoke.mjs; here a mock page answers the CDP calls so each branch can be forced.
+// examples/vue-vite-app/scenarios/interaction.mjs; here a mock page answers the CDP calls so each branch can be forced.
 
 const node = (nodeId: string, role: string, name: string, extra: Partial<AxNode> = {}): AxNode => ({
   nodeId, role: { value: role }, name: { value: name }, ...extra,

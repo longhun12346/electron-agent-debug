@@ -5,6 +5,7 @@ coverage/
 
 # Local build and Electron run artifacts
 out/
+out-esm/
 release/
 artifacts/
 tmp/

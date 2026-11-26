@@ -155,7 +155,7 @@ npm test
 npm run lint
 ```
 
-真实 Electron fixture 的安装、动态端口和故障场景见 [examples/fixture/README.md](examples/fixture/README.md)。
+真实 Electron 示例（electron-vite、Vue 3 的任务板）的安装、动态端口和故障场景见 [examples/vue-vite-app/README.md](examples/vue-vite-app/README.md)。
 
 ## 开发状态
 

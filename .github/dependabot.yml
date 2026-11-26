@@ -18,9 +18,9 @@ updates:
     commit-message:
       prefix: "chore"
 
-  # The fixture's Electron version is what the real-Electron smokes run against by default.
+  # A Vue 3 + Vite app through electron-vite. Its Electron version is what the real-Electron smokes run against by default.
   - package-ecosystem: npm
-    directory: /examples/fixture
+    directory: /examples/vue-vite-app
     schedule:
       interval: weekly
     open-pull-requests-limit: 3

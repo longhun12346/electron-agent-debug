@@ -346,7 +346,7 @@ Skill 给出以下判断依据，具体怎么做由 Agent 根据情况决定：
 - 主进程和渲染进程使用独立 Session；preload 和 IPC 问题由 Agent 联合使用两个 Session 判断。
 - 第一阶段只处理当前 Electron page target（可显式选择 webview），不递归管理 iframe、worker 或其他浏览器 target。
 - 表达式执行只连接回环地址的应用，可由宿主禁用。
-- fixture 负责启动应用、注入故障和定义预期行为；MCP Server 只负责连接 fixture 并返回观察结果。
+- 测试脚本和示例应用负责启动应用、注入故障和定义预期行为；MCP Server 只负责连接应用并返回观察结果。
 
 ## 8. 验收标准
 
@@ -382,9 +382,9 @@ Skill 给出以下判断依据，具体怎么做由 Agent 根据情况决定：
 
 ### Agent 使用验证
 
-- 主进程窗口创建失败的 fixture 能提供结构化主进程证据。
-- 渲染进程白屏或异常的 fixture 能提供结构化渲染进程证据。
-- preload/IPC 失效的 fixture 能提供结构化的两边证据。
+- 主进程窗口创建失败的场景能提供结构化主进程证据。
+- 渲染进程白屏或异常的场景能提供结构化渲染进程证据。
+- preload/IPC 失效的场景能提供结构化的两边证据。
 - 应用未启动、端点不可用或缺少目标窗口时，MCP 返回结构化连接错误。
 - Agent 可以根据这些能力和 Skill 指引完成自己的分析和报告。
 
@@ -438,6 +438,8 @@ Skill 给出以下判断依据，具体怎么做由 Agent 根据情况决定：
 ### Phase 2：fixture、Skill 和契约验证
 
 - 创建三类最小 Electron fixture。
+
+> 现状：这三个最小 fixture 已被 [`examples/vue-vite-app`](../examples/vue-vite-app/README.md)（electron-vite、Vue 3 的任务板，覆盖窗口创建失败、renderer 异常、IPC 失败等场景）取代，见 [CONTRIBUTING.md](../CONTRIBUTING.md)；上面是当时的阶段目标。
 - 编写核心工具契约测试和端到端验收脚本。
 - 完成项目级 Skill。
 - 增加修改范围到诊断通道的判断规则。
