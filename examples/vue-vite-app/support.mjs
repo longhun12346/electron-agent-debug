@@ -169,9 +169,12 @@ export async function startApp({ fault = "", store, files = {}, windowless = fal
   const noSandbox = process.env.TEST_ELECTRON_NO_SANDBOX === "true";
   let command;
   let args;
+  // Electron's package downloads the binary the first time it is required (a plain `npm ci` does not), and the dev
+  // server only looks for the downloaded file, so make sure it is there before anything starts.
+  const electronPath = createRequire(path.join(appRoot, "package.json"))("electron");
   if (built) {
     ensureBuilt({ esm });
-    command = createRequire(path.join(appRoot, "package.json"))("electron");
+    command = electronPath;
     // The ES module build is started by its entry file; the default one by the app folder and its package.json.
     const entry = esm ? path.join(appRoot, "out-esm/main/index.mjs") : appRoot;
     args = [`--inspect=${mainPort}`, `--remote-debugging-port=${rendererPort}`, ...(noSandbox ? ["--no-sandbox"] : []), ...electronArgs, entry];

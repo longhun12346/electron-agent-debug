@@ -140,7 +140,8 @@ async function inspection(s, outputDir) {
   assert.ok(png.readUInt32BE(16) > 100 && png.readUInt32BE(20) > 100, "screenshot should have real dimensions");
   // The reported size is the image's size, and by default that is the page's CSS size whatever the screen's DPI.
   assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [shot.width, shot.height]);
-  const cssSize = await value("renderer", "[innerWidth, innerHeight]");
+  // The layout viewport: innerWidth would include the scrollbar a small window gets, which the capture leaves out.
+  const cssSize = await value("renderer", "[document.documentElement.clientWidth, document.documentElement.clientHeight]");
   assert.ok(Math.abs(shot.width - cssSize[0]) <= 1 && Math.abs(shot.height - cssSize[1]) <= 1,
     `screenshot ${shot.width}x${shot.height} should match the CSS viewport ${cssSize}`);
   assert.equal(shot.deviceScaleFactor, 2);
