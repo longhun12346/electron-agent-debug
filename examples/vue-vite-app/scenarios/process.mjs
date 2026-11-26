@@ -67,7 +67,7 @@ scenarios.utility = async () => {
 // Two windows plus DevTools, and a console that was noisy before anyone attached.
 scenarios.windows = () => withSession({ built: true, noise: 800, env: { APP_DEVTOOLS: "true", APP_OPEN_SETTINGS: "true" } }, async (s) => {
   // Two real windows plus DevTools: the tool cannot guess, and must say it is two windows, not three.
-  const attached = await waitUntil(() => s.attach(), (result) => result.targets?.length >= 3, "both windows and DevTools listed");
+  const attached = await waitUntil(() => s.attach(), (result) => ["Task Board", "Settings - Task Board"].every((title) => result.targets?.some((target) => target.title === title)) && result.targets.some((target) => target.url.startsWith("devtools://")), "both windows (with their titles) and DevTools listed");
   assert.equal(attached.main.online, true);
   assert.equal(attached.renderer.online, false);
   const selection = attached.errors.find((error) => error.code === "TARGET_SELECTION_REQUIRED");
