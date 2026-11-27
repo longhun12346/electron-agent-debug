@@ -75,7 +75,9 @@ scenarios.windows = () => withSession({ built: true, noise: 800, env: { APP_DEVT
   assert.equal(selection.details.count, 2, "DevTools must not count as a window to choose from");
   assert.equal(attached.targets.filter((target) => target.url.startsWith("devtools://")).length, 1);
 
-  // Choosing by title is how an agent recovers.
+  // Choosing by title is how an agent recovers. Give the startup console noise a brief window to finish
+  // printing before recording connectingAt so slow CI runners do not race the last replayed lines.
+  await new Promise((resolve) => setTimeout(resolve, 250));
   const connectingAt = Date.now();
   const chosen = await s.call("electron_targets", { title: "Task Board" });
   assert.equal(chosen.selectedTarget.title, "Task Board");
