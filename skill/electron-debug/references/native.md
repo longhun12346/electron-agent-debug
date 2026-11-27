@@ -2,7 +2,7 @@
 
 本工具只看 JS 层。原生函数里的问题（返回值不对、想看参数和执行过程）要用原生调试器；这类调试器已有成熟的 MCP，不要自己造：先用本工具留下 JS 侧证据，再经用户同意安装外部调试器 MCP 配合，两边的证据按 `seq` 和时间对上。已验证的平台：Windows（mcp-windbg 加 cdb）；Linux（gdb、LLDB 命令行，在 Ubuntu 26.04 上）；macOS 的 LLDB 命令行只在 GitHub 的 arm64 runner 上验证过，没有真机和 Intel 的验证。
 
-应用启动时就跑完的原生调用见 `native-startup.md`。崩溃和卡死目前没有验证过的流程：只做“1. 留下 JS 侧证据”，并告诉用户这一限制。只是 JS 异常、renderer 崩溃（`TARGET_CRASHED`）或普通的 IPC 失败，不用走这里。
+应用启动时就跑完的原生调用见 `native-startup.md`。可复现的本地开发期原生崩溃（Access Violation / `SIGSEGV`）见第 8 节；线上 `.dmp`/core dump 事后分析和进程卡死目前没有验证过的流程：只做“1. 留下 JS 侧证据”，并告诉用户这一限制。只是 JS 异常、renderer 崩溃（`TARGET_CRASHED`）或普通的 IPC 失败，不用走这里。
 
 ## 目录
 
@@ -10,9 +10,10 @@
 2. 找原生源码和符号
 3. 安装调试器 MCP
 4. 附加调试器（Windows），4b（Linux、macOS）
-5. 跟踪一次 JS 调用进入原生函数
+5. 跟踪一次 JS 调用进入原生函数（含 `.node` 插件要点）
 6. 返回值不符合预期时
 7. 改了原生代码之后
+8. 可复现的本地原生崩溃（Access Violation / SIGSEGV）
 注意事项
 
 ## 1. 留下 JS 侧证据
@@ -97,6 +98,13 @@ def process_output(text, context):
 - **含中文等非 ASCII 的字符串不可靠**：`dv` 把 UTF-8 字节按系统代码页显示成乱码，`dx -r0` 可能什么都不输出且不报错。要看真实内容就看原始字节：窄字符串 `db <字面地址>`，宽字符串 `dw <字面地址>`（`db` 不认被当成符号的变量名，要用 `dv` 显示的地址）。
 - release 构建开着优化：局部变量会显示 `value unavailable` 或过期的值，断点行也会偏几行。要精确单步就请用户给 debug 构建。
 
+**`.node` 插件（C++ `node-addon-api` / Rust `napi-rs`）补充要点**
+
+- **模块名**：加载后的模块名通常不含 `.node` 后缀（或以文件名去掉扩展名为准），先用 `lm m *addon*`（cdb）或 `info sharedlibrary`（gdb）/ `image list`（lldb）确认实际模块名。
+- **绕过符号 mangling**：C++ 和 Rust 导出的函数名带 mangling，直接下**源码行断点**最稳：cdb 用 ``bu `<模块>!<文件>.cpp:<行号>` `` 或 `.rs:<行号>`，gdb/lldb 用 `b <文件>:<行号>`（开启 pending 断点即可在 `.node` 加载后自动绑定）。
+- **后台线程命中**：`AsyncWorker`（libuv）或 `AsyncTask`（`napi-rs` / tokio）里的原生逻辑跑在后台线程，而不是主线程；命中后用 `~`（cdb）/ `info threads`（gdb）/ `thread list`（lldb）确认当前线程，不要误以为没命中。
+- **N-API 入参**：`napi_value` 在原生侧需要经 `napi_get_value_*` 解包成 C/Rust 值后才方便直接观察；把断点下在解包之后的那一行。
+
 ## 6. 返回值不符合预期时
 
 - 对照原生源码、头文件里的契约和 JS 侧的假设：很多“结果不对”是两边理解不一致，比如排序依据、路径格式、编码。
@@ -110,6 +118,20 @@ def process_output(text, context):
 - **部署前先停应用**：库被加载后 Windows 上不能覆盖，重新链接会报 `LNK1168`。按 pid 停掉应用（不要按进程名；不是你启动的实例先问用户），重新构建，再启动，重新 `electron_attach` 和附加调试器（pid 变了）。Git Bash 里运行 `.bat` 要写成 `cmd //c "C:\完整\路径\build.bat"`，相对路径会找不到文件。
 - **让应用加载新产物，不要覆盖用户在用的那份**：先看项目怎么定位原生库，环境变量或配置通常可以指向新文件。
 - **调试期间别触发热重启**：`electron-vite dev --watch` 这类工具在源码改动后会重启主进程，调试器连接和 pid 随之失效，需要重新附加（主进程重启、pid 变化、端口不变在 electron-vite 6 上实测过；调试器那一侧没测）。
+
+## 8. 可复现的本地原生崩溃（Access Violation / SIGSEGV）
+
+原生代码空指针解引用、越界访问或 `koffi`/N-API 签名错位会导致主进程直接闪退（Windows 常见退出码 `0xC0000005`，Linux/macOS 为 `SIGSEGV`），JS 的 `try/catch` 拦不住。可复现的本地开发期崩溃**不需要提前猜行号下断点**：
+
+1. **先留 JS 侧证据**：记录触发崩溃前的最后一条 `IPC invoke` / `afterSeq`、主进程 pid 和退出码。
+2. **附加调试器并放行**：按第 4 / 4b 节附加（或调试器下启动）主进程，加载符号后直接 `g`（cdb）/ `continue`（gdb/lldb）让应用恢复运行。
+3. **触发崩溃**：用 `electron_click`、`electron_type` 或 `setTimeout` 触发；发生 Access Violation / `SIGSEGV` 时，调试器会自动停在出错的原生源码行。
+4. **看崩溃现场**：
+   - Windows（cdb）：`kP`（带参数的调用栈）、`dv`（当前帧局部变量）、`!analyze -v`（异常类型与故障地址）。
+   - Linux / macOS（gdb / lldb）：`bt`（调用栈）、`frame variable`（lldb）或 `info locals` / `info args`（gdb）。
+5. **修复与验证**：退出调试器（崩溃后进程已不可恢复，直接结束实例），按第 7 节修改源码、重新 Debug 构建、重启应用并重新 `electron_attach` 验证不再崩溃。
+
+> 本流程仅适用于**本地开发期可复现的崩溃**；线上 `.dmp` / core dump 事后分析和进程卡死（hang）暂不在此流程覆盖范围内。
 
 ## 注意事项
 

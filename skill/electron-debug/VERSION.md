@@ -1,5 +1,11 @@
 # 版本记录
 
+## 1.8.2 (2026-11-27)
+
+- MCP 0.9.0，运行文件不变。
+- `references/native.md` 与 `SKILL.md`：新增 `.node` 插件（C++ `node-addon-api` / Rust `napi-rs`）调试要点与第 8 节「可复现的本地原生崩溃（Access Violation / SIGSEGV）」捕获流程，明确区分本地实时崩溃捕获与线上 crash dump 事后分析。
+- `examples/native-eval`：新增 `label_length(null)` 空指针崩溃样例（Windows `cdb` 实测自动断在 `native_eval.cpp @ 129`）与极简 C++ N-API 插件示例 `napi_addon.cpp`，并记录 Windows 基线复现结果。
+
 ## 1.8.1 (2026-11-27)
 
 - MCP 0.9.0，行为与协议不变（`SessionManager` 内部抽取重复的目标选择器更新逻辑，运行文件同步重建）。

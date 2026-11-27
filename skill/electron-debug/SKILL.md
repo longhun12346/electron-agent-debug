@@ -1,6 +1,6 @@
 ---
 name: electron-debug
-description: "Verifies or diagnoses a local Electron app at runtime, and traces a JS call into native modules (koffi, .node) with an external debugger. Use when verifying main-process, BrowserWindow, preload, contextBridge or IPC changes, a blank window, a startup crash or runtime error, or a native-module call that returns the wrong result, even if the user never says 'Electron' or the project has its own tests. Attaches to the running dev app to read main, renderer and utility logs, evaluate code, take screenshots and accessibility snapshots, and click or type; for native code it guides an external debugger (WinDbg/cdb on Windows, gdb or lldb on Linux and macOS). Examples: '窗口一片白', '改了 preload 帮我确认还能用', '原生模块函数返回值不对，帮我从 JS 调用一路调试到原生代码'. Not for packaged apps, pure type or build errors, or native crashes and hangs."
+description: "Verifies or diagnoses a local Electron app at runtime, and traces a JS call into native modules (koffi, .node) with an external debugger. Use when verifying main-process, BrowserWindow, preload, contextBridge or IPC changes, a blank window, a startup crash or runtime error, or a native-module call that returns the wrong result or crashes locally, even if the user never says 'Electron' or the project has its own tests. Attaches to the running dev app to read main, renderer and utility logs, evaluate code, take screenshots and accessibility snapshots, and click or type; for native code it guides an external debugger (WinDbg/cdb on Windows, gdb or lldb on Linux and macOS). Examples: '窗口一片白', '改了 preload 帮我确认还能用', '原生模块函数返回值不对，帮我从 JS 调用一路调试到原生代码'. Not for packaged apps, pure type or build errors, post-mortem crash dumps, or hangs."
 license: MIT
 metadata:
   compatibility: "Requires Node.js 20+ and an Electron app started with --inspect and --remote-debugging-port. The runtime is smoke-tested on Windows, macOS and Linux; the native-code debugging guide is verified on Windows and Linux, and on macOS only on a GitHub arm64 runner."
@@ -54,7 +54,7 @@ MCP 连接 Agent 已启动的 Electron 应用，通过主进程 Inspector、rend
 4. 用 `electron_click` 或 `electron_type` 触发 JS 调用，命中后看栈、参数和变量，按 `seq` 和 JS 侧的证据对上，对照源码定位原因。
 5. 改原生源码，Debug 构建，停应用、部署、重启并重新 attach，再验证。
 
-完整步骤、命令和踩过的坑见 [references/native.md](references/native.md)，应用启动时就执行的原生调用见 [references/native-startup.md](references/native-startup.md)。在 Windows（mcp-windbg 加 cdb）和 Linux（gdb、lldb 命令行）上验证过，macOS 只在 GitHub 的 arm64 runner 上试过；原生崩溃和卡死目前没有验证过的流程。
+完整步骤、命令和踩过的坑见 [references/native.md](references/native.md)（含 `.node` 插件要点与可复现的本地原生崩溃捕获），应用启动时就执行的原生调用见 [references/native-startup.md](references/native-startup.md)。在 Windows（mcp-windbg 加 cdb）和 Linux（gdb、lldb 命令行）上验证过，macOS 只在 GitHub 的 arm64 runner 上试过；线上 crash dump 事后分析和进程卡死目前没有验证过的流程。
 
 ## 使用示例：验证一次 IPC 修改
 
@@ -95,7 +95,7 @@ MCP 连接 Agent 已启动的 Electron 应用，通过主进程 Inspector、rend
 - 点击、输入和求值会改变应用状态，只用于验证。
 - 只有 attach 时传了 `instrument`，才会在主进程里装 IPC 或对话框的记录包装，装上后应用重启前移除不了；用 `ELECTRON_DEBUG_ALLOW_EVAL=0` 全关（求值、点击输入、utility 一并不可用），见 [references/evidence.md](references/evidence.md)。
 - 网络、断点、拖拽悬停不提供，替代做法见 [references/alternatives.md](references/alternatives.md)；性能分析、内存泄漏分析不提供，也没有替代。
-- 原生模块调试见“原生模块调试”一节：本工具只看 JS 层，原生部分靠外部调试器，需要原生源码和调试符号（Windows 的 PDB、Linux 的 DWARF、macOS 的 dSYM）。原生崩溃和卡死目前没有验证过的流程。
+- 原生模块调试见“原生模块调试”一节：本工具只看 JS 层，原生部分靠外部调试器，需要原生源码和调试符号（Windows 的 PDB、Linux 的 DWARF、macOS 的 dSYM）。支持返回值不对与可复现的本地原生崩溃捕获；线上 crash dump 事后分析和进程卡死目前没有验证过的流程。
 
 ## 结论
 

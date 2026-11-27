@@ -94,7 +94,7 @@
 
 被诊断的应用要带 --inspect 和 --remote-debugging-port 启动；electron-vite、Electron Forge 等各启动方式怎么传参，见 Skill 的 references/launch.md。
 
-版本：Skill 1.8.1（MCP 0.9.0），变更记录见包内 VERSION.md；许可证 MIT；源码与发布说明：https://github.com/longhun12346/electron-agent-debug
+版本：Skill 1.8.2（MCP 0.9.0），变更记录见包内 VERSION.md；许可证 MIT；源码与发布说明：https://github.com/longhun12346/electron-agent-debug
 
 ## 故障排除
 ### attach 连不上，或某个通道不可用

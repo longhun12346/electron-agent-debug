@@ -122,4 +122,12 @@ EXPORT int has_subdir(const char* root, const char* name) {
 // Number of worker slots to start: at least 64, or `requested` when that is larger.
 EXPORT int init_slots(int requested) { return std::min(requested, 64); }
 
+// Returns the length of `label` (UTF-8), or 0 when `label` is null.
+// Intentional bug: dereferences `label` without a null check, causing an Access Violation / SIGSEGV when null is passed.
+EXPORT int label_length(const char* label) {
+  int count = 0;
+  while (label[count] != '\0') count++;
+  return count;
+}
+
 }  // extern "C"
