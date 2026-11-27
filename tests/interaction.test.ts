@@ -50,7 +50,7 @@ test("refs stay stable across snapshots of one page and expire with the page", (
   assert.match(other2.text, /\[ref=abc3\]/u, "another page numbers on and never reuses a ref");
 });
 
-type Responder = (method: string, params: Record<string, unknown>) => unknown;
+type Responder = (method: string, params: Record<string, unknown>) => unknown;  // a promise delays the answer
 
 async function startPage(respond: Responder): Promise<{ endpoint: string; calls: string[]; close(): Promise<void> }> {
   const calls: string[] = [];
@@ -59,10 +59,10 @@ async function startPage(respond: Responder): Promise<{ endpoint: string; calls:
   const sockets = new Set<WebSocket>();
   ws.on("connection", (socket) => {
     sockets.add(socket);
-    socket.on("message", (raw) => {
+    socket.on("message", async (raw) => {
       const message = JSON.parse(raw.toString()) as { id: number; method: string; params?: Record<string, unknown> };
       calls.push(message.method);
-      const result = respond(message.method, message.params ?? {});
+      const result = await respond(message.method, message.params ?? {});
       if (result === "hang") return;
       if (result instanceof Error) {
         socket.send(JSON.stringify({ id: message.id, error: { code: -32000, message: result.message } }));
@@ -151,6 +151,28 @@ test("a click on an exposed element sends trusted mouse events and returns after
     assert.equal(calls.filter((method) => method === "Input.dispatchMouseEvent").length, 3);
     assert.ok(calls.indexOf("DOM.scrollIntoViewIfNeeded") < calls.indexOf("DOM.getContentQuads"));
   });
+});
+
+test("the first input into a slow app gets longer than an ordinary request to answer", { timeout: 30_000 }, async () => {
+  // The first mouse event is acknowledged only after 3.6 s, as on a cold CI runner; the default request timeout is 0.5 s here.
+  let slowOnce = true;
+  const mock = await startPage((method, params) => {
+    if (method === "Input.dispatchMouseEvent" && params.type === "mouseMoved" && slowOnce) {
+      slowOnce = false;
+      return new Promise((resolve) => setTimeout(() => resolve({}), 3_600));
+    }
+    return page({})(method, params);
+  });
+  const manager = new SessionManager(config());
+  try {
+    assert.ok((await manager.attach({ rendererUrl: mock.endpoint })).ok);
+    await manager.inspector.domSnapshot({});
+    const result = await manager.inspector.click({ role: "button", name: "Save" });
+    assert.ok(result.ok, JSON.stringify(result));
+  } finally {
+    await manager.close();
+    await mock.close();
+  }
 });
 
 test("the hit test uses document coordinates", async () => {

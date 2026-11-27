@@ -8,7 +8,7 @@
 
 各项目工具行为不同，本 Skill 未统一验证，以 `electron_status` 和日志实际观察为准。按这个顺序处理：
 
-1. 项目有热更新或自动重启，就等它完成，不要重复手动操作。主进程、preload 的改动若被开发工具自动重启，原连接随进程失效，需重新 `electron_attach`，并确认重启后的进程仍带有 `--inspect` 和 `--remote-debugging-port`（是否沿用取决于项目的启动工具）。
+1. 项目有热更新或自动重启，就等它完成，不要重复手动操作。主进程、preload 的改动若被开发工具自动重启，原连接随进程失效，需重新 `electron_attach`，并确认重启后的进程仍带有 `--inspect` 和 `--remote-debugging-port`（是否沿用取决于项目的启动工具）。electron-vite 6 重启后沿用同一组端口（Windows、Linux、macOS 都看过）；但在 macOS 上，新进程可能抢在旧进程释放端口之前启动，固定的 `--inspect` 端口报 `address already in use`，新进程就没有调试口（`electron_attach` 连不上，应用输出里有 `Starting inspector … failed`）：再保存一次文件触发第二次重启，或停掉应用后用项目的启动命令重新启动。
 2. 没有热更新：renderer 改动用 `electron_evaluate`（scope 为 renderer）执行 `location.reload()`；`ELECTRON_DEBUG_ALLOW_EVAL=0` 时求值不可用，改用项目已有的刷新方式。
 3. 主进程改动必须重启应用。preload 改动至少要 reload 页面才会重新加载，拿不准就重启。
 4. 无论哪种方式，都先用 `electron_wait_for` 等到就绪信号再取证据。

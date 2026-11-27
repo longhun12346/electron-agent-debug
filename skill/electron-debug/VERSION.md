@@ -1,5 +1,10 @@
 # 版本记录
 
+## 1.7.2
+
+- MCP 0.8.1，运行文件变了：`electron_click`、`electron_type` 的输入事件等待时间从 3 秒改为 10 秒。刚启动的应用在慢机器上第一次输入可能要好几秒才被确认（GitHub 的 Linux runner 上，页面加载后约 3.4 秒的第一次点击超时，重试只要 20 毫秒），原来的 3 秒会让这一次点击报 `PROTOCOL_ERROR` 超时。其他请求的超时不变。
+- `references/launch.md` 补了 electron-vite 重启主进程的实测：端口沿用；macOS 上新进程可能抢在旧进程释放端口之前启动，没有调试口，要再触发一次重启。
+
 ## 1.7.1
 
 - 只改 `SKILL.md` 和 `references/`，MCP（0.8.0）和运行文件没有变。

@@ -137,7 +137,10 @@ export class RefRegistry {
 }
 
 const objectGroup = "electron-agent-debug-input";
-const inputTimeoutMs = 3_000;
+// The first input into a freshly started app can take seconds on a cold, loaded machine (GitHub's Linux runners: a first
+// click about 3.4 s after the page loaded timed out at 3 s, and the retry took 20 ms), so it gets a longer wait than the
+// 3 s default for ordinary protocol requests.
+const inputTimeoutMs = 10_000;
 
 type Quad = [number, number, number, number, number, number, number, number];
 
