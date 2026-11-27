@@ -6,6 +6,12 @@
 
 ![electron-agent-debug architecture](assets/architecture-overview.svg)
 
+### 实机演示（真实 Electron 应用）
+
+连接 `examples/vue-vite-app`（开启 `instrument: ["ipc"]`）→ 通过 `electron_type` 输入 `"Verify IPC timeline"` → `electron_click` 点击 **Add** → `electron_wait_for` 等待主进程 IPC 日志 → 切换到 **Activity** 页面并截取全过程画面：
+
+![vue-vite-app 实机演示](assets/demo-walkthrough.gif)
+
 ## 为什么做这个项目
 
 社区里让 Agent 调 Electron 的常见做法分为两类，各有明显短板：

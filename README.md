@@ -6,6 +6,12 @@
 
 ![electron-agent-debug architecture](assets/architecture-overview.svg)
 
+### Live Demo (Real Electron App)
+
+Attached to `examples/vue-vite-app` with `instrument: ["ipc"]` → typed `"Verify IPC timeline"` via `electron_type` → clicked **Add** via `electron_click` → waited for Main-process IPC log via `electron_wait_for` → navigated to **Activity** and captured screenshots:
+
+![Live demo walkthrough on vue-vite-app](assets/demo-walkthrough.gif)
+
 ## Why This Exists
 
 Existing approaches for letting coding agents debug Electron apps fall into two extremes:
