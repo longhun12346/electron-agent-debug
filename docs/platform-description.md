@@ -49,7 +49,7 @@
 
 ## 不适用场景
 - **本地开发环境之外的应用**：打包后的应用（安装包，或已关闭调试开关、fuse 的构建）和远程、非回环地址的应用不在支持范围内；工具只连接已运行的应用，不负责启动、停止或重启
-- **不需要运行时观察，或本工具不提供的能力**：纯类型检查和构建问题用项目已有的检查；断点、拖拽悬停快捷键、网络抓包不提供，Skill 的 references/alternatives.md 给出了用日志、求值等替代做法；性能分析和内存泄漏分析不提供，也没有替代；原生对话框和系统菜单需要用户人工操作；本工具自身不做原生代码的单步跟踪（见适用场景里的原生模块一条）；原生模块调试在 Windows（mcp-windbg 加 cdb）和 Linux（gdb、lldb 命令行）上验证过，macOS 只在 GitHub 的 arm64 runner 上验证过 lldb 命令行，没有真机验证，macOS、Linux 的 LLDB 流程只依据官方文档、没有实测；原生崩溃（分析 dump）和进程卡死（看线程栈）目前没有验证过的流程；调试期间应用被热重启会使调试会话失效，这一条没有实测
+- **不需要运行时观察，或本工具不提供的能力**：纯类型检查和构建问题用项目已有的检查；断点、拖拽悬停快捷键、网络抓包不提供，Skill 的 references/alternatives.md 给出了用日志、求值等替代做法；性能分析和内存泄漏分析不提供，也没有替代；原生对话框和系统菜单需要用户人工操作；本工具自身不做原生代码的单步跟踪（见适用场景里的原生模块一条）；原生模块调试在 Windows（mcp-windbg 加 cdb）和 Linux（gdb、lldb 命令行）上验证过，macOS 只在 GitHub 的 arm64 runner 上验证过 lldb 命令行，没有真机和 Intel 的验证；原生崩溃（分析 dump）和进程卡死（看线程栈）目前没有验证过的流程；调试期间应用被热重启会使调试会话失效，这一条没有实测
 - **带真实生产凭据的应用**：输出不做脱敏，只应连接本地开发环境的应用（详见“使用须知”）
 
 ## 依赖要求
@@ -58,7 +58,7 @@
 | 系统依赖 | Node.js 20 或更高版本；运行文件已随包提供，无需额外下载、安装依赖或构建 |
 | 外部服务 | 无 |
 | 权限要求 | 待诊断的应用需以 --inspect（主进程）和/或 --remote-debugging-port（renderer）参数运行；连接 utility process 需要主进程通道在线且允许求值，默认调试口 9229 被占用时需给 fork 加 --inspect-port；MCP 注册可选，批处理模式无需注册 |
-| 已验证的系统 | Windows、macOS、Linux（CI 在三个系统上运行真实 Electron 的冒烟测试）；原生模块调试在 Windows（mcp-windbg 加 cdb）和 Linux（gdb、lldb 命令行）上验证过，macOS 没有验证 |
+| 已验证的系统 | Windows、macOS、Linux（CI 在三个系统上运行真实 Electron 的冒烟测试）；原生模块调试在 Windows（mcp-windbg 加 cdb）和 Linux（gdb、lldb 命令行）上验证过，macOS 只在 GitHub 的 arm64 runner 上验证过 lldb 命令行 |
 | 原生模块调试（可选） | 需要原生源码，最好有带调试信息的构建（Windows 的 PDB，Debug 构建能看到全部局部变量，release 构建的局部变量常显示不可用）；Agent 经你同意安装外部调试器 MCP（Windows：mcp-windbg，需要 Windows 调试工具里的 cdb；macOS、Linux：LLDB 自带的 MCP）。附加和断点会让整个进程暂停，本工具的请求在这期间会超时，查完要放行再断开 |
 
 ## 使用须知
