@@ -8,6 +8,7 @@
 | --- | --- |
 | `native/native_eval.cpp` | 四个导出函数 `sum_sizes`、`has_subdir`、`init_slots`、`label_length`（空指针崩溃），各有一处错误；Windows、Linux、macOS 用同一个文件 |
 | `native/napi_addon.cpp` | 极简 C++ N-API（`.node`）插件源码示例（`clampSlots` 使用 `std::min` 替代 `std::max`），用于验证非 `koffi` 的 `.node` 源码行断点流程 |
+| `native/build-napi.bat`、`native/build-napi.sh` | 一键构建 `napi_addon.node`（Debug + PDB / `.dSYM`，复用 `node_modules/koffi/vendor/node-api-headers`，无需 `node-gyp`） |
 | `native/build.bat`、`native/build.sh` | Debug 构建：Windows 出 `native_eval.dll` 加 PDB，Linux 出 `libnative_eval.so`，macOS 出 `libnative_eval.dylib` 加 dSYM |
 | `app/` | 用 koffi 加载这个库的最小 Electron 应用，窗口里有 Sum sizes 和 Find subfolder 两个按钮；`init_slots` 在启动时调用一次 |
 | `evals.json` | 三条评估：`early-exit`（循环提前结束）、`code-page`（路径的编码被读错）、`startup-call`（启动时只调用一次的原生函数）。顶层字段是 Windows 的评分表，`posix` 是 Linux 和 macOS 的 |
@@ -47,6 +48,7 @@ npm start
   - `early-exit`：`sum_sizes` 返回 `10`（预期 `100`）；
   - `code-page`：`has_subdir` 对“资料”返回 `0`（预期 `1`）；
   - `startup-call`：`init_slots(200)` 返回 `64`（预期 `200`），`cdb` 命中断点；
-  - `native-crash`：`label_length(null)` 触发 `Access violation (0xC0000005)`，`cdb` 自动断在 `native_eval.cpp @ 129`，`kP` 与 `dv` 直接显示 `label = 0x0000000000000000`、`count = 0`。
+  - `native-crash`：`label_length(null)` 触发 `Access violation (0xC0000005)`，`cdb` 自动断在 `native_eval.cpp @ 129`，`kP` 与 `dv` 直接显示 `label = 0x0000000000000000`、`count = 0`；
+  - `napi-addon`（`.node`）：`build-napi.bat` 构建出 `napi_addon.node` + PDB，`clampSlots(200)` 返回 `64`（预期 `200`），`cdb` 源码行断点 ``bu `napi_addon!napi_addon.cpp:19` `` 命中并读出 `requested = 200`。
 - **Linux（Ubuntu 26.04，WSL2）**：`sum_sizes`、`has_subdir`、`init_slots` 复现同样的三个值；用 gdb 17 和 LLDB 21 在调试器下启动应用，都在 `init_slots` 断下，读到 `requested = 200`，`finish` 得到返回值 `64`。
 - **macOS（GitHub runner，arm64，Xcode 26.6 的 LLDB 2100）**：复现同样的三个值；`build.sh` 构建出带 `.dSYM` 的 dylib，lldb 在 `init_slots` 断下，`requested = 200`，`finish` 得到返回值 `64`。

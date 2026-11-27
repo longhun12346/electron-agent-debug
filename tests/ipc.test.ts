@@ -12,15 +12,20 @@ test("the IPC instrumentation is valid JavaScript", () => {
 
 test("a failed invoke becomes an error event with the handler's message", () => {
   const event = ipcEvent("main", JSON.stringify({
-    type: "invoke", channel: "app:save", ok: false, ms: 12, argBytes: 40, senderId: 1,
+    type: "invoke", channel: "app:save", ok: false, ms: 12, argCount: 2, argTypes: ["string", "object(id,title)"], argBytes: 40, senderId: 1,
     error: "Error: disk full token=abc123secret",
   }))!;
   assert.equal(event.kind, "ipc");
   assert.equal(event.level, "error");
   assert.match(event.message, /^IPC invoke app:save failed after 12ms: Error: disk full/u);
   assert.deepEqual(
-    { channel: (event.data as Record<string, unknown>).channel, ok: (event.data as Record<string, unknown>).ok },
-    { channel: "app:save", ok: false },
+    {
+      channel: (event.data as Record<string, unknown>).channel,
+      ok: (event.data as Record<string, unknown>).ok,
+      argCount: (event.data as Record<string, unknown>).argCount,
+      argTypes: (event.data as Record<string, unknown>).argTypes,
+    },
+    { channel: "app:save", ok: false, argCount: 2, argTypes: ["string", "object(id,title)"] },
   );
 });
 

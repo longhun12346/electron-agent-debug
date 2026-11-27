@@ -20,6 +20,18 @@ ipcMain.handle("native:has-subdir", (_event, root, name) => hasSubdir(root, name
 ipcMain.handle("native:slots", () => slots);
 ipcMain.handle("native:label-length", (_event, label) => labelLength(label));
 
+// Optional C++ N-API (.node) addon built by native/build-napi.{bat,sh}.
+let napiAddon = null;
+try {
+  napiAddon = require(process.env.NATIVE_EVAL_NAPI || path.join(__dirname, "..", "native", "build", "napi_addon.node"));
+} catch {
+  // Built on demand via build-napi.{bat,sh}.
+}
+ipcMain.handle("native:napi-clamp-slots", (_event, value) => {
+  if (!napiAddon) throw new Error("napi_addon.node not built; run native/build-napi.bat or build-napi.sh");
+  return napiAddon.clampSlots(value);
+});
+
 app.whenReady().then(() => {
   const win = new BrowserWindow({
     width: 640,

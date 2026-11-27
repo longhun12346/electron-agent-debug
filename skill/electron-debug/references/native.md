@@ -131,7 +131,17 @@ def process_output(text, context):
    - Linux / macOS（gdb / lldb）：`bt`（调用栈）、`frame variable`（lldb）或 `info locals` / `info args`（gdb）。
 5. **修复与验证**：退出调试器（崩溃后进程已不可恢复，直接结束实例），按第 7 节修改源码、重新 Debug 构建、重启应用并重新 `electron_attach` 验证不再崩溃。
 
-> 本流程仅适用于**本地开发期可复现的崩溃**；线上 `.dmp` / core dump 事后分析和进程卡死（hang）暂不在此流程覆盖范围内。
+> 本流程仅适用于**本地开发期可复现的崩溃**；线上 `.dmp` / core dump 事后分析不在此流程覆盖范围内。
+
+### 8b. 可复现的本地进程卡死 / 死锁（Hang）
+
+当主进程在原生调用里卡死无响应（`electron_evaluate`(main) 持续超时、窗口无响应，且排除 `dialogs` 阻塞）时，可在附加调试器后打断运行中的进程并抓取全线程栈：
+
+- **Windows（cdb）**：附加后进程自动暂停，直接执行 `~*kP 20`（列出全部线程栈）与 `!locks`（查看临界区持有关系），定位卡在原生模块里的线程及源码行；查完用 `g` 放行或 `qqd` 断开。
+- **Linux / macOS（gdb / lldb）**：
+  - gdb：`thread apply all bt`
+  - lldb：`thread backtrace all`
+- 看栈时重点找停在项目自身原生模块（`.dll` / `.so` / `.dylib` / `.node`）或互斥锁（`EnterCriticalSection`、`pthread_mutex_lock`、`futex`）上的线程帧。
 
 ## 注意事项
 

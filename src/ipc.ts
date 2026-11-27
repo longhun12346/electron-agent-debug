@@ -39,6 +39,17 @@ export const instrumentIpcScript = `(async () => {
       return total;
     } catch { return undefined; }
   };
+  const shapes = (args) => {
+    try {
+      return args.slice(0, 6).map((arg) => {
+        if (arg === null) return 'null';
+        if (Array.isArray(arg)) return 'array(' + arg.length + ')';
+        if (ArrayBuffer.isView(arg) || arg instanceof ArrayBuffer) return 'bytes(' + arg.byteLength + ')';
+        if (typeof arg === 'object') return 'object(' + Object.keys(arg).slice(0, 5).join(',') + ')';
+        return typeof arg;
+      });
+    } catch { return undefined; }
+  };
   const notify = (record, args) => {
     const second = Math.floor(Date.now() / 1000);
     let window = state.windows.get(record.channel);
@@ -53,6 +64,8 @@ export const instrumentIpcScript = `(async () => {
     window.count += 1;
     if (window.count > ${perSecond}) { window.skipped += 1; return; }
     if (window.skipped) { record.skipped = window.skipped; window.skipped = 0; }
+    record.argCount = args.length;
+    record.argTypes = shapes(args);
     record.argBytes = size(args);
     try {
       if (typeof globalThis.${ipcBinding} === 'function') globalThis.${ipcBinding}(JSON.stringify(record));
@@ -132,6 +145,8 @@ interface IpcRecord {
   ok?: unknown;
   ms?: unknown;
   error?: unknown;
+  argCount?: unknown;
+  argTypes?: unknown;
   argBytes?: unknown;
   listeners?: unknown;
   skipped?: unknown;
@@ -145,6 +160,12 @@ function text(value: unknown): string | undefined {
 }
 
 const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+
+function stringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.slice(0, 6).map((item) => text(item)).filter((item): item is string => item !== undefined);
+  return items.length > 0 ? items : undefined;
+}
 
 /** Turns one binding payload into a timeline event, or undefined when it is not an IPC record. */
 export function ipcEvent(process: ProcessScope, payload: unknown): DiagnosticEvent | undefined {
@@ -169,6 +190,7 @@ export function ipcEvent(process: ProcessScope, payload: unknown): DiagnosticEve
   else message += ` ok in ${ms}ms`;
   const data: Record<string, unknown> = { type, channel, ok, ms };
   for (const [name, value] of [
+    ["argCount", number(record.argCount)], ["argTypes", stringList(record.argTypes)],
     ["argBytes", number(record.argBytes)], ["listeners", listeners], ["skipped", number(record.skipped)],
     ["senderId", number(record.senderId)], ["senderUrl", text(record.senderUrl)], ["error", error],
   ] as const) {
