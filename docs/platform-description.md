@@ -59,7 +59,7 @@
 | 外部服务 | 无 |
 | 权限要求 | 待诊断的应用需以 --inspect（主进程）和/或 --remote-debugging-port（renderer）参数运行；连接 utility process 需要主进程通道在线且允许求值，默认调试口 9229 被占用时需给 fork 加 --inspect-port；MCP 注册可选，批处理模式无需注册 |
 | 已验证的系统 | Windows、macOS、Linux（CI 在三个系统上运行真实 Electron 的冒烟测试）；原生模块调试在 Windows（mcp-windbg 加 cdb）和 Linux（gdb、lldb 命令行）上验证过，macOS 只在 GitHub 的 arm64 runner 上验证过 lldb 命令行 |
-| 原生模块调试（可选） | 需要原生源码，最好有带调试信息的构建（Windows 的 PDB，Debug 构建能看到全部局部变量，release 构建的局部变量常显示不可用）；Agent 经你同意安装外部调试器 MCP（Windows：mcp-windbg，需要 Windows 调试工具里的 cdb；macOS、Linux：LLDB 自带的 MCP）。附加和断点会让整个进程暂停，本工具的请求在这期间会超时，查完要放行再断开 |
+| 原生模块调试（可选） | 需要原生源码，最好有带调试信息的构建（Windows 的 PDB、Linux 的 DWARF、macOS 的 dSYM；Debug 构建能看到全部局部变量，release 构建的局部变量常显示不可用）；Agent 经你同意接上外部调试器（Windows：mcp-windbg，需要 Windows 调试工具里的 cdb；Linux、macOS：gdb 或 lldb 命令行，不必装 MCP）。附加和断点会让整个进程暂停，本工具的请求在这期间会超时，查完要放行再断开 |
 
 ## 使用须知
 - **输出不做脱敏**：日志、报错、求值结果、页面文本、窗口地址和标题可能带出令牌、密码、cookie，并进入模型上下文和会话记录。是否遮挡由 Agent 判断：只读取需要的内容，汇报时只引用必要片段，不连接带真实生产凭据的应用。
@@ -97,7 +97,7 @@
 
 被诊断的应用要带 --inspect 和 --remote-debugging-port 启动；electron-vite、Electron Forge 等各启动方式怎么传参，见 Skill 的 references/launch.md。
 
-版本：Skill 1.7.2（MCP 0.8.1），变更记录见包内 VERSION.md；许可证 MIT；源码与发布说明：https://github.com/longhun12346/electron-agent-debug
+版本：Skill 1.8.0（MCP 0.9.0），变更记录见包内 VERSION.md；许可证 MIT；源码与发布说明：https://github.com/longhun12346/electron-agent-debug
 
 ## 故障排除
 ### attach 连不上，或某个通道不可用
@@ -115,11 +115,11 @@
 
 ### 日志不对：读到旧的，或缺事件
 **出现原因**：attach 时会重放应用启动以来的历史输出，等待命中这类旧事件时结果会带 beforeAttach 标记；日志缓冲区写满后会丢弃最旧的事件；electron_logs 默认只返回最近 100 条。
-**解决方案**：用操作返回的 afterSeq 只看本次操作之后的事件，sinceAttach 只排除 attach 时重放的历史；读取日志时看 droppedThroughSeq 和 gap，缩短两次取证的间隔，或调大 ELECTRON_DEBUG_MAX_LOG_EVENTS。
+**解决方案**：用操作返回的 afterSeq 只看本次操作之后的事件，sinceAttach 只排除 attach 时重放的历史；读取日志时看 droppedThroughSeq 和 gap，缩短两次取证的间隔，或调大 ELECTRON_DEBUG_MAX_LOG_EVENTS。带 clear 读取时只删除这次返回的事件。工具拒绝不认识的参数（如把 afterSeq 写成别的名字），不会忽略它而返回全部历史。
 
 ### renderer 页面崩溃
 **出现原因**：页面崩溃时调试连接不断，但状态会标为离线，各 renderer 工具返回 TARGET_CRASHED。
-**解决方案**：重新加载页面，同一连接会自动恢复；主进程崩溃或退出则整个主进程通道断开，需要重新 attach。
+**解决方案**：崩溃期间页面里的求值也不可用，用 electron_evaluate 在主进程里对该窗口调用 webContents.reload()，或请用户重新加载窗口；重新加载后同一连接会自动恢复。主进程崩溃或退出则整个主进程通道断开，需要重新 attach。
 
 ### 截图超时
 **出现原因**：窗口被隐藏或最小化时，Chromium 不会响应截图。

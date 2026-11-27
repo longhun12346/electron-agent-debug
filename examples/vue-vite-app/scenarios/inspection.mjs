@@ -36,9 +36,33 @@ async function inspection(s, outputDir) {
     expression: { scope: "renderer", expression: "document.title === 'never'" }, timeoutMs: 400, intervalMs: 100,
   });
   assert.equal(timedOut.code, "WAIT_TIMEOUT");
+  // A result that has no JSON form is truthy all the same.
+  for (const expression of ["1n", "Infinity", "'x'.repeat(200000)"]) {
+    assert.equal((await s.call("electron_wait_for", { expression: { scope: "renderer", expression }, timeoutMs: 2_000 })).matched, true, expression);
+  }
+  assert.equal((await s.failure("electron_wait_for", { expression: { scope: "renderer", expression: "0n" }, timeoutMs: 300 })).code, "WAIT_TIMEOUT");
   const marker = randomUUID();
   await value("renderer", `setTimeout(() => console.log('later-${marker}'), 300); true`);
   await s.call("electron_wait_for", { log: { contains: `later-${marker}`, process: "renderer" }, timeoutMs: 10_000 });
+
+  // A misspelled argument is refused by name instead of being ignored: ignored, this call would succeed and return the
+  // whole history as if it were what followed seq 999999.
+  const misspelled = await s.raw("electron_logs", { after_seq: 999_999 });
+  assert.equal(misspelled.result?.isError, true, JSON.stringify(misspelled));
+  assert.match(misspelled.result.content[0].text, /after_seq/u);
+  const misplaced = await s.raw("electron_wait_for", { expression: { scope: "renderer", expression: "true" }, timeout: 30_000 });
+  assert.equal(misplaced.result?.isError, true, JSON.stringify(misplaced));
+
+  // clear deletes what it returned and nothing else: without a limit that is the latest 100 events.
+  let { lastSeq: beforeBulk } = await s.call("electron_logs", {});
+  await value("renderer", `for (let n = 0; n < 150; n += 1) console.log('bulk-${marker} ' + n); true`);
+  await s.eventAfter(beforeBulk, "renderer", `bulk-${marker} 149`);
+  const cleared = await s.call("electron_logs", { process: "renderer", afterSeq: beforeBulk, clear: true });
+  assert.equal(cleared.events.length, 100);
+  assert.equal(cleared.events[0].message, `bulk-${marker} 50`);
+  const kept = (await s.call("electron_logs", { process: "renderer", afterSeq: beforeBulk, limit: 1_000 })).events;
+  assert.deepEqual(kept.map((event) => event.message), Array.from({ length: 50 }, (_, n) => `bulk-${marker} ${n}`),
+    "the 50 events that were not returned must still be there");
 
   // evaluate against real V8: promises, top-level await, redeclaration, errors and limits.
   assert.equal(await value("renderer", "document.title"), "Task Board");
@@ -166,8 +190,12 @@ async function inspection(s, outputDir) {
   const crashedStatus = await waitUntil(async () => (await s.call("electron_status")).renderer,
     (renderer) => renderer.online === false && renderer.error?.code === "TARGET_CRASHED", "renderer crash status", 8_000);
   assert.equal(crashedStatus.status, "offline");
+  assert.match(crashedStatus.error.hint, /webContents\.reload\(\)/u);
   const crashedStartedAt = Date.now();
-  assert.equal((await s.failure("electron_evaluate", { scope: "renderer", expression: "1 + 1" })).code, "TARGET_CRASHED");
+  // The page cannot reload itself: its own evaluation is refused, and the error says to go through the main process.
+  const refusedReload = await s.failure("electron_evaluate", { scope: "renderer", expression: "location.reload()" });
+  assert.equal(refusedReload.code, "TARGET_CRASHED");
+  assert.match(refusedReload.hint, /electron_evaluate\(main\)/u);
   assert.ok(Date.now() - crashedStartedAt < 2_000, "a crashed page must fail fast, not after the request timeout");
   assert.equal((await s.eventAfter(lastSeq, "renderer", "Target crashed", 5_000)).kind, "exception");
   assert.equal(await value("main", "1 + 1"), 2, "the main channel is unaffected by a renderer crash");
@@ -197,8 +225,15 @@ async function inspection(s, outputDir) {
     "info IPC invoke tasks:toggle ok",
     "error IPC invoke tasks:toggle failed: Error: late failure",
     "info IPC sendSync theme:get ok",
-    "warn IPC send sync:start: no listener in the main process",
+    "warning IPC send sync:start: no listener in the main process",
   ], JSON.stringify(traced));
+  // A console warning and the tool's own warnings are one level, and both spellings find them.
+  await value("renderer", `console.warn('warned-${marker}'); true`);
+  await s.eventAfter(lastSeq, "renderer", `warned-${marker}`);
+  for (const level of ["warn", "warning"]) {
+    const warnings = (await s.call("electron_logs", { afterSeq: lastSeq, level })).events.map((event) => `${event.process} ${event.kind}`);
+    assert.deepEqual(warnings.sort(), ["main ipc", "renderer console"], `level ${level}: ${JSON.stringify(warnings)}`);
+  }
 
   // A listener on webContents.ipc hears a message too, so it is not reported as unheard.
   await s.electron("for (const window of electron.BrowserWindow.getAllWindows()) window.webContents.ipc.on('sync:start', () => {}); return true");
@@ -258,12 +293,16 @@ async function inspection(s, outputDir) {
     globalThis.smokeExtra = extra;
     const guest = new Promise((resolve) => extra.webContents.once('did-attach-webview', (_event, wc) =>
       wc.once('did-finish-load', resolve)));
-    await extra.loadURL("data:text/html,<title>smoke-host</title><webview src='data:text/html,<title>smoke-guest</title>'></webview>");
+    await extra.loadURL("data:text/html,<title>smoke-host</title><webview src='data:text/html,<title>smoke-guest</title>'></webview><!--" + "x".repeat(60000) + "-->");
     await guest;
     return true`);
   const twoWindows = await s.call("electron_targets", { clearSelection: true });
   assert.equal(twoWindows.errors[0]?.code, "TARGET_SELECTION_REQUIRED", JSON.stringify(twoWindows));
   assert.ok(twoWindows.errors[0].hint);
+  // The host window's address is its whole content. It is cut in the answer, with its real length beside it.
+  const host = twoWindows.targets.find((target) => target.title === "smoke-host");
+  assert.ok(host.urlTruncatedFrom > 60_000 && host.url.length < 4_200, JSON.stringify({ ...host, url: host.url.length }));
+  assert.ok(JSON.stringify(twoWindows).length < 20_000, `targets answered ${JSON.stringify(twoWindows).length} characters`);
   const guestTarget = twoWindows.targets.find((target) => target.type === "webview");
   assert.ok(guestTarget, JSON.stringify(twoWindows.targets));
   const onGuest = await s.call("electron_targets", { targetId: guestTarget.id });
@@ -279,6 +318,12 @@ async function inspection(s, outputDir) {
   await waitUntil(() => discovery(app.rendererPort),
     (targets) => targets?.some((target) => target.url.startsWith("devtools://")), "DevTools target");
   const fresh = await s.newSession({});
+  // Nothing is attached in this session yet: a wait cannot succeed, and says so at once instead of timing out.
+  const unattachedAt = Date.now();
+  const unattached = await fresh.failure("electron_wait_for", { expression: { scope: "main", expression: "true" }, timeoutMs: 8_000 });
+  assert.equal(unattached.code, "SESSION_DISCONNECTED", JSON.stringify(unattached));
+  assert.match(unattached.hint, /electron_attach/u);
+  assert.ok(Date.now() - unattachedAt < 3_000, `an unattached wait took ${Date.now() - unattachedAt}ms`);
   const reattached = await fresh.attach();
   assert.equal(reattached.renderer.online, true, JSON.stringify(reattached.errors));
   // Ports passed the wrong way round fail with a hint instead of attaching to the wrong process.

@@ -1,5 +1,20 @@
 # 版本记录
 
+## 1.8.0
+
+- MCP 0.9.0，运行文件变了。依据：对整个项目做了一次审查，下面每一条都先在真实的 Electron 应用上复现，再修改。前三条不兼容：
+  - 带参数的工具拒绝不认识的参数（`electron_status` 没有参数，不受影响）。此前把 `afterSeq` 写成 `after_seq`、把 `timeoutMs` 写成 `timeout` 时调用照常成功，前者返回全部历史，容易被当成本次操作之后的证据。现在返回错误并指出参数名；批处理模式的参数错误也改成一行一条的可读文字。
+  - 工具自己产生的告警事件（IPC 没有监听者、对话框打开、协议域或追踪未启用）的 `level` 从 `warn` 改为 `warning`，与 console 警告一致。此前 `electron_logs` 传 `level: "warn"` 读不到任何 console 警告，传 `warning` 又读不到工具的告警。过滤时写 `warn` 等同于 `warning`；直接比较事件 `level` 是否等于 `"warn"` 的调用方要改。
+  - target 不再返回 `faviconUrl`；`title` 超过 512 个字符、`url` 超过 4096 个字符时在结果里截断，并给出 `titleTruncatedFrom`、`urlTruncatedFrom`。此前一个从 60 KB 的 `data:` 地址加载的窗口让 `electron_attach` 返回 181 KB。按 `url`、`title` 选择仍用完整的值比较。
+  - `electron_logs` 带 `clear` 时只删除本次返回的事件。此前不传 `limit` 会返回最近 100 条，却清空整个缓冲区：150 条事件里有 50 条没返回就被删了。
+  - 事件的 `observedAt` 改用应用产生该事件的时间。此前是 MCP 收到事件的时间，attach 时重放的历史输出全部记成 attach 的时刻，`since` 排除不了它们。
+  - 表达式型 `electron_wait_for` 在所选通道没有连接时立即返回 `SESSION_DISCONNECTED`（此前等满超时才返回 `WAIT_TIMEOUT`，原因埋在 `details` 里）；没有 JSON 形式的真值（`Infinity`、`1n`）和超过大小上限的结果也算命中。
+  - `TARGET_CRASHED` 带 `hint`：崩溃期间页面里的求值也被拒绝，要用 `electron_evaluate`(main) 调用 `webContents.reload()`。
+  - 装进应用的 IPC、对话框追踪脚本和 utility 查找脚本，在没有 `process.mainModule` 时不再走动态 `import()`（求值里用不了），改用从可执行文件路径建的 `require`。两种写法在 CommonJS 和 ES module 的主进程里都实测过，返回同一个模块。
+- `SKILL.md` 和 `references/` 改掉互相矛盾的说法：原生调试“只在 Windows 上验证过”改为 Windows、Linux 验证过，macOS 只在 GitHub 的 arm64 runner 上试过；“需要 PDB”改为各平台的调试符号；`alternatives.md` 不再写“macOS/Linux 用 LLDB 的 MCP”；`native.md` 第 3 节说明文档里的 `lldb-mcp` 在实测的两个版本里都没有；章节之间的指向不再写“上面”“下面”。`evidence.md` 补了上面这些行为。
+- 仓库侧：新增 `scripts/platform-text.mjs`，发布时用它取平台上的简要描述和详细描述（固定输出 UTF-8），发布后用 `--verify` 把平台返回的记录和文件比对；发布清单写明同一个版本号只对应一份包内容。删除了没有被用到的代码。
+- 验证范围：真实应用的全部场景在本机的 Windows 加 Electron 45 上跑过；macOS、Linux 和 Electron 43、44 由 CI 覆盖。
+
 ## 1.7.2
 
 - MCP 0.8.1，运行文件变了：`electron_click`、`electron_type` 的输入事件等待时间从 3 秒改为 10 秒。刚启动的应用在慢机器上第一次输入可能要好几秒才被确认（GitHub 的 Linux runner 上，页面加载后约 3.4 秒的第一次点击超时，重试只要 20 毫秒），原来的 3 秒会让这一次点击报 `PROTOCOL_ERROR` 超时。其他请求的超时不变。

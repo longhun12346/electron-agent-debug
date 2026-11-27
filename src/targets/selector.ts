@@ -7,12 +7,12 @@ export interface TargetSelector {
   title?: string;
 }
 
-// `<webview>` guests are listed next to the windows but are never the window under test on their own: they can be
-// selected explicitly, and are left out of the automatic choice.
-const selectableTypes = new Set(["page", "webview"]);
+// Target types that can be selected and inspected. `<webview>` guests are listed next to the windows but are never the
+// window under test on their own: they can be selected explicitly, and are left out of the automatic choice.
+export const selectableTargetTypes = new Set(["page", "webview"]);
 
 export function selectTarget(targets: TargetInfo[], selector: TargetSelector): TargetInfo | undefined {
-  const allPages = targets.filter((target) => selectableTypes.has(target.type));
+  const allPages = targets.filter((target) => selectableTargetTypes.has(target.type));
   const pages = allPages.filter((target) => target.webSocketDebuggerUrl !== undefined);
   const hasSelector = Boolean(selector.targetId || selector.url || selector.title);
   if (selector.targetId) {

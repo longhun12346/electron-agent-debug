@@ -400,7 +400,7 @@ test("unsupported optional renderer domain records a warning and preserves live 
     assert.equal(result.data.renderer.online, true);
     assert.equal(manager.renderer.isConnected, true);
     assert.ok(manager.logs({ process: "renderer" }).events.some((event) =>
-      event.kind === "protocol" && event.level === "warn" && event.message.includes("Log.enable")));
+      event.kind === "protocol" && event.level === "warning" && event.message.includes("Log.enable")));
   } finally {
     await manager.close();
     await renderer.close();

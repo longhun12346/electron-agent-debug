@@ -26,7 +26,7 @@ test("a failed invoke becomes an error event with the handler's message", () => 
 
 test("a send nobody listens to is a warning, a handled one is info", () => {
   const unheard = ipcEvent("main", JSON.stringify({ type: "send", channel: "app:ping", ok: true, ms: 0, listeners: 0 }))!;
-  assert.equal(unheard.level, "warn");
+  assert.equal(unheard.level, "warning");
   assert.match(unheard.message, /no listener in the main process/u);
   const heard = ipcEvent("main", JSON.stringify({ type: "sendSync", channel: "app:ping", ok: true, ms: 1, listeners: 1 }))!;
   assert.equal(heard.level, "info");

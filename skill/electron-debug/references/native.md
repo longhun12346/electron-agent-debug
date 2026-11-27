@@ -36,7 +36,7 @@
 先告诉用户装什么、从哪来、哪个版本，得到同意再装：它会运行第三方代码，并让 Agent 能附加进程、读写内存。装好后新注册的 MCP 通常要重载或新开会话才可见，看不到工具就请用户重载。
 
 - **Windows**：[mcp-windbg](https://github.com/svnscha/mcp-windbg)，个人维护的开源项目，不是 Microsoft 官方；驱动 `cdb.exe`，需要 Windows SDK 的 Debugging Tools 或商店版 WinDbg。安装时固定版本，不要装跟随分支的写法（如 `git+https://…`）：`pip install mcp-windbg==<版本>`（装之前去 PyPI 查当前版本），或下载 [Release](https://github.com/svnscha/mcp-windbg/releases) 里带签名的 `mcp-windbg.exe`，用 `Get-FileHash` 和 `Get-AuthenticodeSignature` 核对。注册方式按它的 README。
-- **macOS、Linux**：不装 MCP 也行，直接用 `gdb -batch` 或 `lldb -b` 的命令行（见 4b）。要 MCP 时用 LLDB 自带的，见 [LLDB 文档](https://lldb.llvm.org/use/mcp.html)（`lldb-mcp`；新会话默认异步，创建后先执行 `script lldb.debugger.SetAsync(False)`）；发行版里的 LLDB 不一定带它，先查有没有这个可执行文件。
+- **macOS、Linux**：不装 MCP 也行，直接用 `gdb -batch` 或 `lldb -b` 的命令行（见 4b）。要 MCP 时用 LLDB 自带的，见 [LLDB 文档](https://lldb.llvm.org/use/mcp.html)（新会话默认异步，创建后先执行 `script lldb.debugger.SetAsync(False)`）。文档里的 `lldb-mcp` 可执行文件在实测的两个版本（LLDB 21、Xcode 26.6 的 LLDB 2100）里都没有，那里要用 lldb 里的 `protocol-server` 加 `nc` 当桥，做法见 4b。
 
 工具名以安装后宿主列出的为准，下面用到 mcp-windbg 的 `open_cdb_remote`、`run_cdb_command`、`wait_for_break`。
 

@@ -1,5 +1,6 @@
 import { discoveryUrl, validateDebuggerWebSocketUrl } from "./config.js";
 import { DiagnosticException, toDiagnosticError, transportCode } from "./errors.js";
+import { selectableTargetTypes } from "./targets/selector.js";
 import type { TargetInfo } from "./types.js";
 
 export interface DiscoveryResult {
@@ -36,7 +37,6 @@ function toTarget(value: unknown): TargetInfo {
     title: typeof record.title === "string" ? record.title : "",
     url: typeof record.url === "string" ? record.url : "",
     webSocketDebuggerUrl: websocketUrl,
-    faviconUrl: typeof record.faviconUrl === "string" ? record.faviconUrl : undefined,
   };
 }
 
@@ -223,9 +223,6 @@ export async function discoverRenderer(
     rethrow("renderer", error, "RENDERER_CDP_UNAVAILABLE");
   }
 }
-
-/** Target types that can be selected and inspected: windows and views, and `<webview>` guests on request. */
-export const selectableTargetTypes = new Set(["page", "webview"]);
 
 export function pageTargets(targets: TargetInfo[]): TargetInfo[] {
   return targets.filter((target) => selectableTargetTypes.has(target.type));

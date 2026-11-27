@@ -79,6 +79,17 @@ function ranNothing(details: NonNullable<EvaluateResponse["exceptionDetails"]>, 
     blankBefore(expression, details.lineNumber, details.columnNumber);
 }
 
+/**
+ * Whether the evaluated value is truthy in JavaScript. `value` alone does not say: a number without a JSON form
+ * (Infinity, 1n) comes back as text, and so does a value that was cut to the size limit.
+ */
+export function isTruthy(result: EvaluateResult): boolean {
+  if (result.text === undefined) return Boolean(result.value);
+  // Cut to the size limit: it was longer than the limit, so it was not an empty string.
+  if (result.truncated) return true;
+  return !["NaN", "0", "-0", "0n"].includes(result.text);
+}
+
 // Cut to at most maxBytes of UTF-8 without splitting a multi-byte character.
 function truncateUtf8(text: string, maxBytes: number): string {
   const buffer = Buffer.from(text, "utf8");
@@ -159,13 +170,8 @@ export async function evaluateExpression(
 
   const serialized = JSON.stringify(object.value) ?? "";
   const bytes = Buffer.byteLength(serialized, "utf8");
-  const safe = serialized;
   if (bytes > options.maxResultBytes) {
-    return { type, text: truncateUtf8(safe, options.maxResultBytes), truncated: true, bytes };
+    return { type, text: truncateUtf8(serialized, options.maxResultBytes), truncated: true, bytes };
   }
-  try {
-    return { type, value: JSON.parse(safe) as unknown, truncated: false, bytes };
-  } catch {
-    return { type, text: safe, truncated: false, bytes };
-  }
+  return { type, value: object.value, truncated: false, bytes };
 }

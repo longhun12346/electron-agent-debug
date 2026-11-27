@@ -46,6 +46,7 @@ npm run check:skill
 | MCP 端到端 | `tests/mcp-lifecycle.test.ts` 启动测试替身应用，经 stdio 走完 attach、evaluate、logs，并验证设置 `ELECTRON_DEBUG_ALLOW_EVAL=0` 时被拒绝 |
 | 检查能力 | `tests/inspection.test.ts` 用 `tests/helpers/fake-electron-app.cjs` 测试 evaluate 的门控（`ELECTRON_DEBUG_ALLOW_EVAL=0` 时拒绝）、截断、超时、Promise 与顶层 await；wait_for 的 log/expression 与 `WAIT_TIMEOUT`；截图写入私有目录；无障碍树渲染及节点上限 |
 | 统一时间线 | main/renderer/utility 事件共享递增 `seq`，`afterSeq` 与 `lastSeq` 可续读；缓冲区淘汰或拒收事件后 `droppedThroughSeq` 与 `gap` 如实报告，`clear` 重置；`sinceAttach` 按通道只返回最近一次连接之后的事件，连接事件被淘汰后边界仍然保留 |
+| 答非所问的调用 | `tests/answers.test.ts`：`clear` 只删除返回的事件；`warn` 和 `warning` 读到同一批事件；每个工具拒绝不认识的参数；很长的 title、url 不会让结果跟着变长；事件带应用产生它的时间；崩溃的页面说明怎么恢复；通道没连上的表达式等待立即返回；应用内脚本不用动态 `import()` |
 | 平台描述 | `tests/platform-description.test.ts` 核对 `docs/platform-description.md` 的简要描述长度、工具数量和 Node.js 版本与代码一致 |
 | 真实应用 | `examples/vue-vite-app` 是 electron-vite、Vue 3、Pinia、Vue Router 的任务板（主进程里还有一个搜索索引的 utility process），`smoke.mjs` 在真实 Electron 上逐项断言：开发服务器下热更新不重载页面、改主进程后 Electron 重启并用同一组端口重新 attach、构建产物从 `file:` 加载、ES module 构建的主进程里仍能取到 Electron 的 API；换名的 IPC 通道、没人监听的消息、字段缺失、数据文件损坏、窗口创建失败、preload 找不到六类故障；attach utility process；两个窗口加 DevTools 时按标题选窗口、重放的噪声被 `sinceAttach` 排除并如实报告 `gap`、快照截断；页面崩溃后 `TARGET_CRASHED` 并在 reload 后恢复、硬退出的退出码；reload、窗口重建、整个应用以新端口重启而 MCP 进程不变；evaluate、wait_for、截图、日志渲染、IPC（含二进制参数按长度计）与对话框追踪；可信的点击和输入。单元测试用假端口，只证明逻辑；新增一类真实问题时，先在这个应用里加上能复现它的形态 |
 | evaluate 重试 | 只在代码没有开始执行时换模式重试：编译期 `SyntaxError`（无 `stackTrace`）和 `await` 前只有空白的 `await (…)`；运行期抛出的 `SyntaxError` 不重试。假端口按真实 V8 的 `stackTrace` 有无区分，真实冒烟逐项复核 |
@@ -126,4 +127,6 @@ Release 打包使用 Python 标准库，不是 MCP 运行依赖。第三方安�
 2. 运行 `npm test`（含 `build:skill`）、`npm run lint`、`npm run check:skill`，并提交重新生成的 `runtime/` 文件。
 3. 同步 `docs/platform-description.md`：工具数量、支持的系统与 Node.js 版本、新增的能力或限制。`tests/platform-description.test.ts` 核对简要描述长度、工具数量、Node.js 版本，以及文中的环境变量、错误码、参数名和工具名是否存在于源码。这些要人工对照：带条件的能力（如 IPC 追踪、原生对话框、`instrument`）有没有把条件写全；不脱敏、attach 会改动应用、求值和点击会改变状态这几条风险是否仍在“使用须知”里；用词是否与 `SKILL.md` 一致；“功能简介”不超过约 250 字、“不适用场景”不超过 3 条；版本号和来源链接是否是最新的。
 4. 推送后等待 CI 全部通过，包括 `electron-versions`。
-5. 在发布平台上更新，简要描述和详细描述取自 `docs/platform-description.md`，发布范围保持平台上原有的值；公开发布后等安全扫描结果。
+5. 在发布平台上更新，发布范围保持平台上原有的值；公开发布后等安全扫描结果。简要描述和详细描述用 `node scripts/platform-text.mjs brief`、`node scripts/platform-text.mjs detail` 取出再传给平台的命令行，不要用 Python 的 `print()` 取：Windows 上它往管道写的是系统代码页（GBK），平台会把这些字节当 UTF-8 存下来显示成乱码（1.7.2 发布时发生过）。
+6. 发布后把平台返回的记录读回来核对，例如 `oneskill skill-detail --skill-id <id> | node scripts/platform-text.mjs --verify`，退出码非 0 就是平台上的文字和文件不一致。终端里的回显看着正常不能说明平台存下的内容正确。
+7. 同一个 Skill 版本号只对应一份包内容。发布后发现要改包里的任何文件（包括只改 `VERSION.md`），就升版本号再发，不要用同一个版本号在不同渠道发出内容不同的包。

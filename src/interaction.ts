@@ -128,12 +128,6 @@ export class RefRegistry {
       details: { ...locator, candidates: list(similar) },
     });
   }
-
-  clear(): void {
-    this.targetId = undefined;
-    this.byBackend = new Map();
-    this.latest = new Map();
-  }
 }
 
 const objectGroup = "electron-agent-debug-input";

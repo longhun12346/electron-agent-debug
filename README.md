@@ -1,6 +1,6 @@
 # electron-agent-debug
 
-> Attach-only runtime diagnostics for Electron apps, as an MCP server plus an [Agent Skill](https://agentskills.io). It reads main, renderer and utility logs, evaluates code, takes screenshots and accessibility snapshots, and clicks and types in the real window. When a native call (koffi, `.node`) misbehaves, the Skill leaves the JS-side evidence, then guides an external debugger (WinDbg/cdb on Windows) from the JS call into the native function; verified on Windows only. Node.js 20+, no install step for the runtime.
+> Attach-only runtime diagnostics for Electron apps, as an MCP server plus an [Agent Skill](https://agentskills.io). It reads main, renderer and utility logs, evaluates code, takes screenshots and accessibility snapshots, and clicks and types in the real window. When a native call (koffi, `.node`) misbehaves, the Skill leaves the JS-side evidence, then guides an external debugger (WinDbg/cdb on Windows, gdb or lldb on Linux and macOS) from the JS call into the native function; verified on Windows and Linux, and on macOS only on a GitHub arm64 runner. Node.js 20+, no install step for the runtime.
 
 一个面向编码 Agent 的 Electron 运行时诊断能力和使用指南，特色是能从 JS 调用一路调试到 koffi、`.node` 原生函数。
 
@@ -11,7 +11,7 @@
 
 项目不替 Agent 判断业务是否正确；业务回归和最终结论由 Agent 完成。
 
-**原生模块调试**：Electron 项目用 koffi 或 `.node` 插件调用原生代码、结果不对时，Skill 指引 Agent 先留下 JS 侧证据，再经你同意安装外部调试器 MCP（Windows 用 mcp-windbg 驱动 cdb），在原生函数上下断点，看参数和变量，对照源码定位问题，改完重新编译部署再验证；应用启动时就执行的原生调用也有对应做法。只在 Windows 上验证过，完整例子见下面的“示例”一节。
+**原生模块调试**：Electron 项目用 koffi 或 `.node` 插件调用原生代码、结果不对时，Skill 指引 Agent 先留下 JS 侧证据，再经你同意接上外部调试器（Windows 用 mcp-windbg 驱动 cdb，Linux、macOS 用 gdb 或 lldb 命令行），在原生函数上下断点，看参数和变量，对照源码定位问题，改完重新编译部署再验证；应用启动时就执行的原生调用也有对应做法。在 Windows 和 Linux 上验证过，macOS 只在 GitHub 的 arm64 runner 上试过；完整例子见下面的“示例”一节。
 
 项目由两部分组成：
 
@@ -102,7 +102,7 @@ Agent 可以使用本项目完成：
 - 通过截图和无障碍树确认页面实际内容。
 - 依赖原生对话框的流程由用户人工操作，Agent 再用日志或求值核对结果。
 - 修复后的重启、reload、连接恢复和状态检查。
-- 原生模块（koffi、`.node`）的函数返回值不对时，先留下 JS 侧证据，再指引 Agent 经你同意安装外部调试器 MCP（Windows 用 mcp-windbg），从 JS 调用跟到原生函数里。这部分只在 Windows 上验证过，见 [native.md](skill/electron-debug/references/native.md)。
+- 原生模块（koffi、`.node`）的函数返回值不对时，先留下 JS 侧证据，再指引 Agent 经你同意接上外部调试器（Windows 用 mcp-windbg，Linux、macOS 用 gdb 或 lldb 命令行），从 JS 调用跟到原生函数里。这部分在 Windows 和 Linux 上验证过，macOS 只在 GitHub 的 arm64 runner 上试过，见 [native.md](skill/electron-debug/references/native.md)。
 - 为 Agent 判断 `PASS`、`FAIL` 或 `BLOCKED` 提供结构化运行时证据。
 
 ## 示例：定位原生函数的错误结果

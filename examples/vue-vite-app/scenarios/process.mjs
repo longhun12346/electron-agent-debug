@@ -76,6 +76,7 @@ scenarios.windows = () => withSession({ built: true, noise: 800, env: { APP_DEVT
   assert.equal(attached.targets.filter((target) => target.url.startsWith("devtools://")).length, 1);
 
   // Choosing by title is how an agent recovers.
+  const connectingAt = Date.now();
   const chosen = await s.call("electron_targets", { title: "Task Board" });
   assert.equal(chosen.selectedTarget.title, "Task Board");
   assert.equal((await s.call("electron_status")).renderer.online, true);
@@ -86,7 +87,13 @@ scenarios.windows = () => withSession({ built: true, noise: 800, env: { APP_DEVT
   // The console was noisy before anyone attached: the replay overflows the buffer, and sinceAttach leaves it out.
   await s.renderer("document.querySelectorAll('li.task').length === 2");
   const everything = await s.call("electron_logs", { process: "renderer", limit: 500 });
-  assert.ok(everything.events.some((event) => event.message.includes("hot update")), "the replayed noise should be there");
+  const replayed = everything.events.filter((event) => event.message.includes("hot update"));
+  assert.ok(replayed.length > 0, "the replayed noise should be there");
+  // Replayed lines keep the time the page printed them, which is before this session connected to the page.
+  assert.ok(replayed.every((event) => Date.parse(event.observedAt) < connectingAt),
+    `replayed history is dated at the attach: ${replayed[0].observedAt} vs ${new Date(connectingAt).toISOString()}`);
+  const recent = await s.call("electron_logs", { process: "renderer", since: new Date(connectingAt).toISOString(), limit: 500 });
+  assert.equal(recent.events.some((event) => event.message.includes("hot update")), false, "since must leave out earlier output");
   assert.equal(everything.gap, true, "800 replayed lines cannot fit into the event buffer");
   assert.ok(everything.droppedThroughSeq > 0);
   const fresh = await s.call("electron_logs", { process: "renderer", sinceAttach: true, limit: 500 });

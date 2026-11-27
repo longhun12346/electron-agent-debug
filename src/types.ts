@@ -32,7 +32,9 @@ export interface TargetInfo {
   title: string;
   url: string;
   webSocketDebuggerUrl?: string;
-  faviconUrl?: string;
+  /** Original length of a title or url that was cut for the answer (see targets/output.ts). */
+  titleTruncatedFrom?: number;
+  urlTruncatedFrom?: number;
 }
 
 export interface DiagnosticEvent {

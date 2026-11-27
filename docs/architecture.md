@@ -186,7 +186,7 @@ utility 通道增加以下错误码：
 
 协议请求超时使用 `PROTOCOL_ERROR`，并在 `details` 中带 `reason: "timeout"`、`method` 和 `timeoutMs`，供调用方按结构而不是按消息文本识别。
 
-renderer 页面崩溃时 Chromium 不会断开调试连接，页面只是不再响应。renderer Session 启用 `Inspector` 域，收到 `Inspector.targetCrashed` 后写入一条 `Target crashed` 异常事件，状态变为 `offline` 并带 `TARGET_CRASHED`（`retryable: true`），之后对该 Session 的请求立即返回 `TARGET_CRASHED`，不等待超时。收到 `Inspector.targetReloadedAfterCrash`（页面重新加载）后同一连接恢复，并写入 `Target reloaded after crash`。`Inspector.enable` 不被支持时只记录告警，Session 照常在线。
+renderer 页面崩溃时 Chromium 不会断开调试连接，页面只是不再响应。renderer Session 启用 `Inspector` 域，收到 `Inspector.targetCrashed` 后写入一条 `Target crashed` 异常事件，状态变为 `offline` 并带 `TARGET_CRASHED`（`retryable: true`），之后对该 Session 的请求立即返回 `TARGET_CRASHED`，不等待超时；错误的 `hint` 说明页面自己的求值此时也被拒绝，要从主进程调用 `webContents.reload()`。收到 `Inspector.targetReloadedAfterCrash`（页面重新加载）后同一连接恢复，并写入 `Target reloaded after crash`。`Inspector.enable` 不被支持时只记录告警，Session 照常在线。
 
 evaluate 在代码没有开始执行时才换模式重试：编译期的 `SyntaxError`（没有 `stackTrace`，不依赖 V8 的措辞），以及 `await` 前只有空白的 `ReferenceError: await is not defined`（`await (…)`）。运行期抛出的 `SyntaxError`（`JSON.parse`、`new Function`）带有 `stackTrace`，已经执行过，不重试。
 

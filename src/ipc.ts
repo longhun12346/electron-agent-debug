@@ -1,3 +1,4 @@
+import { requireElectron } from "./app-script.js";
 import type { DiagnosticEvent, ProcessScope } from "./types.js";
 
 /**
@@ -21,8 +22,7 @@ const perSecond = 20;
 const maxText = 300;
 
 export const instrumentIpcScript = `(async () => {
-  const electron = process.mainModule ? process.mainModule.require('electron') : await import('electron');
-  const ipcMain = electron.ipcMain ?? electron.default?.ipcMain;
+  const ipcMain = ${requireElectron}.ipcMain;
   if (!ipcMain) return JSON.stringify({ installed: false });
   const key = Symbol.for('electron-agent-debug.ipc');
   if (globalThis[key]) return JSON.stringify(globalThis[key].summary);
@@ -178,7 +178,7 @@ export function ipcEvent(process: ProcessScope, payload: unknown): DiagnosticEve
     process,
     observedAt: new Date().toISOString(),
     kind: "ipc",
-    level: !ok ? "error" : unheard ? "warn" : "info",
+    level: !ok ? "error" : unheard ? "warning" : "info",
     message,
     data,
   };

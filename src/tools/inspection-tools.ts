@@ -5,7 +5,7 @@ import { defineTool, toolResult } from "./definition.js";
 
 const scopeSchema = z.enum(["main", "renderer", "utility"]);
 
-const evaluateSchema = z.object({
+const evaluateSchema = z.strictObject({
   scope: scopeSchema,
   expression: z.string().min(1).max(50_000),
   awaitPromise: z.boolean().optional(),
@@ -13,15 +13,15 @@ const evaluateSchema = z.object({
   maxResultBytes: z.number().int().min(256).max(1_048_576).optional(),
 });
 
-const waitSchema = z.object({
-  log: z.object({
+const waitSchema = z.strictObject({
+  log: z.strictObject({
     contains: z.string().min(1).max(500),
     process: z.enum(["main", "renderer", "utility", "all"]).optional(),
     level: z.string().optional(),
     afterSeq: z.number().int().min(0).optional(),
     sinceAttach: z.boolean().optional(),
   }).optional(),
-  expression: z.object({
+  expression: z.strictObject({
     scope: scopeSchema,
     expression: z.string().min(1).max(50_000),
   }).optional(),
@@ -29,13 +29,13 @@ const waitSchema = z.object({
   intervalMs: z.number().int().min(50).max(5_000).optional(),
 });
 
-const screenshotSchema = z.object({
+const screenshotSchema = z.strictObject({
   format: z.enum(["png", "jpeg"]).optional(),
   quality: z.number().int().min(1).max(100).optional(),
   maxWidth: z.number().int().min(100).max(8_000).optional(),
 });
 
-const snapshotSchema = z.object({
+const snapshotSchema = z.strictObject({
   maxNodes: z.number().int().min(1).max(2_000).optional(),
   interactive: z.boolean().optional(),
   maxText: z.number().int().min(20).max(2_000).optional(),
@@ -61,7 +61,7 @@ export const inspectionTools = [
     description:
       "等待一个条件成立，超时返回 WAIT_TIMEOUT。二选一：log（事件消息包含 contains，默认也检查已缓存事件，包括 attach 时重放的应用历史输出；" +
       "afterSeq 只看之后的事件，sinceAttach 只看各通道最近一次连接之后的事件。命中该通道最近一次连接之前的事件时结果带 beforeAttach: true，它不是本次连接期间产生的）、" +
-      "expression（反复执行表达式直到返回真值，规则同 electron_evaluate）。",
+      "expression（反复执行表达式直到返回真值，规则同 electron_evaluate；所在通道没有连接时立即返回 SESSION_DISCONNECTED，不等到超时，先 electron_attach）。",
     inputSchema: waitSchema,
     handler: async (manager, input) => {
       const conditions: WaitCondition[] = [];

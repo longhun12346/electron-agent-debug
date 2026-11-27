@@ -10,12 +10,12 @@ const element = {
   name: z.string().max(500).optional(),
 };
 
-const clickSchema = z.object({
+const clickSchema = z.strictObject({
   ...element,
   doubleClick: z.boolean().optional(),
 });
 
-const typeSchema = z.object({
+const typeSchema = z.strictObject({
   ...element,
   text: z.string().max(10_000),
   clear: z.boolean().optional(),

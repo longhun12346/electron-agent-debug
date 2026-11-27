@@ -5,8 +5,9 @@ import path from "node:path";
 import { renderAxTree, type AxNode } from "../ax-tree.js";
 import type { RuntimeConfig } from "../config.js";
 import { DiagnosticException, errorResult, toDiagnosticError } from "../errors.js";
-import { evaluateExpression, type EvaluateResult } from "../evaluate.js";
+import { evaluateExpression, isTruthy, type EvaluateResult } from "../evaluate.js";
 import { clickRef, RefRegistry, typeRef, type ClickInput, type ElementTarget, type TypeInput } from "../interaction.js";
+import { publicUrl } from "../targets/output.js";
 import type {
   DiagnosticEvent,
   EvaluateScope,
@@ -264,15 +265,24 @@ export class Inspector {
           expression: condition.expression,
           timeoutMs: Math.min(2_000, Math.max(remaining, 100)),
         });
-        if (!result.ok && result.error.code === "EVALUATION_NOT_ALLOWED") {
+        // Neither of these changes while waiting: evaluation is switched off by the host, and a channel that is not
+        // connected stays that way until the next electron_attach (there is no reconnecting in the background). Waiting
+        // out the timeout would only hide the reason behind WAIT_TIMEOUT. A crashed page is different: it answers
+        // again on the same connection once it is reloaded.
+        if (!result.ok && (result.error.code === "EVALUATION_NOT_ALLOWED" || result.error.code === "SESSION_DISCONNECTED")) {
           return result;
         }
         if (result.ok) {
           lastError = undefined;
-          if (result.data.value) {
+          if (isTruthy(result.data)) {
             return {
               ok: true,
-              data: { matched: true, condition: "expression", value: result.data.value, elapsedMs },
+              data: {
+                matched: true, condition: "expression",
+                // A result over the size limit matched too; it is not repeated here, electron_evaluate reads it.
+                ...(result.data.truncated ? { truncated: true } : { value: result.data.value ?? result.data.text }),
+                elapsedMs,
+              },
             };
           }
         } else {
@@ -328,7 +338,7 @@ export class Inspector {
           ...imageSize(image, format),
           ...(size ? { deviceScaleFactor: size.deviceScaleFactor } : {}),
           targetId: target?.id,
-          url: await this.currentUrl(),
+          ...publicUrl(await this.currentUrl()),
         },
       };
     } catch (error) {
@@ -356,7 +366,7 @@ export class Inspector {
         interactive: input.interactive === true,
         maxText: clamp(input.maxText, 120, 20, 2_000),
       });
-      return { ok: true, data: { targetId: target?.id, url: await this.currentUrl(), ...rendering } };
+      return { ok: true, data: { targetId: target?.id, ...publicUrl(await this.currentUrl()), ...rendering } };
     } catch (error) {
       return errorResult(toDiagnosticError(error, "SNAPSHOT_FAILED"));
     }
@@ -395,7 +405,7 @@ export class Inspector {
   }
 
   private async currentUrl(): Promise<string | undefined> {
-    const fallback = this.deps.renderer.snapshot().selectedTarget?.url;
+    const fallback = this.deps.renderer.target?.url;
     try {
       const history = await this.deps.renderer.request("Page.getNavigationHistory", {}) as {
         currentIndex?: number;

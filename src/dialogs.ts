@@ -1,3 +1,4 @@
+import { requireElectron } from "./app-script.js";
 import type { OpenDialog, ProcessScope } from "./types.js";
 
 /**
@@ -19,8 +20,7 @@ const wrapped = [
 ];
 
 export const instrumentDialogsScript = `(async () => {
-  const electron = process.mainModule ? process.mainModule.require('electron') : await import('electron');
-  const dialog = electron.dialog ?? electron.default?.dialog;
+  const dialog = ${requireElectron}.dialog;
   if (!dialog) return JSON.stringify({ installed: false, open: [] });
   const key = Symbol.for('electron-agent-debug.dialogs');
   const state = globalThis[key] ?? (globalThis[key] = { next: 1, open: new Map(), wrapped: new Set() });

@@ -70,6 +70,11 @@ export function describeTools(
   };
 }
 
+// "afterSeq: Invalid input; Unrecognized key: "after_seq"" instead of zod's multi-line JSON.
+function problems(error: z.ZodError): string {
+  return error.issues.map((issue) => `${issue.path.length ? `${issue.path.join(".")}: ` : ""}${issue.message}`).join("; ");
+}
+
 export async function runBatch(input: unknown, manager: SessionManager): Promise<BatchResult> {
   const parsed = stepsSchema.safeParse(input);
   if (!parsed.success) {
@@ -80,7 +85,7 @@ export async function runBatch(input: unknown, manager: SessionManager): Promise
         ok: false,
         result: errorResult({
           code: "INVALID_ARGUMENT",
-          message: `批处理输入必须是 1-${MAX_STEPS} 个 {tool, arguments?, continueOnError?} 的数组：${parsed.error.message}`,
+          message: `批处理输入必须是 1-${MAX_STEPS} 个 {tool, arguments?, continueOnError?} 的数组：${problems(parsed.error)}`,
           retryable: false,
         }),
       }],
@@ -123,7 +128,7 @@ async function runStep(
       ok: false,
       result: errorResult({
         code: "INVALID_ARGUMENT",
-        message: `${name} 参数无效：${input.error.message}`,
+        message: `${name} 参数无效：${problems(input.error)}`,
         retryable: false,
       }),
     };

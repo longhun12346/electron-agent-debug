@@ -105,10 +105,12 @@ export class EventBuffer {
       throw new DiagnosticException("INVALID_ARGUMENT", "since 必须是有效的日期时间字符串");
     }
     const limit = Math.min(Math.max(input.limit ?? 100, 1), this.maxEvents);
+    // The protocol calls a console warning "warning"; "warn" is what people type.
+    const level = input.level === "warn" ? "warning" : input.level;
 
     return this.events
       .filter((event) => process === "all" || event.process === (process as ProcessScope))
-      .filter((event) => !input.level || event.level === input.level)
+      .filter((event) => !level || event.level === level)
       .filter((event) => since === undefined || Date.parse(event.observedAt) >= since)
       .filter((event) => input.afterSeq === undefined || (event.seq ?? 0) > input.afterSeq)
       .slice(-limit);

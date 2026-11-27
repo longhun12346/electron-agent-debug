@@ -29,10 +29,9 @@ const skillFiles = async () => [
   ...(await filesUnder(path.join(root, "skill/electron-debug/references"), ".md")),
 ];
 
-// Names the docs use that belong to other programs or to the examples, not to this server.
+// Names the docs use that belong to other programs, not to this server.
 const external = new Set([
   "ELECTRON_RUN_AS_NODE", "ELECTRON_EXTRA_LAUNCH_ARGS", "V8_INSPECTOR_PORT", "REMOTE_DEBUGGING_PORT",
-  "FIELD_SAVE_CALL_FAILURE", "FIELD_SAVE_HANDLER_FAILURE", "FIELD_SAVE_OK", "FIELD_SAVE_REQUEST",
 ]);
 
 test("every tool, environment variable and error code the Skill names exists in the source", async () => {

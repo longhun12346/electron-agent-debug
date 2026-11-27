@@ -1,3 +1,4 @@
+import { requireElectron } from "./app-script.js";
 import { discoverMain } from "./discovery.js";
 import { DiagnosticException } from "./errors.js";
 import { evaluateExpression } from "./evaluate.js";
@@ -23,9 +24,7 @@ interface UtilityProcess {
 }
 
 const listScript = `(async () => {
-  const electron = process.mainModule ? process.mainModule.require('electron') : await import('electron');
-  const app = electron.app ?? electron.default.app;
-  return JSON.stringify(app.getAppMetrics()
+  return JSON.stringify(${requireElectron}.app.getAppMetrics()
     .filter((m) => m.serviceName === 'node.mojom.NodeService')
     .map((m) => ({ pid: m.pid, name: m.name ?? '' })));
 })()`;

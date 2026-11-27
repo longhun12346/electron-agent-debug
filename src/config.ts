@@ -1,17 +1,5 @@
-import { z } from "zod";
 import { DiagnosticException } from "./errors.js";
-import type { AttachInput, EndpointConfig, EndpointSource } from "./types.js";
-
-const attachInputSchema = z.object({
-  mainUrl: z.string().optional(),
-  rendererUrl: z.string().optional(),
-  utility: z.union([z.string().min(1), z.number().int().positive()]).optional(),
-  targetId: z.string().optional(),
-  url: z.string().optional(),
-  title: z.string().optional(),
-  clearSelection: z.boolean().optional(),
-  instrument: z.array(z.enum(["ipc", "dialogs"])).max(2).optional(),
-});
+import type { EndpointConfig } from "./types.js";
 
 export const environmentNames = {
   mainUrl: "ELECTRON_DEBUG_MAIN_URL",
@@ -94,10 +82,6 @@ export function readRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
   };
 }
 
-export function parseAttachInput(value: unknown): AttachInput {
-  return attachInputSchema.parse(value ?? {});
-}
-
 function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
@@ -170,10 +154,6 @@ export function resolveEndpoint(
     return { ...sessionValue, source: "session" };
   }
   return undefined;
-}
-
-export function endpointSourceLabel(source: EndpointSource | undefined): EndpointSource | undefined {
-  return source;
 }
 
 export function discoveryUrl(endpoint: string): string {

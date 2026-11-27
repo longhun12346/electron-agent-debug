@@ -4,16 +4,21 @@
 
 ## IPC
 
-attach 时传 `instrument: ["ipc"]` 才会记录主进程收到的 IPC，不传就没有 `ipc` 事件；等 `IPC invoke <通道>` 超时而没有装追踪时，结果的 hint 会说明这一点。装上后（主进程通道在线且未禁用求值），时间线记录每条 IPC（`kind` 为 `ipc`）：`invoke` 的成功或失败与错误信息，`send` / `sendSync` 没有监听者时为 warn。只记录通道名、耗时、结果、错误信息、参数大小和发送方（`senderId`、`senderUrl`，地址里可能带令牌），不含参数值。用 `electron_wait_for` 等 `IPC invoke <通道>` 即可确认调用到达主进程以及结果。main 侧证据也可以在 renderer 触发调用后，用 `electron_evaluate`(main) 读副作用，如文件是否落盘、状态是否变化。
+attach 时传 `instrument: ["ipc"]` 才会记录主进程收到的 IPC，不传就没有 `ipc` 事件；等 `IPC invoke <通道>` 超时而没有装追踪时，结果的 hint 会说明这一点。装上后（主进程通道在线且未禁用求值），时间线记录每条 IPC（`kind` 为 `ipc`）：`invoke` 的成功或失败与错误信息，`send` / `sendSync` 没有监听者时 `level` 为 `warning`。只记录通道名、耗时、结果、错误信息、参数大小和发送方（`senderId`、`senderUrl`，地址里可能带令牌），不含参数值。用 `electron_wait_for` 等 `IPC invoke <通道>` 即可确认调用到达主进程以及结果。main 侧证据也可以在 renderer 触发调用后，用 `electron_evaluate`(main) 读副作用，如文件是否落盘、状态是否变化。
 
 ## 崩溃
 
-renderer 页面崩溃时连接不会断：`electron_status` 的 renderer 变为 offline 且 `error.code` 为 `TARGET_CRASHED`，日志里有 `Target crashed` 事件，各个 renderer 工具立即返回 `TARGET_CRASHED`；页面重新加载后同一连接自动恢复，日志出现 `Target reloaded after crash`。主进程崩溃或退出则整个主进程通道断开（`SESSION_DISCONNECTED`）。
+renderer 页面崩溃时连接不会断：`electron_status` 的 renderer 变为 offline 且 `error.code` 为 `TARGET_CRASHED`，日志里有 `Target crashed` 事件，各个 renderer 工具立即返回 `TARGET_CRASHED`；崩溃期间页面里的求值也被拒绝，所以不能在页面里执行 `location.reload()`：主进程通道在线时用 `electron_evaluate`(main) 对该窗口调用 `webContents.reload()`，否则请用户重新加载窗口。页面重新加载后同一连接自动恢复，不用重新 attach，日志出现 `Target reloaded after crash`。主进程崩溃或退出则整个主进程通道断开（`SESSION_DISCONNECTED`）。
 
 ## 其他
 
 - `ELECTRON_DEBUG_ALLOW_EVAL=0` 时 `electron_evaluate` 和表达式型等待返回 `EVALUATION_NOT_ALLOWED`，点击和输入也一起禁用；attach、targets、日志、状态、截图和快照仍可用。
 - `electron_logs` 的 `gap` 为 `true` 说明缓冲区满过、有事件被丢弃，缩短取证间隔，或调大 `ELECTRON_DEBUG_MAX_LOG_EVENTS`。
+- `electron_logs` 的 `level` 取事件的 `level` 值：console 的警告和工具自己的警告（IPC 没有监听者、对话框打开）都是 `warning`，写 `warn` 也能读到；`clear` 只删除本次返回的事件，被 `limit` 或过滤条件挡在外面的保留。
+- 事件的 `observedAt` 是应用产生它的时间：attach 时重放的历史输出保留原来的时间，`since` 可以按时间把它们排除。
+- 带参数的工具拒绝不认识的参数（例如把 `afterSeq` 写成 `after_seq`、把 `timeoutMs` 写成 `timeout`），错误里有参数名，改对再调用；拿不准参数名用 `launch.cjs --tools <工具名>` 查。
+- 表达式型 `electron_wait_for` 在所选通道没有连接时立即返回 `SESSION_DISCONNECTED`，不会等到超时；先 `electron_attach`。
+- `targets` 里超过 512 个字符的 `title`、超过 4096 个字符的 `url`（`data:` 地址常见）会被截断，并给出 `titleTruncatedFrom`、`urlTruncatedFrom`；这样的页面用 `targetId` 选。
 
 ## IPC 追踪的边界
 
@@ -23,7 +28,7 @@ renderer 页面崩溃时连接不会断：`electron_status` 的 renderer 变为 
 - 每个通道每秒最多记录 20 条，超出的用后一条记录里的 `skipped` 计数；Electron 自己用的内部通道不记录。
 - 通过 `webContents.ipc` 或会话级注册的 `invoke` 处理函数不被追踪；`send` 类消息只要 `ipcMain`、`webContents.ipc` 或所在 frame 的 `ipc` 有监听者，就不会报"没有监听者"。
 - `electron_wait_for` 的 `contains` 同时匹配成功和失败（`IPC invoke X ok in…` 与 `IPC invoke X failed after…`），要看返回事件的 `level` 或 `data.ok`。
-- 追踪依赖 Electron 的私有字段 `ipcMain._invokeHandlers`；字段不存在的版本只追踪 `send` / `sendSync`，时间线里会有一条 warn 说明。
+- 追踪依赖 Electron 的私有字段 `ipcMain._invokeHandlers`；字段不存在的版本只追踪 `send` / `sendSync`，时间线里会有一条 `level` 为 `warning` 的事件说明。
 
 ## attach 会在应用里装什么
 

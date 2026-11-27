@@ -52,10 +52,6 @@ export function errorResult(error: DiagnosticError): {
   return { ok: false, error };
 }
 
-export function successResult<T>(data: T): { ok: true; data: T } {
-  return { ok: true, data };
-}
-
 /** The system error code under a failed fetch or socket (ECONNREFUSED, ETIMEDOUT, …), when there is one. */
 export function transportCode(error: unknown): string | undefined {
   for (let current = error, depth = 0; current !== undefined && current !== null && depth < 4; depth += 1) {

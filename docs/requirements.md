@@ -182,7 +182,8 @@ endpoint 解析优先级为：
 - title
 - URL
 - webSocketDebuggerUrl
-- favicon URL（如果存在）
+
+`title` 超过 512 个字符、`url` 超过 4096 个字符（`data:` 地址的长度就是页面内容的长度）时在结果里截断，以 `…` 结尾，并给出 `titleTruncatedFrom`、`urlTruncatedFrom`（原长度）。截断只发生在输出里，按 `url`、`title` 选择仍用完整的值比较；`electron_attach`、`electron_status` 里的 target，以及截图和快照结果的 `url` 同样处理。
 
 输入可以包含 `targetId`、`url`、`title` 或 `clearSelection`；这些条件只用于选择当前 page target，不改变发现到的 target 列表。`clearSelection=true` 用于清除之前保存的 target 选择条件和当前选择，再按当前 target 列表重新选择。只有发现单个带有可连接 WebSocket 的 page target 时才允许自动选择；应用打开的 DevTools 窗口（URL 以 `devtools://` 开头）不参与这个计数，仍会出现在 target 列表中，也可以用 `targetId` 显式选择，只有它一个 page 时则选它。`<webview>`（`type` 为 `webview`）同样列出、可显式选择，但从不自动选择。没有可连接 target 时返回 `TARGET_NOT_FOUND`，存在多个可连接候选且 Agent 没有提供选择条件时，返回 `TARGET_SELECTION_REQUIRED`（`details.count` 不含 DevTools 和 webview）。
 
@@ -198,9 +199,13 @@ endpoint 解析优先级为：
 - 限制返回条数
 - 清空内存缓存
 
-至少收集 `consoleAPICalled`、`exceptionThrown` 和协议连接错误。日志只代表 Session 建立之后观察到的事件，不承诺提供 attach 之前的历史日志。`clear` 只清空当前 MCP Server 进程内对应 Session 的有界内存缓存，不删除项目日志、不影响 Electron 应用，也不影响其他 Server 进程。
+至少收集 `consoleAPICalled`、`exceptionThrown` 和协议连接错误。日志只代表 Session 建立之后观察到的事件，不承诺提供 attach 之前的历史日志。`clear` 只作用于当前 MCP Server 进程内对应 Session 的有界内存缓存，不删除项目日志、不影响 Electron 应用，也不影响其他 Server 进程。它只删除本次调用返回的事件：不传 `limit` 时返回最近 100 条，其余的（以及被 `level`、`since`、`afterSeq`、`sinceAttach` 挡在外面的）保留。
 
-`since` 必须是可解析的日期时间字符串；格式无效时返回参数错误，不返回空日志作为替代。
+`since` 必须是可解析的日期时间字符串；格式无效时返回参数错误，不返回空日志作为替代。事件的 `observedAt` 取协议事件自带的时间戳（应用产生该事件的时间），所以 attach 时重放的历史输出保留原来的时间，`since` 能把它们排除；时间戳缺失或不合理时用收到事件的时间。
+
+`level` 按事件的 `level` 精确匹配。console 事件沿用协议的取值（`log`、`info`、`warning`、`error`、`debug` 等），工具自己产生的告警（IPC 没有监听者、对话框打开、协议域或追踪未启用）也用 `warning`；过滤时写 `warn` 等同于 `warning`。
+
+带参数的工具输入都是严格的：出现工具不认识的参数（如把 `afterSeq` 写成 `after_seq`）时拒绝调用并指出参数名，不会忽略它后照常返回。
 
 `process` 可取 `main`、`renderer`、`utility` 或 `all`。三个通道的事件共享递增的 `seq` 并按其排序；结果返回 `lastSeq`，`afterSeq` 只返回其后的事件，用于续读。应用进程自己的 stdout、stderr 不进入时间线，由启动应用的 Agent 自行捕获。事件消息按原样写入缓存，只做长度截断。
 
@@ -232,7 +237,7 @@ attach 时 Chromium 和 Node 会把应用此前的 console 输出重放给新连
 等待一个条件成立，超时返回 `WAIT_TIMEOUT`（含最后的 `lastSeq` 和最近错误）。二选一：
 
 - `log`：事件消息包含 `contains`，可限定 `process`、`level`，默认也检查已缓存事件，`afterSeq` 只看其后事件，`sinceAttach` 只看各通道最近一次连接之后的事件（规则同 `electron_logs`）。命中的事件早于该通道最近一次连接（attach 时重放的历史，或之前连接期间的输出）时，结果带 `beforeAttach: true` 和 `hint`：同样的文本常来自上一轮操作，不能证明本次操作的结果。默认不排除这些事件，因为启动期间、attach 之前发生的错误也是要读的证据。
-- `expression`：按 `intervalMs`（50 毫秒至 5 秒）反复执行表达式直到返回真值，规则同 evaluate。
+- `expression`：按 `intervalMs`（50 毫秒至 5 秒）反复执行表达式直到返回真值，规则同 evaluate。没有 JSON 形式的真值（`Infinity`、`1n`）和超过大小上限的结果同样算命中，后者只返回 `truncated: true`。所选通道没有连接时立即返回 `SESSION_DISCONNECTED`（工具没有后台重连，等下去不会成功）；页面崩溃（`TARGET_CRASHED`）时继续等，因为重新加载后同一连接会恢复。
 
 `timeoutMs` 默认 10 秒，上限 120 秒。
 
@@ -451,7 +456,7 @@ Skill 给出以下判断依据，具体怎么做由 Agent 根据情况决定：
 
 - 运行时检查：`electron_evaluate`、`electron_wait_for`、`electron_screenshot`、`electron_dom_snapshot`。
 - 统一时间线：main、renderer、utility 事件共享递增 `seq`，日志支持 `afterSeq` 续读和 `lastSeq`。
-- IPC 追踪：不新增工具，attach 传 `instrument: ["ipc"]` 时记录主进程收到的 `invoke`、`send`、`sendSync`（通道、耗时、结果、参数大小，不含参数值），没有监听者的消息为 warn；依赖 Electron 的私有字段，字段缺失时只追踪 `send`/`sendSync`。
+- IPC 追踪：不新增工具，attach 传 `instrument: ["ipc"]` 时记录主进程收到的 `invoke`、`send`、`sendSync`（通道、耗时、结果、参数大小，不含参数值），没有监听者的消息 `level` 为 `warning`；依赖 Electron 的私有字段，字段缺失时只追踪 `send`/`sendSync`。
 - Skill 收敛为薄页面：5 步工作流、按修改类型列出的证据矩阵、PASS/FAIL/BLOCKED 判定；细节放进按需读取的 `references/`。
 
 仍未实现：断点、暂停、单步、调用栈、source map、原生对话框和菜单替身。与 MCP 共享核心的命令行入口以批处理模式（`launch.cjs --run`）提供，`launch.cjs --tools [工具名 ...]` 打印工具描述和 JSON Schema 作为批处理调用方的 `tools/list`；跨调用保持连接的常驻 CLI 未实现。

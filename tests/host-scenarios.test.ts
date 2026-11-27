@@ -82,7 +82,7 @@ test("stale-add accepts only evidence read after a new press", () => {
 test("sync-mismatch needs the no-listener IPC event after the press", () => {
   const { verify } = scenarios["sync-mismatch"];
   const unheard = (seq: number, channel = "sync:start", listeners = 0) =>
-    event(seq, "main", "ipc", "warn", `IPC send ${channel}`, { type: "send", channel, listeners });
+    event(seq, "main", "ipc", "warning", `IPC send ${channel}`, { type: "send", channel, listeners });
   verify([attach, press("Sync", 6), logs(unheard(7))]);
   rejects(() => verify([attach, press("Sync", 6), logs(unheard(7, "sync-start"))]), /had no listener/u, "another channel");
   rejects(() => verify([attach, press("Sync", 6), logs(unheard(7, "sync:start", 1))]), /had no listener/u, "it had a listener");

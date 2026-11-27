@@ -6,6 +6,7 @@ import {
 import { discoverMain, discoverRenderer, pageTargets } from "../discovery.js";
 import { EventBuffer, EventSequence } from "../events/event-buffer.js";
 import { DiagnosticException, errorResult, toDiagnosticError } from "../errors.js";
+import { publicTarget } from "../targets/output.js";
 import { selectTarget, type TargetSelector } from "../targets/selector.js";
 import type {
   AttachInput,
@@ -22,6 +23,11 @@ import type {
 import { DiagnosticSession } from "./diagnostic-session.js";
 import { Inspector } from "./inspector.js";
 import { locateUtilityInspector } from "../utility.js";
+
+function brief(target: TargetInfo): { id: string; title: string; url: string } {
+  const { id, title, url } = publicTarget(target);
+  return { id, title, url };
+}
 
 export class SessionManager {
   readonly config: RuntimeConfig;
@@ -182,7 +188,7 @@ export class SessionManager {
         main: this.main.snapshot(),
         renderer: this.renderer.snapshot(),
         utility: this.utility.snapshot(),
-        targets: this.rendererTargets,
+        targets: this.rendererTargets.map(publicTarget),
         selectedTarget: this.renderer.snapshot().selectedTarget,
         instrumented: this.main.instrumented(),
         errors,
@@ -243,7 +249,7 @@ export class SessionManager {
     return {
       ok: true,
       data: {
-        targets: this.rendererTargets,
+        targets: this.rendererTargets.map(publicTarget),
         selectedTarget: this.renderer.snapshot().selectedTarget,
         errors,
         warnings,
@@ -321,7 +327,7 @@ export class SessionManager {
       main: this.main.snapshot(),
       renderer: this.renderer.snapshot(),
       utility: this.utility.snapshot(),
-      targets: this.rendererTargets,
+      targets: this.rendererTargets.map(publicTarget),
       selectedTarget: this.renderer.snapshot().selectedTarget,
       ...(dialogs.length > 0 ? { dialogs } : {}),
       lastSeq: this.sequence.last,
@@ -345,13 +351,13 @@ export class SessionManager {
     const gap = buffers.some((buffer) => buffer.droppedThroughSeq > (this.afterSeqFor(buffer, input) ?? 0));
 
     if (clear) {
-      // A filter narrows what is returned, and clear must not delete what the caller did not get back.
-      const filtered = input.level !== undefined || input.since !== undefined || input.afterSeq !== undefined ||
-        input.limit !== undefined || input.sinceAttach === true;
+      // Clear must not delete what the caller did not get back: a filter narrows what is returned, and so does the
+      // limit, which is 100 when none is given.
+      const everything = events.length === buffers.reduce((sum, buffer) => sum + buffer.size, 0);
       const returned = new Set(events.flatMap((event) => (event.seq === undefined ? [] : [event.seq])));
       for (const buffer of buffers) {
-        if (filtered) buffer.remove(returned);
-        else buffer.clear();
+        if (everything) buffer.clear();
+        else buffer.remove(returned);
       }
     }
     return { events, cleared: clear, lastSeq, droppedThroughSeq, gap };
@@ -499,7 +505,7 @@ export class SessionManager {
           message: "之前传入的 title、url 或 targetId 已不再匹配任何页面，仍沿用当前已选中的页面",
           retryable: false,
           hint: "页面可能改了标题或跳转了地址。确认它仍是要验证的窗口；要换页面就重新传 title、url 或 targetId，或传 clearSelection。",
-          details: { selected: { id: kept.id, title: kept.title, url: kept.url } },
+          details: { selected: brief(kept) },
         });
       }
       if (!selected) {
@@ -513,10 +519,7 @@ export class SessionManager {
           retryable: false,
           hint: "确认新页面就是要验证的窗口（对照 title 和 url）；之后的日志、截图和求值都来自新页面。" +
             "有意切换时传 clearSelection 可去掉这条提示。",
-          details: {
-            previous: { id: previous.id, title: previous.title, url: previous.url },
-            selected: { id: target.id, title: target.title, url: target.url },
-          },
+          details: { previous: brief(previous), selected: brief(target) },
         });
       }
     } catch (error) {

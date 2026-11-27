@@ -3,6 +3,7 @@ import { blockingDialogHint, DialogTracker, dialogBinding, dialogMessage, instru
 import { DiagnosticException, toDiagnosticError } from "../errors.js";
 import { instrumentIpcScript, ipcBinding, ipcEvent } from "../ipc.js";
 import { JsonRpcConnection, type JsonRpcEvent } from "../protocol/json-rpc-connection.js";
+import { bounded, maxUrlChars, publicTarget } from "../targets/output.js";
 import type {
   DiagnosticEvent,
   EndpointConfig,
@@ -57,6 +58,10 @@ const maxStackFrames = 10;
 
 // Chromium keeps the debugging connection of a crashed page open, but the page answers nothing until it is reloaded.
 const targetCrashedMessage = "目标页面已崩溃，重新加载后才会恢复（Inspector.targetCrashed）";
+const targetCrashedHint =
+  "页面崩溃期间 renderer 的求值、点击、截图都不可用，所以不能在页面里执行 location.reload()。" +
+  "主进程通道在线时用 electron_evaluate(main) 对这个窗口调用 webContents.reload()；否则请用户重新加载窗口或重启应用。" +
+  "重新加载后同一连接自动恢复，不用重新 attach。";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
@@ -84,6 +89,17 @@ function formatFrames(stackTrace: unknown): string[] {
   return lines;
 }
 
+// Console calls, exceptions and log entries carry the time the app produced them, in milliseconds since the epoch.
+// Attaching replays earlier output, so the time of receipt would stamp all of that history with the moment of the
+// attach (measured on Electron 45: lines printed 3 s before the attach arrived with their original timestamps, from
+// both the Node inspector and Chromium). A missing or implausible value falls back to the time of receipt.
+function producedAt(timestamp: unknown): string {
+  const now = Date.now();
+  const plausible = typeof timestamp === "number" && Number.isFinite(timestamp) &&
+    timestamp > Date.UTC(2000, 0, 1) && timestamp <= now + 60_000;
+  return new Date(plausible ? timestamp : now).toISOString();
+}
+
 function eventFromProtocol(process: ProcessScope, event: JsonRpcEvent): DiagnosticEvent | undefined {
   const params = typeof event.params === "object" && event.params !== null
     ? (event.params as Record<string, unknown>)
@@ -96,7 +112,7 @@ function eventFromProtocol(process: ProcessScope, event: JsonRpcEvent): Diagnost
     const frames = params.type === "trace" || params.type === "assert" ? formatFrames(params.stackTrace) : [];
     return {
       process,
-      observedAt: now,
+      observedAt: producedAt(params.timestamp),
       kind: "console",
       level: typeof params.type === "string" ? params.type : "log",
       message: [args.map(formatConsoleArgument).join(" "), ...frames].join("\n"),
@@ -115,12 +131,12 @@ function eventFromProtocol(process: ProcessScope, event: JsonRpcEvent): Diagnost
     const frames = thrown !== undefined && /\n\s+at /u.test(thrown) ? [] : formatFrames(details.stackTrace);
     return {
       process,
-      observedAt: now,
+      observedAt: producedAt(params.timestamp),
       kind: "exception",
       level: "error",
       message: [summary || "Uncaught exception", ...frames].join("\n"),
       data: typeof details.url === "string" && details.url !== ""
-        ? { url: details.url, line: position(details.lineNumber), column: position(details.columnNumber) }
+        ? { url: bounded(details.url, maxUrlChars).text, line: position(details.lineNumber), column: position(details.columnNumber) }
         : undefined,
     };
   }
@@ -129,11 +145,11 @@ function eventFromProtocol(process: ProcessScope, event: JsonRpcEvent): Diagnost
     const record = asRecord(params.entry);
     const data: Record<string, unknown> = {};
     for (const key of ["source", "url"]) {
-      if (typeof record[key] === "string" && record[key] !== "") data[key] = record[key];
+      if (typeof record[key] === "string" && record[key] !== "") data[key] = bounded(record[key], maxUrlChars).text;
     }
     return {
       process,
-      observedAt: now,
+      observedAt: producedAt(record.timestamp),
       kind: "console",
       level: typeof record.level === "string" ? record.level : "log",
       message: typeof record.text === "string" ? record.text : stringifyValue(record),
@@ -184,6 +200,11 @@ export class DiagnosticSession {
 
   get endpointConfig(): EndpointConfig | undefined {
     return this.endpoint;
+  }
+
+  /** The selected target as discovery reported it; `snapshot()` cuts a long title or url for output. */
+  get target(): TargetInfo | undefined {
+    return this.selectedTarget;
   }
 
   setEndpoint(endpoint: EndpointConfig | undefined): void {
@@ -304,6 +325,7 @@ export class DiagnosticSession {
       // Without this the request would only fail after its timeout.
       throw new DiagnosticException("TARGET_CRASHED", targetCrashedMessage, {
         retryable: true,
+        hint: targetCrashedHint,
         details: { crashedAt: this.crashedAt },
       });
     }
@@ -353,7 +375,7 @@ export class DiagnosticSession {
         process: this.options.process,
         observedAt: new Date().toISOString(),
         kind: "protocol",
-        level: "warn",
+        level: "warning",
         message: "原生对话框监测未启用，status 不会报告主进程打开的对话框",
         data: toDiagnosticError(error),
       });
@@ -383,7 +405,7 @@ export class DiagnosticSession {
           process: this.options.process,
           observedAt: new Date().toISOString(),
           kind: "protocol",
-          level: "warn",
+          level: "warning",
           message: "IPC 追踪只覆盖 send/sendSync：这个 Electron 版本的 ipcMain 没有可包装的 invoke 处理表，invoke 不会出现在时间线里",
         });
       }
@@ -394,7 +416,7 @@ export class DiagnosticSession {
         process: this.options.process,
         observedAt: new Date().toISOString(),
         kind: "protocol",
-        level: "warn",
+        level: "warning",
         message: "IPC 追踪未启用，时间线不会记录主进程收到的 IPC 消息",
         data: toDiagnosticError(error),
       });
@@ -418,7 +440,7 @@ export class DiagnosticSession {
       status: crashed ? "offline" : this.status,
       endpoint: this.endpoint?.url,
       endpointSource: this.endpoint?.source,
-      selectedTarget: this.selectedTarget,
+      selectedTarget: this.selectedTarget && publicTarget(this.selectedTarget),
       lastConnectedAt: this.lastConnectedAt,
       lastDisconnectedAt: this.lastDisconnectedAt,
       lastDisconnectReason: this.lastDisconnectReason,
@@ -429,6 +451,7 @@ export class DiagnosticSession {
           code: "TARGET_CRASHED",
           message: targetCrashedMessage,
           retryable: true,
+          hint: targetCrashedHint,
           details: { crashedAt: this.crashedAt },
         }
         : this.error,
@@ -452,7 +475,7 @@ export class DiagnosticSession {
           targetId: this.selectedTarget?.id,
           observedAt: new Date().toISOString(),
           kind: "protocol",
-          level: "warn",
+          level: "warning",
           message: `协议域启用失败：${method}`,
           data: toDiagnosticError(error),
         });
@@ -525,7 +548,7 @@ export class DiagnosticSession {
       targetId: change.dialog.targetId,
       observedAt: new Date().toISOString(),
       kind: "dialog",
-      level: change.event === "open" ? "warn" : "info",
+      level: change.event === "open" ? "warning" : "info",
       message: dialogMessage(change.event, change.dialog, change.reason),
       data: change.dialog,
     });

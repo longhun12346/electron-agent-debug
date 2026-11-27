@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { parseAttachInput } from "../config.js";
 import { errorResult, toDiagnosticError } from "../errors.js";
 import { defineTool, toolResult } from "./definition.js";
 
-const attachSchema = z.object({
+// Every schema with arguments is strict: an argument the tool does not know (a misspelled afterSeq, timeout for
+// timeoutMs) is refused instead of ignored, because the call would otherwise succeed and answer a different question.
+const attachSchema = z.strictObject({
   mainUrl: z.string().max(2048).optional(),
   rendererUrl: z.string().max(2048).optional(),
   utility: z.union([z.string().min(1).max(256), z.number().int().positive()]).optional(),
@@ -14,7 +15,7 @@ const attachSchema = z.object({
   instrument: z.array(z.enum(["ipc", "dialogs"])).max(2).optional(),
 });
 
-const targetsSchema = z.object({
+const targetsSchema = z.strictObject({
   rendererUrl: z.string().max(2048).optional(),
   targetId: z.string().max(256).optional(),
   url: z.string().max(4096).optional(),
@@ -22,9 +23,9 @@ const targetsSchema = z.object({
   clearSelection: z.boolean().optional(),
 });
 
-const logsSchema = z.object({
+const logsSchema = z.strictObject({
   process: z.enum(["main", "renderer", "utility", "all"]).optional(),
-  level: z.string().max(32).optional(),
+  level: z.string().max(32).describe("log、info、warning、error、debug 等；warn 等同于 warning").optional(),
   limit: z.number().int().min(1).max(10_000).optional(),
   since: z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
     message: "since 必须是有效的日期时间字符串",
@@ -44,11 +45,10 @@ export const coreTools = [
     description:
       "连接 Agent 提供的本地主进程 Inspector 和/或 renderer CDP endpoint；不启动 Electron；应用由 Agent 用项目已有命令启动（加 --inspect 和 --remote-debugging-port）。" +
       "utility 传 utility process 的名字（fork 的 serviceName）或 pid：工具通过已连接的主进程找到它并打开调试口，作为独立的第三通道，与主进程、renderer 同时在线；需要主进程在线且允许执行代码。" +
-      "attach 默认什么都不往应用里装。要记录主进程收到的 IPC（`IPC invoke <通道>` 事件）就传 instrument: [\"ipc\"]，要监测原生对话框就传 [\"dialogs\"]，两者都要就都传；包装只在允许执行代码时能装，装进应用后重启前不会移除。不传 instrument 沿用上一次的选择，结果的 instrumented 列出实际装了什么。没有任何通道连上时返回失败（ok 为 false，data.errors 里是各通道的原因）；端点能连上、只是要选页面（TARGET_SELECTION_REQUIRED）时仍是成功，按提示用 title、url 或 targetId 选页面。",
+      "attach 默认什么都不往应用里装。要记录主进程收到的 IPC（`IPC invoke <通道>` 事件）就传 instrument: [\"ipc\"]，要监测原生对话框就传 [\"dialogs\"]，两者都要就都传；包装只在允许执行代码时能装，装进应用后重启前不会移除。不传 instrument 沿用上一次的选择，结果的 instrumented 列出实际装了什么。targets 里过长的 title（512 字符）和 url（4096 字符，如 data: 地址）会截断，并给出 titleTruncatedFrom、urlTruncatedFrom。没有任何通道连上时返回失败（ok 为 false，data.errors 里是各通道的原因）；端点能连上、只是要选页面（TARGET_SELECTION_REQUIRED）时仍是成功，按提示用 title、url 或 targetId 选页面。",
     inputSchema: attachSchema,
     handler: async (manager, input) => {
-      const parsed = parseAttachInput(input);
-      const result = await manager.attach(parsed);
+      const result = await manager.attach(input);
       // attach answers ok when it could talk to the app at all and lists per-channel problems in `errors`. When no channel
       // ended up online that is a failed attach for the caller, not a success with a footnote.
       const reachable = result.ok && result.data.errors.some((error) => selectableCodes.has(error.code));
@@ -62,6 +62,7 @@ export const coreTools = [
     name: "electron_status",
     title: "Read Electron diagnostic status",
     description: "读取三个通道（主进程、renderer、utility）的 Session、target 和事件数量，并返回当前 lastSeq（回归前记下它，之后用 afterSeq 读取新事件）。不执行应用代码。",
+    // Takes no arguments, so there is nothing a stray one could change; hosts that always send a placeholder still work.
     inputSchema: z.object({}),
     handler: async (manager) => toolResult({ ok: true, data: manager.status() }),
   }),
@@ -69,7 +70,8 @@ export const coreTools = [
     name: "electron_targets",
     title: "List and select Electron targets",
     description:
-      "发现 renderer page targets，并按 targetId、url 或 title 选择当前 target；可用 clearSelection 清除旧选择。",
+      "发现 renderer page targets，并按 targetId、url 或 title 选择当前 target；可用 clearSelection 清除旧选择。" +
+      "返回的 title 超过 512 个字符、url 超过 4096 个字符（如 data: 地址）时截断，并给出 titleTruncatedFrom、urlTruncatedFrom；这样的页面用 targetId 选。",
     inputSchema: targetsSchema,
     handler: async (manager, input) => {
       const result = await manager.refreshTargets(input);
@@ -79,7 +81,10 @@ export const coreTools = [
   defineTool({
     name: "electron_logs",
     title: "Read Electron diagnostic logs",
-    description: "读取当前 MCP Server 进程内有界缓存的统一时间线：主进程、renderer 和 utility 的事件，按 seq 排序。返回 lastSeq，下次用 afterSeq 只读取之后的事件。sinceAttach 为 true 时，每个通道只返回它最近一次连接之后的事件，不含 attach 时重放的应用历史输出，可替代自己记录 lastSeq。缓冲区满时最旧的事件会被丢弃：droppedThroughSeq 是被丢弃的最大 seq，gap 为 true 表示所请求的范围内可能有事件缺失，应缩短取证间隔或调大 ELECTRON_DEBUG_MAX_LOG_EVENTS。",
+    description: "读取当前 MCP Server 进程内有界缓存的统一时间线：主进程、renderer 和 utility 的事件，按 seq 排序。返回 lastSeq，下次用 afterSeq 只读取之后的事件。sinceAttach 为 true 时，每个通道只返回它最近一次连接之后的事件，不含 attach 时重放的应用历史输出，可替代自己记录 lastSeq。缓冲区满时最旧的事件会被丢弃：droppedThroughSeq 是被丢弃的最大 seq，gap 为 true 表示所请求的范围内可能有事件缺失，应缩短取证间隔或调大 ELECTRON_DEBUG_MAX_LOG_EVENTS。" +
+      "不传 limit 时最多返回最近 100 条。level 取事件的 level 值（log、info、warning、error 等，warn 等同于 warning）。" +
+      "clear 为 true 时只删除本次返回的事件，没有返回的（被 limit 或过滤条件挡在外面的）保留。" +
+      "observedAt 是应用产生该事件的时间，attach 时重放的历史输出保留原来的时间，since 按它过滤。",
     inputSchema: logsSchema,
     handler: async (manager, input) => {
       try {
