@@ -14,7 +14,8 @@ Agent 修改代码
 MCP 诊断适配层
       │
       ├── 主进程 Inspector
-      └── 渲染进程 CDP
+      ├── 渲染进程 CDP
+      └── Utility Process（可选）
       │
       ▼
 状态、日志和异常

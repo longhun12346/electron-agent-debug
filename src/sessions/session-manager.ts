@@ -119,20 +119,7 @@ export class SessionManager {
       );
     }
 
-    if (input.clearSelection) {
-      this.selector = {};
-      this.lastSelected = undefined;
-      this.renderer.clearTargetSelection();
-    }
-    this.selectorChangedThisCall = false;
-    if (input.targetId !== undefined || input.url !== undefined || input.title !== undefined) {
-      this.selectorChangedThisCall = true;
-      this.selector = {
-        targetId: input.targetId,
-        url: input.url,
-        title: input.title,
-      };
-    }
+    this.applyTargetSelection(input);
 
     if (resolved.main) {
       if (this.main.endpointConfig?.url !== resolved.main.url) {
@@ -225,20 +212,7 @@ export class SessionManager {
       );
     }
 
-    if (input.clearSelection) {
-      this.selector = {};
-      this.lastSelected = undefined;
-      this.renderer.clearTargetSelection();
-    }
-    this.selectorChangedThisCall = false;
-    if (input.targetId !== undefined || input.url !== undefined || input.title !== undefined) {
-      this.selectorChangedThisCall = true;
-      this.selector = {
-        targetId: input.targetId,
-        url: input.url,
-        title: input.title,
-      };
-    }
+    this.applyTargetSelection(input);
 
     this.rendererEndpoint = endpoint;
     try {
@@ -255,6 +229,25 @@ export class SessionManager {
         warnings,
       },
     };
+  }
+
+  private applyTargetSelection(
+    input: Pick<AttachInput, "targetId" | "url" | "title" | "clearSelection">,
+  ): void {
+    if (input.clearSelection) {
+      this.selector = {};
+      this.lastSelected = undefined;
+      this.renderer.clearTargetSelection();
+    }
+    this.selectorChangedThisCall = false;
+    if (input.targetId !== undefined || input.url !== undefined || input.title !== undefined) {
+      this.selectorChangedThisCall = true;
+      this.selector = {
+        targetId: input.targetId,
+        url: input.url,
+        title: input.title,
+      };
+    }
   }
 
   async close(): Promise<void> {

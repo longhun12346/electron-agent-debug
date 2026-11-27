@@ -26,3 +26,6 @@ Thumbs.db
 
 # Build output of the native debugging evaluation
 examples/native-eval/native/build/
+
+# Local personal notes
+TODO.md
