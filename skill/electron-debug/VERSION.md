@@ -1,5 +1,12 @@
 # 版本记录
 
+## 1.9.0 (2026-11-27)
+
+- MCP 0.9.1，运行文件已更新：
+  - IPC 追踪（`instrument: ["ipc"]`）在事件 `data` 中新增 `argCount`（入参数量）和 `argTypes`（紧凑的参数形状摘要，如 `["string", "object(id,title)"]`、`array(3)`、`bytes(64)`，仍不记录参数值），帮助 Agent 快速区分 preload/IPC 传参错位与主进程 handler 内部错误。
+- `references/native.md`：新增 8b「可复现的本地进程卡死 / 死锁（Hang）」全线程抓栈指引（Windows cdb `~*kP 20` / `!locks`，Linux/macOS gdb `thread apply all bt` / lldb `thread backtrace all`）。
+- `examples/native-eval`：新增 C++ N-API `.node` 一键构建脚本（`build-napi.bat` / `build-napi.sh`）、Rust `napi-rs` 极简示例（`native/rust-napi/`）及手动触发的跨平台 CI（`.github/workflows/native-eval.yml`）。
+
 ## 1.8.2 (2026-11-27)
 
 - MCP 0.9.0，运行文件不变。

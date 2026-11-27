@@ -1,0 +1,66 @@
+name: Native Eval Smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  native-eval:
+    name: Native Eval (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install native-eval dependencies
+        working-directory: examples/native-eval
+        run: npm install --no-audit --no-fund
+
+      - name: Build koffi C++ library (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: examples\native-eval\native\build.bat
+
+      - name: Build C++ N-API .node addon (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: examples\native-eval\native\build-napi.bat
+
+      - name: Build koffi C++ library & N-API .node addon (POSIX)
+        if: runner.os != 'Windows'
+        run: |
+          sh examples/native-eval/native/build.sh
+          sh examples/native-eval/native/build-napi.sh
+
+      - name: Verify koffi & .node reproduction
+        working-directory: examples/native-eval
+        run: |
+          node -e "
+            const path = require('node:path');
+            const fs = require('node:fs');
+            const os = require('node:os');
+            const assert = require('node:assert/strict');
+            const koffi = require('koffi');
+            const libName = { win32: 'native_eval.dll', darwin: 'libnative_eval.dylib' }[process.platform] ?? 'libnative_eval.so';
+            const lib = koffi.load(path.join('native', 'build', libName));
+            const sumSizes = lib.func('int64_t sum_sizes(const char *dir)');
+            const initSlots = lib.func('int init_slots(int requested)');
+            const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'native-eval-ci-'));
+            fs.mkdirSync(path.join(tmp, 'b_empty'));
+            fs.writeFileSync(path.join(tmp, 'a.txt'), Buffer.alloc(10));
+            fs.writeFileSync(path.join(tmp, 'c.txt'), Buffer.alloc(20));
+            fs.writeFileSync(path.join(tmp, 'd.txt'), Buffer.alloc(70));
+            assert.equal(Number(sumSizes(tmp)), 10);
+            assert.equal(initSlots(200), 64);
+            const napiAddon = require('./native/build/napi_addon.node');
+            assert.equal(napiAddon.clampSlots(200), 64);
+            fs.rmSync(tmp, { recursive: true, force: true });
+            console.log('native-eval CI smoke passed on', process.platform);
+          "
