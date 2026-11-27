@@ -8,7 +8,10 @@ mkdir -p build
 CXX="${CXX:-c++}"
 case "$(uname -s)" in
   Darwin)
-    "$CXX" -std=c++17 -g -O0 -fvisibility=hidden -dynamiclib native_eval.cpp -o build/libnative_eval.dylib
+    # On macOS the debug information stays in the object file and the dylib only records where it is, so the object file
+    # has to be kept (build/native_eval.o) for dsymutil to collect it; compiling and linking in one step would delete it.
+    "$CXX" -std=c++17 -g -O0 -fvisibility=hidden -fPIC -c native_eval.cpp -o build/native_eval.o
+    "$CXX" -dynamiclib build/native_eval.o -o build/libnative_eval.dylib
     dsymutil build/libnative_eval.dylib
     echo "built build/libnative_eval.dylib"
     ;;

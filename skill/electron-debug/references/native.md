@@ -1,6 +1,6 @@
 # 原生模块（koffi、`.node` 插件）：从 JS 调用跟到原生函数
 
-本工具只看 JS 层。原生函数里的问题（返回值不对、想看参数和执行过程）要用原生调试器；这类调试器已有成熟的 MCP，不要自己造：先用本工具留下 JS 侧证据，再经用户同意安装外部调试器 MCP 配合，两边的证据按 `seq` 和时间对上。已验证的平台：Windows（mcp-windbg 加 cdb）；Linux（gdb、LLDB 命令行，在 Ubuntu 26.04 上）；macOS 没有实测，只依据 Apple 和 Electron 的文档与社区资料。
+本工具只看 JS 层。原生函数里的问题（返回值不对、想看参数和执行过程）要用原生调试器；这类调试器已有成熟的 MCP，不要自己造：先用本工具留下 JS 侧证据，再经用户同意安装外部调试器 MCP 配合，两边的证据按 `seq` 和时间对上。已验证的平台：Windows（mcp-windbg 加 cdb）；Linux（gdb、LLDB 命令行，在 Ubuntu 26.04 上）；macOS 的 LLDB 命令行只在 GitHub 的 arm64 runner 上验证过，没有真机和 Intel 的验证。
 
 应用启动时就跑完的原生调用见 `native-startup.md`。崩溃和卡死目前没有验证过的流程：只做“1. 留下 JS 侧证据”，并告诉用户这一限制。只是 JS 异常、renderer 崩溃（`TARGET_CRASHED`）或普通的 IPC 失败，不用走这里。
 
@@ -70,14 +70,15 @@ def process_output(text, context):
 
 ## 4b. 附加调试器（Linux、macOS）
 
-下面只写容易踩的几点，调试器本身的用法按你已有的知识。Linux 上用 gdb 17 和 LLDB 21 实测过命令行方式；macOS 的内容没有实测，遇到和这里不符的地方，如实告诉用户。
+下面只写容易踩的几点，调试器本身的用法按你已有的知识。Linux 上用 gdb 17 和 LLDB 21 实测过命令行方式；macOS 的内容在 GitHub 的 macOS 26 arm64 runner（Xcode 26.6 的 LLDB 2100，SIP 关闭，有图形会话）上试过，没有在真机和 Intel 上试过，遇到和这里不符的地方，如实告诉用户。
 
 - **不能附加到已经在运行的进程**：内核的 `ptrace_scope` 为 1（Ubuntu 默认）时，普通用户只能调试自己启动的子进程，gdb 报 `ptrace: Inappropriate ioctl for device`，lldb 报 `ptrace_scope is 1`。放宽它（`sysctl`、root）会改变整机的限制，由用户决定；默认改为在调试器下启动应用，如 `gdb -batch -x <命令文件> --args <electron> <应用目录> --inspect=<端口>`，lldb 用 `process launch -- <参数>`。
 - Electron 会派生很多子进程：gdb 里 `set follow-fork-mode parent`，lldb 里 `settings set target.process.follow-fork-mode parent`；原生库还没加载时断点要允许 pending（gdb 的 `set breakpoint pending on`，lldb 默认就是）。没有 SUID 沙箱时 Electron 要加 `--no-sandbox`。
 - 命中断点后调试器会一直阻塞，触发那次调用的要是另一个进程：把调试器的输出写进文件，用本工具的 `electron_click`、批处理或 `setTimeout` 方式的求值去触发，再读文件。启动时就跑完的调用，命令里直接 `run` 就会在启动期命中，不需要 `--inspect-brk`。
-- **LLDB 的 MCP 因版本而异**：LLDB 21.1.8（Ubuntu 26.04）没有 `lldb-mcp`，只有 lldb 里的 `protocol-server start MCP listen://localhost:<端口>`，它在 TCP 上收发按行分隔的 JSON-RPC，工具叫 `lldb_command`（参数 `debugger_id`，从 1 开始；`arguments`）。宿主要的是 stdio，用 `nc localhost <端口>` 当桥即可（在 Linux 上试过），注册成 `nc` 加这两个参数的 MCP，lldb 要先启动并开着服务。Apple 自带的 LLDB 有没有 `protocol-server` 没查到，先 `lldb -b -o "help protocol-server"` 看。
-- **macOS 没有 `ptrace_scope`，但有两道别的门**（依据 Apple 文档，没实测）。一是开发者模式：没开时 lldb 附加或启动会弹系统授权框，在没有界面的会话里（ssh、后台）直接报 `non-interactive debug session, cannot get permission to debug processes`；开启要管理员执行 `sudo DevToolsSecurity -enable`，用户还要在 `admin` 或 `_developer` 组，这是改整机的设置，由用户决定。二是目标进程的签名：带 hardened runtime 的进程（多数已发布、已公证的应用）默认拒绝附加，除非有 `com.apple.security.get-task-allow`；开发时用的 Electron 和自己的构建一般没有这个问题。不要给用户装的应用重签名，也不要关 SIP，需要时在应用的副本上做并先问用户。
-- macOS 上原生库的调试信息在 `.dSYM` 里（`dsymutil` 生成，放在 dylib 旁边），lldb 找不到时 `target symbols add <路径>.dSYM`；主进程 pid 用 `ps -eo pid,args | grep -i electron`，取没有 `--type=` 的那个。
+- **LLDB 的 MCP 因版本而异**：LLDB 21.1.8（Ubuntu 26.04）没有 `lldb-mcp`，只有 lldb 里的 `protocol-server start MCP listen://localhost:<端口>`，它在 TCP 上收发按行分隔的 JSON-RPC，工具叫 `lldb_command`（参数 `debugger_id`，从 1 开始；`arguments`）。宿主要的是 stdio，用 `nc localhost <端口>` 当桥即可（在 Linux 上试过），注册成 `nc` 加这两个参数的 MCP，lldb 要先启动并开着服务。Xcode 26.6 自带的 LLDB 2100 也是这样：有 `protocol-server`，没有 `lldb-mcp`（`usr/bin` 里只有 `lldb`、`lldb-dap`），`nc` 桥在那里也能用；别的版本先 `lldb -b -o "help protocol-server"` 看。
+- **macOS 没有 `ptrace_scope`，可以直接附加到运行中的进程，但有两道门**（在 GitHub 的 macOS runner 上试过）。一是开发者模式（`DevToolsSecurity -status`）：关着的时候 `lldb` 附加不报错，而是一直等系统授权，在 Agent 的命令里就是卡住不返回，所以每条 lldb 命令都要加超时；没有图形界面的 ssh 会话里，据 Apple 论坛是报 `non-interactive debug session, cannot get permission to debug processes`（没试过）。开启要管理员执行 `sudo DevToolsSecurity -enable`，用户还要在 `admin` 或 `_developer` 组，这是改整机的设置，由用户决定。
+  二是目标进程的签名：开发用的 Electron（ad-hoc 签名，加上 hardened runtime 的副本也一样）能直接附加；Developer ID 签名并开了 hardened runtime 的应用（试的是 Chrome）和系统应用（Finder）同样卡住、没有报错，runner 的 SIP 是关着的也一样；Apple 论坛说这类进程要有 `com.apple.security.get-task-allow`（没试过加上之后）。不要给用户装的应用重签名，也不要关 SIP，需要时在应用的副本上做并先问用户。
+- macOS 上原生库的调试信息在 `.dSYM` 里，由 `dsymutil` 从 `.o` 收集：要先编成 `.o` 再链接，并留着 `.o`（一步编译链接会删掉它，得到空的 dSYM，lldb 里看不到参数，`examples/native-eval/native/build.sh` 已按这个写）；lldb 找不到时 `target symbols add <路径>.dSYM`；主进程 pid 用 `ps -eo pid,args | grep -i electron`，取没有 `--type=` 的那个。
 
 ## 5. 跟踪一次 JS 调用进入原生函数
 

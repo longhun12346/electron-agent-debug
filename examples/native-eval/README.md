@@ -20,7 +20,7 @@
 - Node.js 20+，在本目录执行 `npm install`（装 Electron 和 koffi）。
 - **Windows**：Visual Studio 的 C++ 工具（`build.bat` 用 `vswhere` 找 `vcvars64.bat`，找不到就设环境变量 `VCVARS`）；`cdb.exe`，Agent 经你同意安装 mcp-windbg（见 `references/native.md`）。`code-page` 这条要求系统代码页不是 UTF-8（例如简体中文 Windows 的 936），否则错误不会出现。
 - **Linux**：`g++`（或设 `CXX`）；gdb 或 lldb 命令行。Electron 需要 libnss3、libnspr4、libasound2 等系统库。
-- **macOS**：Xcode 命令行工具（`clang++`、`dsymutil`）、lldb。这一份没有在 macOS 上构建或运行过。
+- **macOS**：Xcode 命令行工具（`clang++`、`dsymutil`）、lldb。在 GitHub 的 macOS runner（arm64）上构建、运行过，没有在真机和 Intel 上试过。
 
 ## 运行方式
 
@@ -41,4 +41,4 @@ npm start
 
 ## 状态
 
-三处原生错误在两个平台上都复现过。Windows：`sum_sizes` 对测试目录返回 10 而不是 100，`has_subdir` 对“资料”返回 0，`init_slots(200)` 返回 64，应用启动时打印 `worker slots: 64 (requested 200)`。Linux（Ubuntu 26.04，WSL2）：同样的三个值；用 gdb 17 和 LLDB 21 在调试器下启动应用，都在 `init_slots` 断下，读到 `requested = 200`，`finish` 得到返回值 64。评估本身还没有对任何 Agent 跑过，所以没有基线，也不知道现在能通过几条。
+三处原生错误在两个平台上都复现过。Windows：`sum_sizes` 对测试目录返回 10 而不是 100，`has_subdir` 对“资料”返回 0，`init_slots(200)` 返回 64，应用启动时打印 `worker slots: 64 (requested 200)`。Linux（Ubuntu 26.04，WSL2）：同样的三个值；用 gdb 17 和 LLDB 21 在调试器下启动应用，都在 `init_slots` 断下，读到 `requested = 200`，`finish` 得到返回值 64。macOS（GitHub runner，arm64，Xcode 26.6 的 LLDB 2100）：同样的三个值；`build.sh` 构建出带 `.dSYM` 的 dylib，lldb 在 `init_slots` 断下，`requested = 200`，`finish` 得到返回值 64。评估本身还没有对任何 Agent 跑过，所以没有基线，也不知道现在能通过几条。
