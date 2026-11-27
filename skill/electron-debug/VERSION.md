@@ -5,6 +5,7 @@
 - MCP 0.8.1，运行文件变了：`electron_click`、`electron_type` 的输入事件等待时间从 3 秒改为 10 秒。刚启动的应用在慢机器上第一次输入可能要好几秒才被确认（GitHub 的 Linux runner 上，页面加载后约 3.4 秒的第一次点击超时，重试只要 20 毫秒），原来的 3 秒会让这一次点击报 `PROTOCOL_ERROR` 超时。其他请求的超时不变。
 - `references/native.md` 补了 Linux 和 macOS 的原生调试：不装调试器 MCP，直接用 `gdb -batch`、`lldb -b` 命令行；Linux 上 `ptrace_scope` 为 1 时不能附加到运行中的进程，要在调试器下启动应用；LLDB 21 和 Xcode 26.6 的 LLDB 2100 都没有 `lldb-mcp`，用 `nc localhost <端口>` 把它内置的 MCP 接成 stdio；macOS 上开发者模式关着时 lldb 附加会卡住不返回，hardened runtime 和系统应用同样附加不上，`.dSYM` 要保留 `.o` 才不会是空的。Linux 用 gdb 17 和 LLDB 21 实测过，macOS 只在 GitHub 的 arm64 runner 上试过，文中都写明了。
 - `references/launch.md` 补了 electron-vite 重启主进程的实测：端口沿用；macOS 上新进程可能抢在旧进程释放端口之前启动，没有调试口，要再触发一次重启。`SKILL.md` 的原生调试步骤写明 Linux、macOS 用 gdb 或 lldb 命令行。
+- 平台上展示的简要描述和详细描述发布 1.7.2 时因编码错误显示为乱码，已用正确的文本重新发布；运行文件和 `references/` 没有变化。
 
 ## 1.7.0
 
